@@ -20,7 +20,7 @@ from app.db.redis import redis_client
 from app.middleware.rate_limit import setup_rate_limiting
 
 # Import routers
-from app.api.v1 import auth, health
+from app.api.v1 import auth, health, utm
 
 
 @asynccontextmanager
@@ -98,6 +98,7 @@ async def root():
 # Include routers
 app.include_router(health.router)
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
+app.include_router(utm.router, prefix=settings.api_v1_prefix)
 
 
 if __name__ == "__main__":
