@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Annotated, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,16 +52,11 @@ class UserResponse(BaseModel):
     user_id: str
     email: str
     full_name: Optional[str] = None
-    job_title: Optional[str] = None
-    role: str
-    is_verified: bool = False
-    onboarding_progress: Optional[dict] = None
 
 
 class ProfileUpdateRequest(BaseModel):
     """Profile update request."""
     full_name: Optional[str] = None
-    job_title: Optional[str] = None
 
 
 # ============================================================================
@@ -72,46 +66,24 @@ class ProfileUpdateRequest(BaseModel):
 
 @router.post("/login", response_model=Token)
 async def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: LoginRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Authenticate and receive JWT token.
-
-    Accepts OAuth2 password form (username/password).
-    Username should be the email address.
-
-    Development credentials:
-    - Admin: admin@champions.dev / admin123
-    """
-    # OAuth2 form uses 'username' field, but we expect email
-    email = form_data.username
-
+    """Authenticate and receive JWT token."""
     try:
-        user = await user_service.authenticate(session, email, form_data.password)
+        user = await user_service.authenticate(session, request.email, request.password)
     except Exception as e:
-        logger.error("Login DB error for %s: %s: %s", email, type(e).__name__, e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal error: {type(e).__name__}",
-        )
+        logger.error("Login DB error for %s: %s: %s", request.email, type(e).__name__, e)
+        raise HTTPException(status_code=500, detail=f"Internal error: {type(e).__name__}")
 
     if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid email or password",
-        )
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Update last login timestamp
     await user_service.update_last_login(session, user)
     await session.commit()
 
     access_token = create_access_token(
-        data={
-            "user_id": str(user.id),
-            "email": user.email,
-            "role": user.role,
-        },
+        data={"user_id": str(user.id), "email": user.email},
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
     )
 
@@ -127,19 +99,10 @@ async def register(
     request: RegisterRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Register a new user and return JWT token.
-
-    Creates a new user account and auto-authenticates them.
-    """
-    # Check if email already exists
+    """Register a new user and return JWT token."""
     if await user_service.email_exists(session, request.email):
-        raise HTTPException(
-            status_code=409,
-            detail="User already exists",
-        )
+        raise HTTPException(status_code=409, detail="User already exists")
 
-    # Create the user
     user = await user_service.create(
         session,
         email=request.email,
@@ -148,13 +111,8 @@ async def register(
     )
     await session.commit()
 
-    # Generate JWT token (same pattern as login)
     access_token = create_access_token(
-        data={
-            "user_id": str(user.id),
-            "email": user.email,
-            "role": user.role,
-        },
+        data={"user_id": str(user.id), "email": user.email},
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
     )
 
@@ -170,11 +128,8 @@ async def get_current_user_info(
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Get current authenticated user info.
-    """
+    """Get current authenticated user info."""
     db_user = await user_service.get_by_id(session, user.user_id)
-
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -182,10 +137,6 @@ async def get_current_user_info(
         user_id=str(db_user.id),
         email=db_user.email,
         full_name=db_user.full_name,
-        job_title=db_user.job_title,
-        role=db_user.role,
-        is_verified=db_user.is_verified,
-        onboarding_progress=db_user.onboarding_progress,
     )
 
 
@@ -195,19 +146,13 @@ async def update_profile(
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Update the current user's profile.
-    """
+    """Update the current user's profile."""
     db_user = await user_service.get_by_id(session, user.user_id)
-
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
     updated_user = await user_service.update_profile(
-        session,
-        db_user,
-        full_name=request.full_name,
-        job_title=request.job_title,
+        session, db_user, full_name=request.full_name,
     )
     await session.commit()
 
@@ -215,24 +160,14 @@ async def update_profile(
         user_id=str(updated_user.id),
         email=updated_user.email,
         full_name=updated_user.full_name,
-        job_title=updated_user.job_title,
-        role=updated_user.role,
-        is_verified=updated_user.is_verified,
-        onboarding_progress=updated_user.onboarding_progress,
     )
 
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(user: TokenData = Depends(require_auth)):
-    """
-    Refresh the access token.
-    """
+    """Refresh the access token."""
     access_token = create_access_token(
-        data={
-            "user_id": user.user_id,
-            "email": user.email,
-            "role": user.role,
-        },
+        data={"user_id": user.user_id, "email": user.email},
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
     )
 
@@ -241,56 +176,3 @@ async def refresh_token(user: TokenData = Depends(require_auth)):
         token_type="bearer",
         expires_in=settings.jwt_access_token_expire_minutes * 60,
     )
-
-
-@router.post("/onboarding/{tour_id}/complete")
-async def complete_tour(
-    tour_id: str,
-    user: TokenData = Depends(require_auth),
-    session: AsyncSession = Depends(get_db_session),
-):
-    """
-    Mark an onboarding tour as completed.
-    """
-    db_user = await user_service.get_by_id(session, user.user_id)
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    await user_service.update_onboarding_progress(session, db_user, tour_id, "complete")
-    await session.commit()
-
-    return {"message": f"Tour {tour_id} marked as completed"}
-
-
-@router.post("/onboarding/{tour_id}/skip")
-async def skip_tour(
-    tour_id: str,
-    user: TokenData = Depends(require_auth),
-    session: AsyncSession = Depends(get_db_session),
-):
-    """
-    Mark an onboarding tour as skipped.
-    """
-    db_user = await user_service.get_by_id(session, user.user_id)
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    await user_service.update_onboarding_progress(session, db_user, tour_id, "skip")
-    await session.commit()
-
-    return {"message": f"Tour {tour_id} marked as skipped"}
-
-
-@router.get("/onboarding/progress")
-async def get_onboarding_progress(
-    user: TokenData = Depends(require_auth),
-    session: AsyncSession = Depends(get_db_session),
-):
-    """
-    Get the user's onboarding progress.
-    """
-    db_user = await user_service.get_by_id(session, user.user_id)
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return db_user.onboarding_progress or {"completed_tours": [], "skipped_tours": []}

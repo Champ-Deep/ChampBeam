@@ -26,7 +26,6 @@ class TokenData(BaseModel):
     """JWT token payload."""
     user_id: str
     email: str
-    role: str = "user"
     exp: datetime | None = None
 
 
@@ -101,7 +100,6 @@ def decode_token(token: str) -> TokenData:
         )
         user_id: str = payload.get("user_id")
         email: str = payload.get("email")
-        role: str = payload.get("role", "user")
 
         if user_id is None or email is None:
             raise HTTPException(
@@ -110,7 +108,7 @@ def decode_token(token: str) -> TokenData:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        return TokenData(user_id=user_id, email=email, role=role)
+        return TokenData(user_id=user_id, email=email)
 
     except JWTError:
         raise HTTPException(
@@ -152,15 +150,3 @@ async def require_auth(
     return decode_token(credentials.credentials)
 
 
-async def require_admin(
-    user: TokenData = Depends(require_auth),
-) -> TokenData:
-    """
-    Dependency that requires admin role.
-    """
-    if user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-    return user
