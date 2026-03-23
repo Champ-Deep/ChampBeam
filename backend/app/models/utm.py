@@ -25,6 +25,7 @@ class UTMPreset(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
     is_default = Column(Boolean, default=False)
+    is_shared = Column(Boolean, default=False)
 
     # UTM fields
     utm_source = Column(String(255), nullable=True)
@@ -58,6 +59,7 @@ class LinkClick(Base):
     # Link details
     original_url = Column(Text, nullable=False)
     tracked_url = Column(Text, nullable=True)
+    short_code = Column(String(50), unique=True, index=True, nullable=True)
     anchor_text = Column(String(500), nullable=True)
     link_position = Column(Integer, nullable=True)
 
