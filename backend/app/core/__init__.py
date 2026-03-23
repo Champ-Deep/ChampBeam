@@ -8,7 +8,6 @@ from app.core.security import (
     decode_token,
     require_auth,
     get_current_user,
-    require_admin,
     Token,
     TokenData,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "decode_token",
     "require_auth",
     "get_current_user",
-    "require_admin",
     "Token",
     "TokenData",
 ]
