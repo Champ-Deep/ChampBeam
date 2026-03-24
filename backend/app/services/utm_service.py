@@ -1,7 +1,7 @@
 """
 UTM Service for ChampUTM.
 
-Handles URL generation, bulk CSV processing, and click tracking.
+Handles URL generation, bulk CSV processing, click tracking, and redirect recording.
 """
 
 from __future__ import annotations
@@ -10,16 +10,18 @@ import csv
 import io
 import logging
 import re
+import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.postgres import async_session_maker
-from app.models.utm import LinkClick, UTMPreset
+from app.models.utm import ClickEvent, LinkClick, UTMPreset
+from app.services.ua_service import parse_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,10 @@ class UTMService:
     # Record a generated link for tracking
     # ------------------------------------------------------------------
 
+    def generate_short_code(self) -> str:
+        """Generate a URL-safe short code (8 characters)."""
+        return secrets.token_urlsafe(6)
+
     async def record_link(
         self,
         user_id: str,
@@ -93,6 +99,7 @@ class UTMService:
         tracked_url: str,
         utm_params: Dict[str, str],
         project_name: Optional[str] = None,
+        project_id: Optional[UUID] = None,
         session: Optional[AsyncSession] = None,
     ) -> LinkClick:
         """Record a generated link for click tracking.
@@ -108,7 +115,9 @@ class UTMService:
         utm_params : dict
             The UTM parameters used.
         project_name : str or None
-            Optional project grouping.
+            Optional project grouping (legacy).
+        project_id : UUID or None
+            Optional project FK.
         session : AsyncSession or None
             Database session. Opens a new one if not provided.
 
@@ -120,6 +129,8 @@ class UTMService:
         link = LinkClick(
             id=uuid4(),
             user_id=user_id,
+            short_code=self.generate_short_code(),
+            project_id=project_id,
             project_name=project_name,
             original_url=original_url,
             tracked_url=tracked_url,
@@ -141,6 +152,76 @@ class UTMService:
                 await s.commit()
 
         return link
+
+    async def record_click_event(
+        self,
+        link: LinkClick,
+        ip_address: Optional[str],
+        user_agent_str: Optional[str],
+        referrer: Optional[str],
+        session: AsyncSession,
+    ) -> ClickEvent:
+        """Record an individual click event with parsed UA info.
+
+        GeoIP is resolved separately via a background task.
+        """
+        ua_info = parse_user_agent(user_agent_str or "")
+
+        # Check if this IP has clicked this link before (for unique tracking)
+        is_unique = True
+        if ip_address:
+            existing = await session.execute(
+                select(ClickEvent.id).where(
+                    ClickEvent.link_id == link.id,
+                    ClickEvent.ip_address == ip_address,
+                ).limit(1)
+            )
+            if existing.scalar_one_or_none() is not None:
+                is_unique = False
+
+        event = ClickEvent(
+            id=uuid4(),
+            link_id=link.id,
+            ip_address=ip_address,
+            user_agent=user_agent_str,
+            referrer=referrer,
+            device_type=ua_info["device_type"],
+            browser=ua_info["browser"],
+            os=ua_info["os"],
+        )
+        session.add(event)
+
+        # Update counters on LinkClick
+        now = datetime.utcnow()
+        link.click_count = (link.click_count or 0) + 1
+        link.last_clicked_at = now
+        if link.first_clicked_at is None:
+            link.first_clicked_at = now
+        if is_unique:
+            link.unique_clicks = (link.unique_clicks or 0) + 1
+
+        await session.flush()
+        return event
+
+    async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
+        """Background task: resolve GeoIP and update click event."""
+        from app.services.geoip_service import lookup_ip
+
+        geo = await lookup_ip(ip_address)
+        if not geo:
+            return
+
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(ClickEvent).where(ClickEvent.id == event_id)
+            )
+            event = result.scalar_one_or_none()
+            if event:
+                event.country = geo.get("country")
+                event.country_code = geo.get("country_code")
+                event.region = geo.get("region")
+                event.city = geo.get("city")
+                await session.commit()
 
     # ------------------------------------------------------------------
     # Bulk CSV processing

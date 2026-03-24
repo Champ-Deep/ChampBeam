@@ -36,12 +36,15 @@ export interface GenerateLinkRequest {
   utm_content?: string;
   utm_term?: string;
   project_name?: string;
+  project_id?: string;
   preset_id?: string;
 }
 
 export interface GenerateLinkResponse {
   original_url: string;
   tracked_url: string;
+  redirect_url: string | null;
+  short_code: string | null;
   utm_params: Record<string, string>;
   link_id: string | null;
 }
@@ -56,8 +59,11 @@ export interface UTMBreakdownItem {
 }
 
 export interface LinkPerformanceItem {
+  link_id: string;
   original_url: string;
   tracked_url: string | null;
+  redirect_url: string | null;
+  short_code: string | null;
   anchor_text: string | null;
   utm_source: string | null;
   utm_medium: string | null;
@@ -65,6 +71,7 @@ export interface LinkPerformanceItem {
   utm_content: string | null;
   utm_term: string | null;
   project_name: string | null;
+  project_id: string | null;
   click_count: number;
   unique_clicks: number;
   first_clicked_at: string | null;
@@ -88,6 +95,49 @@ export interface PerformanceOverTime {
     total_clicks: number;
     unique_clicks: number;
   }[];
+}
+
+// --- Projects ---
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  link_count: number;
+  total_clicks: number;
+  created_at: string;
+}
+
+export interface ProjectCreate {
+  name: string;
+  description?: string;
+}
+
+// --- Click Events ---
+
+export interface ClickEvent {
+  id: string;
+  ip_address: string | null;
+  device_type: string | null;
+  browser: string | null;
+  os: string | null;
+  country: string | null;
+  country_code: string | null;
+  region: string | null;
+  city: string | null;
+  referrer: string | null;
+  clicked_at: string | null;
+}
+
+export interface GeoBreakdownItem {
+  country: string | null;
+  country_code: string | null;
+  clicks: number;
+}
+
+export interface DeviceBreakdown {
+  devices: { device_type: string | null; clicks: number }[];
+  browsers: { browser: string | null; clicks: number }[];
 }
 
 // ============================================================
@@ -143,20 +193,45 @@ export const utmApi = {
     return response.data;
   },
 
-  // Analytics
-  async getOverview(): Promise<UTMOverview> {
-    const response = await api.get<UTMOverview>('/utm/analytics/overview');
+  // Projects
+  async getProjects(): Promise<Project[]> {
+    const response = await api.get<Project[]>('/projects');
+    return response.data;
+  },
+
+  async createProject(data: ProjectCreate): Promise<Project> {
+    const response = await api.post<Project>('/projects', data);
+    return response.data;
+  },
+
+  async updateProject(id: string, data: Partial<ProjectCreate>): Promise<Project> {
+    const response = await api.put<Project>(`/projects/${id}`, data);
+    return response.data;
+  },
+
+  async deleteProject(id: string): Promise<void> {
+    await api.delete(`/projects/${id}`);
+  },
+
+  // Analytics — Overview
+  async getOverview(projectId?: string): Promise<UTMOverview> {
+    const params = new URLSearchParams();
+    if (projectId) params.append('project_id', projectId);
+    const query = params.toString();
+    const response = await api.get<UTMOverview>(
+      `/utm/analytics/overview${query ? `?${query}` : ''}`
+    );
     return response.data;
   },
 
   async getBreakdown(
     groupBy: string,
-    projectName?: string,
-    days?: number
+    opts?: { projectName?: string; projectId?: string; days?: number }
   ): Promise<UTMBreakdownItem[]> {
     const params = new URLSearchParams({ group_by: groupBy });
-    if (projectName) params.append('project_name', projectName);
-    if (days) params.append('days', days.toString());
+    if (opts?.projectId) params.append('project_id', opts.projectId);
+    else if (opts?.projectName) params.append('project_name', opts.projectName);
+    if (opts?.days) params.append('days', opts.days.toString());
     const response = await api.get<UTMBreakdownItem[]>(
       `/utm/analytics/breakdown?${params.toString()}`
     );
@@ -164,12 +239,12 @@ export const utmApi = {
   },
 
   async getLinkPerformance(
-    projectName?: string,
-    days?: number
+    opts?: { projectName?: string; projectId?: string; days?: number }
   ): Promise<LinkPerformanceItem[]> {
     const params = new URLSearchParams();
-    if (projectName) params.append('project_name', projectName);
-    if (days) params.append('days', days.toString());
+    if (opts?.projectId) params.append('project_id', opts.projectId);
+    else if (opts?.projectName) params.append('project_name', opts.projectName);
+    if (opts?.days) params.append('days', opts.days.toString());
     const query = params.toString();
     const response = await api.get<LinkPerformanceItem[]>(
       `/utm/analytics/links${query ? `?${query}` : ''}`
@@ -178,15 +253,46 @@ export const utmApi = {
   },
 
   async getPerformanceOverTime(
-    days?: number,
-    projectName?: string
+    opts?: { days?: number; projectName?: string; projectId?: string }
   ): Promise<PerformanceOverTime> {
     const params = new URLSearchParams();
-    if (days) params.append('days', days.toString());
-    if (projectName) params.append('project_name', projectName);
+    if (opts?.days) params.append('days', opts.days.toString());
+    if (opts?.projectId) params.append('project_id', opts.projectId);
+    else if (opts?.projectName) params.append('project_name', opts.projectName);
     const query = params.toString();
     const response = await api.get<PerformanceOverTime>(
       `/utm/analytics/performance${query ? `?${query}` : ''}`
+    );
+    return response.data;
+  },
+
+  // Per-link Analytics
+  async getLinkClickEvents(linkId: string, days?: number): Promise<ClickEvent[]> {
+    const params = new URLSearchParams();
+    if (days) params.append('days', days.toString());
+    const query = params.toString();
+    const response = await api.get<ClickEvent[]>(
+      `/utm/analytics/links/${linkId}/events${query ? `?${query}` : ''}`
+    );
+    return response.data;
+  },
+
+  async getLinkGeoBreakdown(linkId: string, days?: number): Promise<GeoBreakdownItem[]> {
+    const params = new URLSearchParams();
+    if (days) params.append('days', days.toString());
+    const query = params.toString();
+    const response = await api.get<GeoBreakdownItem[]>(
+      `/utm/analytics/links/${linkId}/geo${query ? `?${query}` : ''}`
+    );
+    return response.data;
+  },
+
+  async getLinkDeviceBreakdown(linkId: string, days?: number): Promise<DeviceBreakdown> {
+    const params = new URLSearchParams();
+    if (days) params.append('days', days.toString());
+    const query = params.toString();
+    const response = await api.get<DeviceBreakdown>(
+      `/utm/analytics/links/${linkId}/devices${query ? `?${query}` : ''}`
     );
     return response.data;
   },

@@ -5,7 +5,7 @@ import { Copy, Clock, UserPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
 import { utmApi } from '../api/utm';
-import type { UTMPreset } from '../api/utm';
+import type { UTMPreset, Project, GenerateLinkResponse } from '../api/utm';
 
 const STORAGE_KEY = 'champutm_link_history';
 
@@ -26,13 +26,21 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
   const [utmContent, setUtmContent] = useState('');
   const [utmTerm, setUtmTerm] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
-  const [projectName, setProjectName] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [lastGenerateResponse, setLastGenerateResponse] = useState<GenerateLinkResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   // Fetch presets only if authenticated
   const { data: presets = [] } = useQuery<UTMPreset[]>({
     queryKey: ['utm', 'presets'],
     queryFn: () => utmApi.getPresets(),
+    enabled: isAuthenticated,
+  });
+
+  // Fetch projects only if authenticated
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects'],
+    queryFn: () => utmApi.getProjects(),
     enabled: isAuthenticated,
   });
 
@@ -93,16 +101,17 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
     // If authenticated, also track the link via API
     if (isAuthenticated) {
       try {
-        await utmApi.generateLink({
+        const response = await utmApi.generateLink({
           base_url: baseUrl.startsWith('http') ? baseUrl : 'https://' + baseUrl,
           utm_source: utmSource || undefined,
           utm_medium: utmMedium || undefined,
           utm_campaign: utmCampaign || undefined,
           utm_content: utmContent || undefined,
           utm_term: utmTerm || undefined,
-          project_name: projectName || undefined,
+          project_id: selectedProjectId || undefined,
           preset_id: selectedPresetId || undefined,
         });
+        setLastGenerateResponse(response);
       } catch {
         // Non-blocking — link is already copied
       }
@@ -159,12 +168,21 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
                     </select>
                   </div>
                   <div className="flex-1">
-                    <Input
-                      label="Project Name (optional)"
-                      placeholder="e.g. Q1 Launch"
-                      value={projectName}
-                      onChange={(e) => setProjectName(e.target.value)}
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Project (optional)
+                    </label>
+                    <select
+                      className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
+                      value={selectedProjectId}
+                      onChange={(e) => setSelectedProjectId(e.target.value)}
+                    >
+                      <option value="">No Project</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               )}
@@ -228,6 +246,27 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
                     Copy
                   </Button>
                 </div>
+                {lastGenerateResponse?.redirect_url && (
+                  <div className="mt-3">
+                    <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      Redirect URL
+                    </h4>
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 bg-white border border-slate-200 rounded-lg p-3 text-sm break-all font-mono text-brand-purple">
+                        {lastGenerateResponse.redirect_url}
+                      </div>
+                      <Button
+                        onClick={() => {
+                          navigator.clipboard.writeText(lastGenerateResponse.redirect_url!);
+                          toast.success('Redirect URL copied to clipboard');
+                        }}
+                        leftIcon={<Copy className="h-4 w-4" />}
+                      >
+                        Copy Redirect URL
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </Card>

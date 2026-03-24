@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import { Card, CardHeader, CardTitle, Button, LoadingSpinner, EmptyState } from '../components/ui';
 import { utmApi } from '../api/utm';
-import type { UTMOverview, UTMBreakdownItem, PerformanceOverTime } from '../api/utm';
+import type { UTMOverview, UTMBreakdownItem, PerformanceOverTime, Project } from '../api/utm';
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
@@ -19,15 +19,22 @@ export function AnalyticsPage() {
   const [performanceData, setPerformanceData] = useState<PerformanceOverTime | null>(null);
   const [period, setPeriod] = useState<7 | 30 | 90>(30);
   const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string>('');
+
+  useEffect(() => {
+    utmApi.getProjects().then(setProjects).catch(() => {});
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
+      const pid = projectId || undefined;
       const [overviewData, sources, campaigns, perf] = await Promise.all([
-        utmApi.getOverview(),
-        utmApi.getBreakdown('source', undefined, period),
-        utmApi.getBreakdown('campaign', undefined, period),
-        utmApi.getPerformanceOverTime(period),
+        utmApi.getOverview(pid),
+        utmApi.getBreakdown('source', { projectId: pid, days: period }),
+        utmApi.getBreakdown('campaign', { projectId: pid, days: period }),
+        utmApi.getPerformanceOverTime({ days: period, projectId: pid }),
       ]);
       setOverview(overviewData);
       setSourceBreakdown(sources);
@@ -38,7 +45,7 @@ export function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, projectId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -83,17 +90,29 @@ export function AnalyticsPage() {
           <h1 className="text-3xl font-bold text-slate-900">Analytics</h1>
           <p className="text-slate-600 mt-1">Track UTM performance across your links.</p>
         </div>
-        <div className="flex gap-2">
-          {([7, 30, 90] as const).map((d) => (
-            <Button
-              key={d}
-              variant={period === d ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => setPeriod(d)}
-            >
-              {d}D
-            </Button>
-          ))}
+        <div className="flex items-center gap-3">
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 shadow-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
+          >
+            <option value="">All Projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            {([7, 30, 90] as const).map((d) => (
+              <Button
+                key={d}
+                variant={period === d ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setPeriod(d)}
+              >
+                {d}D
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Link2, BookmarkCheck, BarChart3, TrendingUp, FileSpreadsheet, LogOut, LogIn, UserPlus } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, TrendingUp, FileSpreadsheet, FolderOpen, LogOut, LogIn, UserPlus } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Button } from '../ui/Button';
 
@@ -10,6 +10,7 @@ interface NavigationProps {
 
 const navLinks = [
   { to: '/', label: 'Generator', icon: Link2 },
+  { to: '/projects', label: 'Projects', icon: FolderOpen, requiresAuth: true },
   { to: '/presets', label: 'Presets', icon: BookmarkCheck, requiresAuth: true },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, requiresAuth: true },
   { to: '/performance', label: 'Performance', icon: TrendingUp, requiresAuth: true },

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"
 
+    # Base URL for redirect short links (e.g., https://api.champutm.com)
+    # If empty, redirect URLs are built relative to the backend's own URL.
+    redirect_base_url: str = ""
+
     @property
     def postgres_url(self) -> str:
         """Build PostgreSQL async connection URL."""

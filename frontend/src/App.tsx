@@ -8,6 +8,9 @@ import { PresetsPage } from './pages/PresetsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { PerformancePage } from './pages/PerformancePage';
 import { BulkPage } from './pages/BulkPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
+import { LinkAnalyticsPage } from './pages/LinkAnalyticsPage';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 
 function ProtectedRoute({ children, isAuthenticated }: { children: React.ReactNode; isAuthenticated: boolean }) {
@@ -53,6 +56,15 @@ export default function App() {
                 } />
                 <Route path="/bulk" element={
                   <ProtectedRoute isAuthenticated={isAuthenticated}><BulkPage /></ProtectedRoute>
+                } />
+                <Route path="/projects" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><ProjectsPage /></ProtectedRoute>
+                } />
+                <Route path="/projects/:projectId" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><ProjectDetailPage /></ProtectedRoute>
+                } />
+                <Route path="/analytics/link/:linkId" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><LinkAnalyticsPage /></ProtectedRoute>
                 } />
               </Routes>
             </main>
