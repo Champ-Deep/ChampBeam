@@ -13,13 +13,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import delete as sa_delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import TokenData, require_auth, get_current_user
 from app.db.postgres import get_db_session
-from app.db.redis import redis_client
 from app.models.utm import ClickEvent, LinkClick, UTMPreset
 from app.services.utm_service import utm_service
 
@@ -139,6 +138,39 @@ def _build_redirect_url(short_code: str | None) -> str | None:
     return f"{base}/r/{short_code}"
 
 
+def _resolve_date_range(
+    days: int = 30,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> tuple[datetime, datetime]:
+    """Resolve a date range from either explicit dates or a days-back count.
+
+    Returns (start_datetime, end_datetime).
+    """
+    now = datetime.utcnow()
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO 8601 (YYYY-MM-DD).")
+        if start > end:
+            raise HTTPException(status_code=400, detail="start_date must be before end_date.")
+        return start, end
+    return now - timedelta(days=days), now
+
+
+def _to_uuid(value: Optional[str]):
+    """Convert a string to UUID for safe comparison with UUID columns."""
+    if not value:
+        return None
+    from uuid import UUID as _UUID
+    try:
+        return _UUID(value)
+    except ValueError:
+        return None
+
+
 def _preset_to_response(preset: UTMPreset) -> dict:
     return {
         "id": str(preset.id),
@@ -224,6 +256,78 @@ async def generate_utm_link(
         utm_params=utm_params,
         link_id=link_id,
     )
+
+
+# ============================================================================
+# Link Management (auth required)
+# ============================================================================
+
+
+class UpdateLinkRequest(BaseModel):
+    project_id: Optional[str] = None
+
+
+@router.delete("/links/{link_id}", status_code=204)
+async def delete_link(
+    link_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Delete a tracked link and all its click events."""
+    from uuid import UUID as _UUID
+
+    try:
+        uid = _UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link ID.")
+
+    result = await session.execute(
+        select(LinkClick).where(LinkClick.id == uid, LinkClick.user_id == user.user_id)
+    )
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found.")
+
+    # Delete associated click events first
+    await session.execute(sa_delete(ClickEvent).where(ClickEvent.link_id == uid))
+    await session.delete(link)
+    await session.commit()
+
+
+@router.patch("/links/{link_id}")
+async def update_link(
+    link_id: str,
+    data: UpdateLinkRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Update a tracked link (e.g., reassign to a different project)."""
+    from uuid import UUID as _UUID
+
+    try:
+        uid = _UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link ID.")
+
+    result = await session.execute(
+        select(LinkClick).where(LinkClick.id == uid, LinkClick.user_id == user.user_id)
+    )
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found.")
+
+    if data.project_id is not None:
+        link.project_id = _UUID(data.project_id) if data.project_id else None
+
+    await session.commit()
+    await session.refresh(link)
+
+    return {
+        "id": str(link.id),
+        "project_id": str(link.project_id) if link.project_id else None,
+        "original_url": link.original_url,
+        "short_code": link.short_code,
+    }
 
 
 # ============================================================================
@@ -447,14 +551,9 @@ async def get_utm_overview(
     session: AsyncSession = Depends(get_db_session),
 ):
     """UTM analytics overview: total tracked links, clicks, top sources/campaigns."""
-    cache_key = f"utm:overview:{user.user_id}:{project_id or 'all'}"
-    cached = await redis_client.get_json(cache_key)
-    if cached:
-        return UTMOverviewResponse(**cached)
-
     base_conds = [LinkClick.user_id == user.user_id]
     if project_id:
-        base_conds.append(LinkClick.project_id == project_id)
+        base_conds.append(LinkClick.project_id == _to_uuid(project_id))
 
     agg = await session.execute(
         select(
@@ -511,7 +610,6 @@ async def get_utm_overview(
         top_campaigns=top_campaigns,
     )
 
-    await redis_client.set_json(cache_key, overview.model_dump(), ex=300)
     return overview
 
 
@@ -524,6 +622,8 @@ async def get_utm_breakdown(
     project_name: Optional[str] = Query(default=None, description="Filter by project name"),
     project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
     days: int = Query(default=30, ge=1, le=365, description="Days to look back"),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -543,15 +643,16 @@ async def get_utm_breakdown(
             detail=f"Invalid group_by '{group_by}'. Must be: source, medium, campaign, content, term",
         )
 
-    start_date = datetime.utcnow() - timedelta(days=days)
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
     conditions = [
         LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= start_date,
+        LinkClick.created_at >= range_start,
+        LinkClick.created_at <= range_end,
         column.isnot(None),
     ]
     if project_id:
-        conditions.append(LinkClick.project_id == project_id)
+        conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
@@ -588,18 +689,21 @@ async def get_link_performance(
     project_name: Optional[str] = Query(default=None, description="Filter by project name"),
     project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
     days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
     """List all tracked links with click stats, ordered by click_count desc."""
-    start_date = datetime.utcnow() - timedelta(days=days)
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
     conditions = [
         LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= start_date,
+        LinkClick.created_at >= range_start,
+        LinkClick.created_at <= range_end,
     ]
     if project_id:
-        conditions.append(LinkClick.project_id == project_id)
+        conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
@@ -640,18 +744,21 @@ async def get_performance_over_time(
     days: int = Query(default=30, ge=1, le=365),
     project_name: Optional[str] = Query(default=None),
     project_id: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get link generation and click counts over time (daily buckets)."""
-    start_date = datetime.utcnow() - timedelta(days=days)
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
     conditions = [
         LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= start_date,
+        LinkClick.created_at >= range_start,
+        LinkClick.created_at <= range_end,
     ]
     if project_id:
-        conditions.append(LinkClick.project_id == project_id)
+        conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
@@ -704,16 +811,22 @@ async def _get_user_link(
 async def get_link_click_events(
     link_id: str,
     days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get individual click events for a specific link."""
     await _get_user_link(link_id, user.user_id, session)
 
-    start_date = datetime.utcnow() - timedelta(days=days)
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
     events = await session.execute(
         select(ClickEvent)
-        .where(ClickEvent.link_id == link_id, ClickEvent.clicked_at >= start_date)
+        .where(
+            ClickEvent.link_id == link_id,
+            ClickEvent.clicked_at >= range_start,
+            ClickEvent.clicked_at <= range_end,
+        )
         .order_by(ClickEvent.clicked_at.desc())
         .limit(500)
     )
@@ -729,6 +842,8 @@ async def get_link_click_events(
             "region": e.region,
             "city": e.city,
             "referrer": e.referrer,
+            "is_vpn": e.is_vpn or False,
+            "asn_org": e.asn_org,
             "clicked_at": e.clicked_at.isoformat() if e.clicked_at else None,
         }
         for e in events.scalars().all()
@@ -738,48 +853,104 @@ async def get_link_click_events(
 @router.get("/analytics/links/{link_id}/geo")
 async def get_link_geo_breakdown(
     link_id: str,
+    level: str = Query(default="country", description="Geo level: country, region, city"),
     days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get geographic breakdown of clicks for a specific link."""
     await _get_user_link(link_id, user.user_id, session)
 
-    start_date = datetime.utcnow() - timedelta(days=days)
-    result = await session.execute(
-        select(
-            ClickEvent.country,
-            ClickEvent.country_code,
-            func.count(ClickEvent.id).label("clicks"),
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    if level == "region":
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                ClickEvent.region,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .where(
+                ClickEvent.link_id == link_id,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region)
+            .order_by(func.count(ClickEvent.id).desc())
         )
-        .where(ClickEvent.link_id == link_id, ClickEvent.clicked_at >= start_date)
-        .group_by(ClickEvent.country, ClickEvent.country_code)
-        .order_by(func.count(ClickEvent.id).desc())
-    )
-    return [
-        {"country": r.country, "country_code": r.country_code, "clicks": r.clicks}
-        for r in result.all()
-    ]
+        return [
+            {"country": r.country, "country_code": r.country_code, "region": r.region, "clicks": r.clicks}
+            for r in result.all()
+        ]
+    elif level == "city":
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                ClickEvent.region,
+                ClickEvent.city,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .where(
+                ClickEvent.link_id == link_id,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region, ClickEvent.city)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "region": r.region, "city": r.city, "clicks": r.clicks}
+            for r in result.all()
+        ]
+    else:
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .where(
+                ClickEvent.link_id == link_id,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "clicks": r.clicks}
+            for r in result.all()
+        ]
 
 
 @router.get("/analytics/links/{link_id}/devices")
 async def get_link_device_breakdown(
     link_id: str,
     days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get device and browser breakdown for a specific link."""
     await _get_user_link(link_id, user.user_id, session)
 
-    start_date = datetime.utcnow() - timedelta(days=days)
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
     device_result = await session.execute(
         select(
             ClickEvent.device_type,
             func.count(ClickEvent.id).label("clicks"),
         )
-        .where(ClickEvent.link_id == link_id, ClickEvent.clicked_at >= start_date)
+        .where(
+            ClickEvent.link_id == link_id,
+            ClickEvent.clicked_at >= range_start,
+            ClickEvent.clicked_at <= range_end,
+        )
         .group_by(ClickEvent.device_type)
         .order_by(func.count(ClickEvent.id).desc())
     )
@@ -789,7 +960,11 @@ async def get_link_device_breakdown(
             ClickEvent.browser,
             func.count(ClickEvent.id).label("clicks"),
         )
-        .where(ClickEvent.link_id == link_id, ClickEvent.clicked_at >= start_date)
+        .where(
+            ClickEvent.link_id == link_id,
+            ClickEvent.clicked_at >= range_start,
+            ClickEvent.clicked_at <= range_end,
+        )
         .group_by(ClickEvent.browser)
         .order_by(func.count(ClickEvent.id).desc())
     )
@@ -804,3 +979,931 @@ async def get_link_device_breakdown(
             for r in browser_result.all()
         ],
     }
+
+
+# ============================================================================
+# Campaign-Level Analytics (auth required)
+# ============================================================================
+
+
+@router.get("/analytics/campaigns")
+async def list_campaigns(
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """List all campaigns with summary stats."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    conditions = [
+        LinkClick.user_id == user.user_id,
+        LinkClick.created_at >= range_start,
+        LinkClick.created_at <= range_end,
+        LinkClick.utm_campaign.isnot(None),
+        LinkClick.utm_campaign != "",
+    ]
+    if project_id:
+        conditions.append(LinkClick.project_id == _to_uuid(project_id))
+
+    result = await session.execute(
+        select(
+            LinkClick.utm_campaign,
+            func.count(LinkClick.id).label("total_links"),
+            func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
+            func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
+            func.min(LinkClick.created_at).label("first_link_created"),
+            func.max(LinkClick.last_clicked_at).label("last_click_at"),
+        )
+        .where(*conditions)
+        .group_by(LinkClick.utm_campaign)
+        .order_by(func.sum(LinkClick.click_count).desc())
+    )
+
+    campaigns = []
+    for r in result.all():
+        total_links = r.total_links or 0
+        total_clicks = int(r.total_clicks) if r.total_clicks else 0
+        unique_clicks = int(r.unique_clicks) if r.unique_clicks else 0
+        campaigns.append({
+            "campaign": r.utm_campaign,
+            "total_links": total_links,
+            "total_clicks": total_clicks,
+            "unique_clicks": unique_clicks,
+            "click_rate": round((unique_clicks / total_links * 100) if total_links > 0 else 0.0, 2),
+            "first_link_created": r.first_link_created.isoformat() if r.first_link_created else None,
+            "last_click_at": r.last_click_at.isoformat() if r.last_click_at else None,
+        })
+
+    return campaigns
+
+
+@router.get("/analytics/campaigns/compare")
+async def compare_campaigns(
+    campaigns: str = Query(description="Comma-separated campaign names (max 4)"),
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Compare 2-4 campaigns side by side."""
+    campaign_list = [c.strip() for c in campaigns.split(",") if c.strip()]
+    if len(campaign_list) < 2 or len(campaign_list) > 4:
+        raise HTTPException(status_code=400, detail="Provide 2-4 campaign names separated by commas.")
+
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+    results = []
+
+    for name in campaign_list:
+        # Summary
+        agg = await session.execute(
+            select(
+                func.count(LinkClick.id).label("total_links"),
+                func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
+                func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
+            )
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == name,
+                LinkClick.created_at >= range_start,
+                LinkClick.created_at <= range_end,
+            )
+        )
+        row = agg.one()
+
+        # Top countries
+        geo = await session.execute(
+            select(ClickEvent.country, ClickEvent.country_code, func.count(ClickEvent.id).label("clicks"))
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == name,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(5)
+        )
+
+        # Top devices
+        devices = await session.execute(
+            select(ClickEvent.device_type, func.count(ClickEvent.id).label("clicks"))
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == name,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.device_type)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+
+        # Timeline
+        timeline = await session.execute(
+            select(
+                func.date_trunc("day", ClickEvent.clicked_at).label("date"),
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == name,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(func.date_trunc("day", ClickEvent.clicked_at))
+            .order_by(func.date_trunc("day", ClickEvent.clicked_at))
+        )
+
+        total_links = row.total_links or 0
+        total_clicks = int(row.total_clicks) if row.total_clicks else 0
+        unique_clicks = int(row.unique_clicks) if row.unique_clicks else 0
+
+        results.append({
+            "campaign": name,
+            "total_links": total_links,
+            "total_clicks": total_clicks,
+            "unique_clicks": unique_clicks,
+            "click_rate": round((unique_clicks / total_links * 100) if total_links > 0 else 0.0, 2),
+            "top_countries": [
+                {"country": r.country, "country_code": r.country_code, "clicks": r.clicks}
+                for r in geo.all()
+            ],
+            "top_devices": [
+                {"device_type": r.device_type, "clicks": r.clicks}
+                for r in devices.all()
+            ],
+            "timeline": [
+                {"date": r.date.isoformat() if r.date else None, "clicks": r.clicks}
+                for r in timeline.all()
+            ],
+        })
+
+    return {"campaigns": results}
+
+
+@router.get("/analytics/campaigns/{campaign_name}")
+async def get_campaign_detail(
+    campaign_name: str,
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get detailed analytics for a specific campaign."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    link_conditions = [
+        LinkClick.user_id == user.user_id,
+        LinkClick.utm_campaign == campaign_name,
+        LinkClick.created_at >= range_start,
+        LinkClick.created_at <= range_end,
+    ]
+    if project_id:
+        link_conditions.append(LinkClick.project_id == _to_uuid(project_id))
+
+    # Aggregate stats
+    agg = await session.execute(
+        select(
+            func.count(LinkClick.id).label("total_links"),
+            func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
+            func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
+        )
+        .where(*link_conditions)
+    )
+    row = agg.one()
+    total_links = row.total_links or 0
+    total_clicks = int(row.total_clicks) if row.total_clicks else 0
+    unique_clicks = int(row.unique_clicks) if row.unique_clicks else 0
+
+    # Sources within campaign
+    source_result = await session.execute(
+        select(
+            LinkClick.utm_source,
+            func.coalesce(func.sum(LinkClick.click_count), 0).label("clicks"),
+        )
+        .where(*link_conditions, LinkClick.utm_source.isnot(None))
+        .group_by(LinkClick.utm_source)
+        .order_by(func.sum(LinkClick.click_count).desc())
+        .limit(10)
+    )
+
+    # Mediums within campaign
+    medium_result = await session.execute(
+        select(
+            LinkClick.utm_medium,
+            func.coalesce(func.sum(LinkClick.click_count), 0).label("clicks"),
+        )
+        .where(*link_conditions, LinkClick.utm_medium.isnot(None))
+        .group_by(LinkClick.utm_medium)
+        .order_by(func.sum(LinkClick.click_count).desc())
+        .limit(10)
+    )
+
+    return {
+        "campaign": campaign_name,
+        "total_links": total_links,
+        "total_clicks": total_clicks,
+        "unique_clicks": unique_clicks,
+        "click_rate": round((unique_clicks / total_links * 100) if total_links > 0 else 0.0, 2),
+        "sources": [
+            {"source": r.utm_source, "clicks": int(r.clicks)}
+            for r in source_result.all()
+        ],
+        "mediums": [
+            {"medium": r.utm_medium, "clicks": int(r.clicks)}
+            for r in medium_result.all()
+        ],
+    }
+
+
+@router.get("/analytics/campaigns/{campaign_name}/geo")
+async def get_campaign_geo(
+    campaign_name: str,
+    level: str = Query(default="country", description="Geo level: country, region, city"),
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get geographic breakdown for a campaign."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    if level == "region":
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                ClickEvent.region,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == campaign_name,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "region": r.region, "clicks": r.clicks}
+            for r in result.all()
+        ]
+    elif level == "city":
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                ClickEvent.region,
+                ClickEvent.city,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == campaign_name,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region, ClickEvent.city)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "region": r.region, "city": r.city, "clicks": r.clicks}
+            for r in result.all()
+        ]
+    else:
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(
+                LinkClick.user_id == user.user_id,
+                LinkClick.utm_campaign == campaign_name,
+                ClickEvent.clicked_at >= range_start,
+                ClickEvent.clicked_at <= range_end,
+            )
+            .group_by(ClickEvent.country, ClickEvent.country_code)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "clicks": r.clicks}
+            for r in result.all()
+        ]
+
+
+@router.get("/analytics/campaigns/{campaign_name}/devices")
+async def get_campaign_devices(
+    campaign_name: str,
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get device/browser/OS breakdown for a campaign."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    base_conditions = [
+        LinkClick.user_id == user.user_id,
+        LinkClick.utm_campaign == campaign_name,
+        ClickEvent.clicked_at >= range_start,
+        ClickEvent.clicked_at <= range_end,
+    ]
+
+    device_result = await session.execute(
+        select(ClickEvent.device_type, func.count(ClickEvent.id).label("clicks"))
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(*base_conditions)
+        .group_by(ClickEvent.device_type)
+        .order_by(func.count(ClickEvent.id).desc())
+    )
+
+    browser_result = await session.execute(
+        select(ClickEvent.browser, func.count(ClickEvent.id).label("clicks"))
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(*base_conditions)
+        .group_by(ClickEvent.browser)
+        .order_by(func.count(ClickEvent.id).desc())
+        .limit(10)
+    )
+
+    os_result = await session.execute(
+        select(ClickEvent.os, func.count(ClickEvent.id).label("clicks"))
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(*base_conditions)
+        .group_by(ClickEvent.os)
+        .order_by(func.count(ClickEvent.id).desc())
+        .limit(10)
+    )
+
+    return {
+        "devices": [{"device_type": r.device_type, "clicks": r.clicks} for r in device_result.all()],
+        "browsers": [{"browser": r.browser, "clicks": r.clicks} for r in browser_result.all()],
+        "os": [{"os": r.os, "clicks": r.clicks} for r in os_result.all()],
+    }
+
+
+@router.get("/analytics/campaigns/{campaign_name}/links")
+async def get_campaign_links(
+    campaign_name: str,
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get top performing links within a campaign."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    result = await session.execute(
+        select(LinkClick)
+        .where(
+            LinkClick.user_id == user.user_id,
+            LinkClick.utm_campaign == campaign_name,
+            LinkClick.created_at >= range_start,
+            LinkClick.created_at <= range_end,
+        )
+        .order_by(LinkClick.click_count.desc())
+        .limit(100)
+    )
+
+    return [
+        {
+            "link_id": str(link.id),
+            "original_url": link.original_url,
+            "tracked_url": link.tracked_url,
+            "redirect_url": _build_redirect_url(link.short_code),
+            "short_code": link.short_code,
+            "utm_source": link.utm_source,
+            "utm_medium": link.utm_medium,
+            "click_count": link.click_count or 0,
+            "unique_clicks": link.unique_clicks or 0,
+            "created_at": link.created_at.isoformat() if link.created_at else None,
+        }
+        for link in result.scalars().all()
+    ]
+
+
+@router.get("/analytics/campaigns/{campaign_name}/timeline")
+async def get_campaign_timeline(
+    campaign_name: str,
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get daily click time series for a campaign."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    result = await session.execute(
+        select(
+            func.date_trunc("day", ClickEvent.clicked_at).label("date"),
+            func.count(ClickEvent.id).label("clicks"),
+            func.count(func.distinct(ClickEvent.ip_address)).label("unique_clicks"),
+        )
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(
+            LinkClick.user_id == user.user_id,
+            LinkClick.utm_campaign == campaign_name,
+            ClickEvent.clicked_at >= range_start,
+            ClickEvent.clicked_at <= range_end,
+        )
+        .group_by(func.date_trunc("day", ClickEvent.clicked_at))
+        .order_by(func.date_trunc("day", ClickEvent.clicked_at))
+    )
+
+    return {
+        "campaign": campaign_name,
+        "data": [
+            {
+                "date": r.date.isoformat() if r.date else None,
+                "clicks": r.clicks or 0,
+                "unique_clicks": r.unique_clicks or 0,
+            }
+            for r in result.all()
+        ],
+    }
+
+
+
+# ============================================================================
+# Global Geo Analytics (auth required)
+# ============================================================================
+
+
+@router.get("/analytics/geo/overview")
+async def get_geo_overview(
+    level: str = Query(default="country", description="Geo level: country, region, city"),
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    campaign: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get global geographic breakdown across all user's links."""
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    base_conditions = [
+        LinkClick.user_id == user.user_id,
+        ClickEvent.clicked_at >= range_start,
+        ClickEvent.clicked_at <= range_end,
+    ]
+    if project_id:
+        base_conditions.append(LinkClick.project_id == _to_uuid(project_id))
+    if campaign:
+        base_conditions.append(LinkClick.utm_campaign == campaign)
+
+    if level == "region":
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                ClickEvent.region,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(*base_conditions)
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(50)
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "region": r.region, "clicks": r.clicks}
+            for r in result.all()
+        ]
+    elif level == "city":
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                ClickEvent.region,
+                ClickEvent.city,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(*base_conditions)
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region, ClickEvent.city)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(50)
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "region": r.region, "city": r.city, "clicks": r.clicks}
+            for r in result.all()
+        ]
+    else:
+        result = await session.execute(
+            select(
+                ClickEvent.country,
+                ClickEvent.country_code,
+                func.count(ClickEvent.id).label("clicks"),
+            )
+            .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+            .where(*base_conditions)
+            .group_by(ClickEvent.country, ClickEvent.country_code)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(50)
+        )
+        return [
+            {"country": r.country, "country_code": r.country_code, "clicks": r.clicks}
+            for r in result.all()
+        ]
+
+
+# ============================================================================
+# Analytics Export (auth required)
+# ============================================================================
+
+
+@router.get("/analytics/export/events")
+async def export_click_events(
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    campaign: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Export click events as CSV."""
+    import csv
+    import io
+
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    conditions = [
+        LinkClick.user_id == user.user_id,
+        ClickEvent.clicked_at >= range_start,
+        ClickEvent.clicked_at <= range_end,
+    ]
+    if project_id:
+        conditions.append(LinkClick.project_id == _to_uuid(project_id))
+    if campaign:
+        conditions.append(LinkClick.utm_campaign == campaign)
+
+    result = await session.execute(
+        select(
+            ClickEvent.clicked_at,
+            LinkClick.original_url,
+            LinkClick.short_code,
+            LinkClick.utm_source,
+            LinkClick.utm_medium,
+            LinkClick.utm_campaign,
+            LinkClick.utm_content,
+            LinkClick.utm_term,
+            ClickEvent.ip_address,
+            ClickEvent.country,
+            ClickEvent.region,
+            ClickEvent.city,
+            ClickEvent.device_type,
+            ClickEvent.browser,
+            ClickEvent.os,
+            ClickEvent.referrer,
+            ClickEvent.is_vpn,
+            ClickEvent.asn_org,
+        )
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(*conditions)
+        .order_by(ClickEvent.clicked_at.desc())
+        .limit(10000)
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "clicked_at", "original_url", "short_code",
+        "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+        "ip_address", "country", "region", "city",
+        "device_type", "browser", "os", "referrer", "is_vpn", "asn_org",
+    ])
+    for row in result.all():
+        writer.writerow([
+            row.clicked_at.isoformat() if row.clicked_at else "",
+            row.original_url, row.short_code,
+            row.utm_source, row.utm_medium, row.utm_campaign, row.utm_content, row.utm_term,
+            row.ip_address, row.country, row.region, row.city,
+            row.device_type, row.browser, row.os, row.referrer,
+            "true" if row.is_vpn else "false",
+            row.asn_org or "",
+        ])
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=click_events.csv"},
+    )
+
+
+@router.get("/analytics/export/campaign-summary")
+async def export_campaign_summary(
+    days: int = Query(default=90, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Export campaign summary as CSV."""
+    import csv
+    import io
+
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    result = await session.execute(
+        select(
+            LinkClick.utm_campaign,
+            func.count(LinkClick.id).label("total_links"),
+            func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
+            func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
+            func.min(LinkClick.created_at).label("first_created"),
+            func.max(LinkClick.last_clicked_at).label("last_clicked"),
+        )
+        .where(
+            LinkClick.user_id == user.user_id,
+            LinkClick.created_at >= range_start,
+            LinkClick.created_at <= range_end,
+            LinkClick.utm_campaign.isnot(None),
+        )
+        .group_by(LinkClick.utm_campaign)
+        .order_by(func.sum(LinkClick.click_count).desc())
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["campaign", "total_links", "total_clicks", "unique_clicks", "click_rate", "first_created", "last_clicked"])
+    for r in result.all():
+        total_links = r.total_links or 0
+        unique = int(r.unique_clicks) if r.unique_clicks else 0
+        writer.writerow([
+            r.utm_campaign,
+            total_links,
+            int(r.total_clicks) if r.total_clicks else 0,
+            unique,
+            round((unique / total_links * 100) if total_links > 0 else 0.0, 2),
+            r.first_created.isoformat() if r.first_created else "",
+            r.last_clicked.isoformat() if r.last_clicked else "",
+        ])
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=campaign_summary.csv"},
+    )
+
+
+@router.get("/analytics/export/link-performance")
+async def export_link_performance(
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Export link performance as CSV."""
+    import csv
+    import io
+
+    range_start, range_end = _resolve_date_range(days, start_date, end_date)
+
+    conditions = [
+        LinkClick.user_id == user.user_id,
+        LinkClick.created_at >= range_start,
+        LinkClick.created_at <= range_end,
+    ]
+    if project_id:
+        conditions.append(LinkClick.project_id == _to_uuid(project_id))
+
+    result = await session.execute(
+        select(LinkClick)
+        .where(*conditions)
+        .order_by(LinkClick.click_count.desc())
+        .limit(10000)
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "original_url", "tracked_url", "short_code",
+        "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+        "project_name", "click_count", "unique_clicks", "created_at",
+    ])
+    for link in result.scalars().all():
+        writer.writerow([
+            link.original_url, link.tracked_url, link.short_code,
+            link.utm_source, link.utm_medium, link.utm_campaign, link.utm_content, link.utm_term,
+            link.project_name, link.click_count or 0, link.unique_clicks or 0,
+            link.created_at.isoformat() if link.created_at else "",
+        ])
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=link_performance.csv"},
+    )
+
+
+# ============================================================================
+# Link Tags (auth required)
+# ============================================================================
+
+
+@router.get("/tags")
+async def list_tags(
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """List all tags for the authenticated user."""
+    from app.models.utm import LinkTag
+
+    result = await session.execute(
+        select(LinkTag)
+        .where(LinkTag.user_id == user.user_id)
+        .order_by(LinkTag.name)
+    )
+    return [
+        {"id": str(t.id), "name": t.name, "color": t.color, "created_at": t.created_at.isoformat() if t.created_at else None}
+        for t in result.scalars().all()
+    ]
+
+
+@router.post("/tags", status_code=201)
+async def create_tag(
+    data: dict,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Create a new tag."""
+    from uuid import uuid4
+
+    from app.models.utm import LinkTag
+
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name is required")
+
+    tag = LinkTag(
+        id=uuid4(),
+        user_id=user.user_id,
+        name=name,
+        color=data.get("color"),
+    )
+    session.add(tag)
+    await session.flush()
+
+    return {"id": str(tag.id), "name": tag.name, "color": tag.color, "created_at": tag.created_at.isoformat() if tag.created_at else None}
+
+
+@router.delete("/tags/{tag_id}", status_code=204)
+async def delete_tag(
+    tag_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Delete a tag."""
+    from app.models.utm import LinkTag
+
+    result = await session.execute(
+        select(LinkTag).where(LinkTag.id == tag_id, LinkTag.user_id == user.user_id)
+    )
+    tag = result.scalar_one_or_none()
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    await session.delete(tag)
+    await session.flush()
+
+
+@router.post("/links/{link_id}/tags/{tag_id}", status_code=201)
+async def add_tag_to_link(
+    link_id: str,
+    tag_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Add a tag to a link."""
+    from app.models.utm import LinkTag, LinkTagAssociation
+
+    await _get_user_link(link_id, user.user_id, session)
+
+    # Verify tag ownership
+    tag_result = await session.execute(
+        select(LinkTag).where(LinkTag.id == tag_id, LinkTag.user_id == user.user_id)
+    )
+    if not tag_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Tag not found")
+
+    # Check if already associated
+    existing = await session.execute(
+        select(LinkTagAssociation).where(
+            LinkTagAssociation.link_id == link_id,
+            LinkTagAssociation.tag_id == tag_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return {"status": "already_tagged"}
+
+    assoc = LinkTagAssociation(link_id=link_id, tag_id=tag_id)
+    session.add(assoc)
+    await session.flush()
+    return {"status": "tagged"}
+
+
+@router.delete("/links/{link_id}/tags/{tag_id}", status_code=204)
+async def remove_tag_from_link(
+    link_id: str,
+    tag_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Remove a tag from a link."""
+    from app.models.utm import LinkTagAssociation
+
+    await _get_user_link(link_id, user.user_id, session)
+
+    result = await session.execute(
+        select(LinkTagAssociation).where(
+            LinkTagAssociation.link_id == link_id,
+            LinkTagAssociation.tag_id == tag_id,
+        )
+    )
+    assoc = result.scalar_one_or_none()
+    if not assoc:
+        raise HTTPException(status_code=404, detail="Tag not associated with this link")
+    await session.delete(assoc)
+    await session.flush()
+
+
+# ============================================================================
+# Real-Time Click Notifications (auth required)
+# ============================================================================
+
+
+@router.get("/analytics/clicks/recent")
+async def get_recent_clicks(
+    since: Optional[str] = Query(default=None, description="ISO timestamp to get clicks since"),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get recent click events for polling-based notifications."""
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            # Strip timezone info — DB uses naive timestamps (UTC assumed)
+            since_dt = since_dt.replace(tzinfo=None)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid timestamp format")
+    else:
+        since_dt = datetime.utcnow() - timedelta(minutes=5)
+
+    result = await session.execute(
+        select(
+            ClickEvent.id,
+            ClickEvent.clicked_at,
+            ClickEvent.country,
+            ClickEvent.region,
+            ClickEvent.device_type,
+            ClickEvent.browser,
+            LinkClick.original_url,
+            LinkClick.short_code,
+            LinkClick.utm_campaign,
+            LinkClick.utm_source,
+        )
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(
+            LinkClick.user_id == user.user_id,
+            ClickEvent.clicked_at > since_dt,
+        )
+        .order_by(ClickEvent.clicked_at.desc())
+        .limit(50)
+    )
+
+    return [
+        {
+            "id": str(r.id),
+            "clicked_at": r.clicked_at.isoformat() if r.clicked_at else None,
+            "country": r.country,
+            "region": r.region,
+            "device_type": r.device_type,
+            "browser": r.browser,
+            "original_url": r.original_url,
+            "short_code": r.short_code,
+            "utm_campaign": r.utm_campaign,
+            "utm_source": r.utm_source,
+        }
+        for r in result.all()
+    ]

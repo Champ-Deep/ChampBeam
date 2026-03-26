@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Copy, Globe, Monitor, Smartphone, Tablet,
-  MousePointer, Users, MapPin,
+  MousePointer, Users, MapPin, Shield,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -10,12 +10,11 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState } from '../components/ui';
+import { DateRangePicker } from '../components/ui/DateRangePicker';
+import { ExportButton } from '../components/ui/ExportButton';
+import { GeoChart } from '../components/ui/GeoChart';
 import { utmApi } from '../api/utm';
-import type { LinkPerformanceItem, ClickEvent, GeoBreakdownItem, DeviceBreakdown } from '../api/utm';
-
-// ============================================================
-// Tooltip style (shared across charts)
-// ============================================================
+import type { LinkPerformanceItem, ClickEvent, GeoBreakdownItem, DeviceBreakdown, DateRangeOpts } from '../api/utm';
 
 const TOOLTIP_STYLE = {
   backgroundColor: 'white',
@@ -24,10 +23,6 @@ const TOOLTIP_STYLE = {
   boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
 };
 
-// ============================================================
-// Helper: device icon
-// ============================================================
-
 function DeviceIcon({ type, className }: { type: string | null; className?: string }) {
   const t = (type || '').toLowerCase();
   if (t.includes('mobile') || t.includes('phone')) return <Smartphone className={className} />;
@@ -35,32 +30,27 @@ function DeviceIcon({ type, className }: { type: string | null; className?: stri
   return <Monitor className={className} />;
 }
 
-// ============================================================
-// Component
-// ============================================================
-
 export function LinkAnalyticsPage() {
   const { linkId } = useParams<{ linkId: string }>();
   const navigate = useNavigate();
 
-  // --------------- state ---------------
   const [linkInfo, setLinkInfo] = useState<LinkPerformanceItem | null>(null);
   const [clickEvents, setClickEvents] = useState<ClickEvent[]>([]);
   const [geoBreakdown, setGeoBreakdown] = useState<GeoBreakdownItem[]>([]);
+  const [geoLevel, setGeoLevel] = useState<'country' | 'region' | 'city'>('country');
   const [deviceBreakdown, setDeviceBreakdown] = useState<DeviceBreakdown | null>(null);
-  const [period, setPeriod] = useState<7 | 30 | 90>(30);
+  const [dateRange, setDateRange] = useState<DateRangeOpts>({ days: 30 });
   const [loading, setLoading] = useState(true);
 
-  // --------------- load ---------------
   const loadData = useCallback(async () => {
     if (!linkId) return;
     try {
       setLoading(true);
       const [allLinks, events, geo, devices] = await Promise.all([
-        utmApi.getLinkPerformance({ days: period }),
-        utmApi.getLinkClickEvents(linkId, period),
-        utmApi.getLinkGeoBreakdown(linkId, period),
-        utmApi.getLinkDeviceBreakdown(linkId, period),
+        utmApi.getLinkPerformance(dateRange),
+        utmApi.getLinkClickEvents(linkId, dateRange),
+        utmApi.getLinkGeoBreakdown(linkId, { ...dateRange, level: geoLevel }),
+        utmApi.getLinkDeviceBreakdown(linkId, dateRange),
       ]);
 
       const found = allLinks.find((l) => l.link_id === linkId) ?? null;
@@ -73,11 +63,21 @@ export function LinkAnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [linkId, period]);
+  }, [linkId, dateRange, geoLevel]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // --------------- copy ---------------
+  const handleGeoLevelChange = async (level: 'country' | 'region' | 'city') => {
+    setGeoLevel(level);
+    if (!linkId) return;
+    try {
+      const geo = await utmApi.getLinkGeoBreakdown(linkId, { ...dateRange, level });
+      setGeoBreakdown(geo);
+    } catch {
+      // graceful
+    }
+  };
+
   const handleCopyRedirectUrl = async () => {
     const url = linkInfo?.redirect_url || linkInfo?.tracked_url;
     if (!url) return;
@@ -89,7 +89,6 @@ export function LinkAnalyticsPage() {
     }
   };
 
-  // --------------- loading / empty ---------------
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto py-8 px-4">
@@ -113,20 +112,10 @@ export function LinkAnalyticsPage() {
     );
   }
 
-  // --------------- derived data ---------------
   const truncatedUrl =
     linkInfo.original_url.length > 60
       ? linkInfo.original_url.slice(0, 60) + '...'
       : linkInfo.original_url;
-
-  // Geo chart
-  const geoChartData = geoBreakdown
-    .sort((a, b) => b.clicks - a.clicks)
-    .slice(0, 10)
-    .map((item) => ({
-      name: item.country || 'Unknown',
-      clicks: item.clicks,
-    }));
 
   // Device chart
   const deviceChartData = (deviceBreakdown?.devices || [])
@@ -145,7 +134,6 @@ export function LinkAnalyticsPage() {
       clicks: item.clicks,
     }));
 
-  // Summary helpers
   const topCountry = geoBreakdown.length > 0
     ? geoBreakdown.sort((a, b) => b.clicks - a.clicks)[0]?.country
     : null;
@@ -154,10 +142,12 @@ export function LinkAnalyticsPage() {
     ? [...deviceBreakdown.devices].sort((a, b) => b.clicks - a.clicks)[0]?.device_type
     : null;
 
-  // --------------- render ---------------
+  // VPN count from click events
+  const vpnClicks = clickEvents.filter((e) => e.is_vpn).length;
+
   return (
     <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
-      {/* ===== Header ===== */}
+      {/* Header */}
       <div className="space-y-4">
         <Button
           variant="ghost"
@@ -189,7 +179,7 @@ export function LinkAnalyticsPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -199,27 +189,16 @@ export function LinkAnalyticsPage() {
             >
               Copy Redirect URL
             </Button>
+            <ExportButton onExport={() => utmApi.exportClickEvents(dateRange)} />
           </div>
         </div>
 
-        {/* Period selector */}
-        <div className="flex gap-2">
-          {([7, 30, 90] as const).map((d) => (
-            <Button
-              key={d}
-              variant={period === d ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => setPeriod(d)}
-            >
-              {d}D
-            </Button>
-          ))}
-        </div>
+        {/* Date range picker */}
+        <DateRangePicker defaultDays={30} onRangeChange={setDateRange} />
       </div>
 
-      {/* ===== Summary Cards ===== */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Clicks */}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card className="bg-gradient-to-br from-green-50 to-green-100">
           <div className="flex items-center justify-between">
             <div>
@@ -234,7 +213,6 @@ export function LinkAnalyticsPage() {
           </div>
         </Card>
 
-        {/* Unique Clicks */}
         <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
           <div className="flex items-center justify-between">
             <div>
@@ -249,7 +227,6 @@ export function LinkAnalyticsPage() {
           </div>
         </Card>
 
-        {/* Top Country */}
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
           <div className="flex items-center justify-between">
             <div>
@@ -264,7 +241,6 @@ export function LinkAnalyticsPage() {
           </div>
         </Card>
 
-        {/* Top Device */}
         <Card className="bg-gradient-to-br from-amber-50 to-amber-100">
           <div className="flex items-center justify-between">
             <div>
@@ -278,59 +254,27 @@ export function LinkAnalyticsPage() {
             </div>
           </div>
         </Card>
+
+        <Card className="bg-gradient-to-br from-red-50 to-red-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-red-600 font-medium">VPN/Proxy</p>
+              <p className="text-2xl font-bold text-red-900">{vpnClicks}</p>
+              {clickEvents.length > 0 && (
+                <p className="text-xs text-red-500">
+                  {((vpnClicks / clickEvents.length) * 100).toFixed(1)}%
+                </p>
+              )}
+            </div>
+            <div className="w-12 h-12 bg-red-200 rounded-lg flex items-center justify-center">
+              <Shield className="w-6 h-6 text-red-600" />
+            </div>
+          </div>
+        </Card>
       </div>
 
-      {/* ===== Geo Breakdown ===== */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Geo Breakdown</CardTitle>
-          {geoBreakdown.length > 0 && (
-            <span className="text-sm text-slate-500">
-              {geoBreakdown.length} {geoBreakdown.length === 1 ? 'country' : 'countries'}
-            </span>
-          )}
-        </CardHeader>
-        <div className="h-80">
-          {geoChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={geoChartData} layout="vertical" margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
-                <XAxis type="number" stroke="#9ca3af" tick={{ fontSize: 12 }} allowDecimals={false} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  stroke="#9ca3af"
-                  width={120}
-                  tick={{ fontSize: 13, fontWeight: 500 }}
-                />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(value) => [Number(value).toLocaleString(), 'Clicks']}
-                  cursor={{ fill: 'rgba(59, 130, 246, 0.06)' }}
-                />
-                <Bar
-                  dataKey="clicks"
-                  fill="#3b82f6"
-                  radius={[0, 6, 6, 0]}
-                  name="Clicks"
-                  barSize={24}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-400">
-              <div className="text-center">
-                <Globe className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                <p>No geo data available yet</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      {/* ===== Device + Browser Breakdown (side by side) ===== */}
+      {/* Device + Browser Breakdown (shown first — always works, even on localhost) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Device Breakdown */}
         <Card>
           <CardHeader>
             <CardTitle>Device Breakdown</CardTitle>
@@ -373,7 +317,6 @@ export function LinkAnalyticsPage() {
           </div>
         </Card>
 
-        {/* Browser Breakdown */}
         <Card>
           <CardHeader>
             <CardTitle>Browser Breakdown</CardTitle>
@@ -417,7 +360,24 @@ export function LinkAnalyticsPage() {
         </Card>
       </div>
 
-      {/* ===== Recent Click Events ===== */}
+      {/* Geo Breakdown */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Geo Breakdown</CardTitle>
+          {geoBreakdown.length > 0 ? (
+            <span className="text-sm text-slate-500">
+              {geoBreakdown.length} locations
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400">
+              Geo data requires non-localhost traffic
+            </span>
+          )}
+        </CardHeader>
+        <GeoChart data={geoBreakdown} level={geoLevel} onLevelChange={handleGeoLevelChange} />
+      </Card>
+
+      {/* Recent Click Events */}
       <Card padding="none">
         <div className="p-6 pb-0">
           <CardHeader>
@@ -441,6 +401,7 @@ export function LinkAnalyticsPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Browser</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referrer</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">VPN / ISP</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -483,6 +444,24 @@ export function LinkAnalyticsPage() {
                             }
                           })()
                         : <span className="text-gray-300">direct</span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {event.is_vpn ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <Badge variant="danger" size="sm">VPN</Badge>
+                          {event.asn_org && (
+                            <span className="text-xs text-gray-400" title={event.asn_org}>
+                              {event.asn_org.length > 20 ? event.asn_org.slice(0, 20) + '...' : event.asn_org}
+                            </span>
+                          )}
+                        </div>
+                      ) : event.asn_org ? (
+                        <span className="text-xs text-gray-400" title={event.asn_org}>
+                          {event.asn_org.length > 20 ? event.asn_org.slice(0, 20) + '...' : event.asn_org}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -126,6 +126,43 @@ class UTMService:
         LinkClick
             The created record.
         """
+        # Dedup: check if identical link already exists for this user
+        src = utm_params.get("utm_source")
+        med = utm_params.get("utm_medium")
+        cam = utm_params.get("utm_campaign")
+        con = utm_params.get("utm_content")
+        trm = utm_params.get("utm_term")
+
+        async def _find_existing(s: AsyncSession) -> Optional[LinkClick]:
+            stmt = select(LinkClick).where(
+                LinkClick.user_id == user_id,
+                LinkClick.original_url == original_url,
+                LinkClick.utm_source == src if src else LinkClick.utm_source.is_(None),
+                LinkClick.utm_medium == med if med else LinkClick.utm_medium.is_(None),
+                LinkClick.utm_campaign == cam if cam else LinkClick.utm_campaign.is_(None),
+                LinkClick.utm_content == con if con else LinkClick.utm_content.is_(None),
+                LinkClick.utm_term == trm if trm else LinkClick.utm_term.is_(None),
+            )
+            result = await s.execute(stmt)
+            return result.scalar_one_or_none()
+
+        # Check for existing link and update project if needed
+        if session:
+            existing = await _find_existing(session)
+            if existing:
+                if project_id and existing.project_id != project_id:
+                    existing.project_id = project_id
+                    await session.flush()
+                return existing
+        else:
+            async with async_session_maker() as s:
+                existing = await _find_existing(s)
+                if existing:
+                    if project_id and existing.project_id != project_id:
+                        existing.project_id = project_id
+                        await s.commit()
+                    return existing
+
         link = LinkClick(
             id=uuid4(),
             user_id=user_id,
@@ -134,11 +171,11 @@ class UTMService:
             project_name=project_name,
             original_url=original_url,
             tracked_url=tracked_url,
-            utm_source=utm_params.get("utm_source"),
-            utm_medium=utm_params.get("utm_medium"),
-            utm_campaign=utm_params.get("utm_campaign"),
-            utm_content=utm_params.get("utm_content"),
-            utm_term=utm_params.get("utm_term"),
+            utm_source=src,
+            utm_medium=med,
+            utm_campaign=cam,
+            utm_content=con,
+            utm_term=trm,
             click_count=0,
             unique_clicks=0,
         )
@@ -204,7 +241,7 @@ class UTMService:
         return event
 
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
-        """Background task: resolve GeoIP and update click event."""
+        """Background task: resolve GeoIP + VPN/ASN detection and update click event."""
         from app.services.geoip_service import lookup_ip
 
         geo = await lookup_ip(ip_address)
@@ -221,6 +258,10 @@ class UTMService:
                 event.country_code = geo.get("country_code")
                 event.region = geo.get("region")
                 event.city = geo.get("city")
+                event.latitude = geo.get("latitude")
+                event.longitude = geo.get("longitude")
+                event.is_vpn = bool(geo.get("is_vpn")) if geo.get("is_vpn") is not None else False
+                event.asn_org = geo.get("asn_org")
                 await session.commit()
 
     # ------------------------------------------------------------------

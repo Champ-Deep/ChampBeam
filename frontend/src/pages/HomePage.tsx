@@ -1,16 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Clock, UserPlus } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, Download } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
+import { FileUploadZone } from '../components/ui/FileUploadZone';
 import { utmApi } from '../api/utm';
 import type { UTMPreset, Project, GenerateLinkResponse } from '../api/utm';
+
+type GeneratorMode = 'single' | 'bulk';
 
 const STORAGE_KEY = 'champutm_link_history';
 
 interface HistoryItem {
   url: string;
+  redirectUrl?: string;
+  linkId?: string;
   generatedAt: string;
 }
 
@@ -19,6 +24,9 @@ interface HomePageProps {
 }
 
 export function HomePage({ isAuthenticated }: HomePageProps) {
+  const [searchParams] = useSearchParams();
+  const [mode, setMode] = useState<GeneratorMode>('single');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
   const [utmSource, setUtmSource] = useState('');
   const [utmMedium, setUtmMedium] = useState('');
@@ -26,7 +34,7 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
   const [utmContent, setUtmContent] = useState('');
   const [utmTerm, setUtmTerm] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState(searchParams.get('project') || '');
   const [lastGenerateResponse, setLastGenerateResponse] = useState<GenerateLinkResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -95,10 +103,10 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
       return;
     }
 
-    navigator.clipboard.writeText(finalUrl);
-    toast.success('URL copied to clipboard');
+    let redirectUrl: string | undefined;
+    let linkId: string | undefined;
 
-    // If authenticated, also track the link via API
+    // If authenticated, track the link via API first so we can copy the redirect URL
     if (isAuthenticated) {
       try {
         const response = await utmApi.generateLink({
@@ -112,29 +120,160 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
           preset_id: selectedPresetId || undefined,
         });
         setLastGenerateResponse(response);
+        redirectUrl = response.redirect_url || undefined;
+        linkId = response.link_id || undefined;
       } catch {
-        // Non-blocking — link is already copied
+        // Non-blocking — fall back to copying the UTM URL
       }
     }
 
-    // Save to localStorage history
+    // Copy the redirect URL (trackable) if available, otherwise the UTM URL
+    const urlToCopy = redirectUrl || finalUrl;
+    navigator.clipboard.writeText(urlToCopy);
+    toast.success(redirectUrl ? 'Trackable redirect URL copied' : 'URL copied to clipboard');
+
+    // Save to localStorage history with redirect URL
     const newHistory = [
-      { url: finalUrl, generatedAt: new Date().toISOString() },
+      { url: finalUrl, redirectUrl, linkId, generatedAt: new Date().toISOString() },
       ...history.filter((h) => h.url !== finalUrl),
     ].slice(0, 10);
     setHistory(newHistory);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
   };
 
+  const handleDownloadTemplate = async () => {
+    try {
+      const blob = await utmApi.downloadTemplate();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'utm_template.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success('Template downloaded');
+    } catch {
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleBulkFileSelected = async (file: File) => {
+    setIsProcessing(true);
+    try {
+      const blob = await utmApi.processBulkCSV(file, selectedPresetId || undefined);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'utm_links.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success('CSV processed! Download started.');
+    } catch {
+      toast.error('Failed to process CSV. Make sure it has a "url" column.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">UTM Link Generator</h1>
-        <p className="text-slate-600 mt-1">
-          Create trackable UTM-tagged URLs for your marketing campaigns.
-        </p>
+      <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">UTM Link Generator</h1>
+          <p className="text-slate-600 mt-1">
+            Create trackable UTM-tagged URLs for your marketing campaigns.
+          </p>
+        </div>
+        {isAuthenticated && (
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            <button
+              onClick={() => setMode('single')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                mode === 'single'
+                  ? 'bg-brand-purple text-white'
+                  : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Link2 className="h-4 w-4" />
+              Single URL
+            </button>
+            <button
+              onClick={() => setMode('bulk')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                mode === 'bulk'
+                  ? 'bg-brand-purple text-white'
+                  : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Bulk CSV
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Bulk CSV mode */}
+      {mode === 'bulk' && isAuthenticated && (
+        <div className="max-w-4xl space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Configuration</CardTitle>
+            </CardHeader>
+            <div className="space-y-4">
+              {presets.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Apply Preset (optional)
+                  </label>
+                  <select
+                    className="w-full max-w-md h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
+                    value={selectedPresetId}
+                    onChange={(e) => setSelectedPresetId(e.target.value)}
+                  >
+                    <option value="">-- No preset (use CSV columns) --</option>
+                    {presets.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.is_default ? '(default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Preset values are used as defaults. Per-row UTM columns in the CSV override them.
+                  </p>
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} leftIcon={<Download className="h-4 w-4" />}>
+                  Download CSV Template
+                </Button>
+                <span className="text-xs text-slate-500">
+                  Template includes: url, utm_source, utm_medium, utm_campaign, utm_content, utm_term
+                </span>
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5" />
+                Upload CSV
+              </CardTitle>
+            </CardHeader>
+            <FileUploadZone onFileSelected={handleBulkFileSelected} isUploading={isProcessing} />
+          </Card>
+          <Card className="bg-slate-50">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">How it works</h3>
+            <ol className="text-sm text-slate-600 space-y-2 list-decimal list-inside">
+              <li>Download the CSV template or prepare your own CSV with a <code className="bg-white px-1 py-0.5 rounded text-brand-purple">url</code> column.</li>
+              <li>Optionally include <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_source</code>, <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_medium</code>, etc. columns for per-row overrides.</li>
+              <li>Select a preset if you want default UTM values applied to all rows.</li>
+              <li>Upload the CSV — a processed file with <code className="bg-white px-1 py-0.5 rounded text-brand-purple">tracked_url</code> column will download automatically.</li>
+            </ol>
+          </Card>
+        </div>
+      )}
+
+      {/* Single URL mode */}
+      {mode === 'single' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main form */}
         <div className="lg:col-span-2 space-y-6">
@@ -147,43 +286,45 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
 
-              {/* Preset selector (auth only) */}
+              {/* Preset selector (auth only, when presets exist) */}
               {isAuthenticated && presets.length > 0 && (
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Load from Preset
-                    </label>
-                    <select
-                      className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
-                      value={selectedPresetId}
-                      onChange={(e) => setSelectedPresetId(e.target.value)}
-                    >
-                      <option value="">-- Choose a preset --</option>
-                      {presets.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} {p.is_default ? '(default)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Project (optional)
-                    </label>
-                    <select
-                      className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
-                      value={selectedProjectId}
-                      onChange={(e) => setSelectedProjectId(e.target.value)}
-                    >
-                      <option value="">No Project</option>
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Load from Preset
+                  </label>
+                  <select
+                    className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
+                    value={selectedPresetId}
+                    onChange={(e) => setSelectedPresetId(e.target.value)}
+                  >
+                    <option value="">-- Choose a preset --</option>
+                    {presets.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.is_default ? '(default)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Project selector (auth only, always visible) */}
+              {isAuthenticated && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Project (optional)
+                  </label>
+                  <select
+                    className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
+                    value={selectedProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                  >
+                    <option value="">No Project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
@@ -309,27 +450,46 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
               <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto -mx-6 -mb-6">
                 {history.map((item, i) => (
                   <div key={i} className="px-6 py-4 hover:bg-slate-50 transition-colors group">
-                    <p
-                      className="text-xs text-brand-purple font-mono break-all line-clamp-2 mb-2"
-                      title={item.url}
-                    >
-                      {item.url}
-                    </p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">
+                    {/* Show redirect URL prominently if available */}
+                    {item.redirectUrl ? (
+                      <>
+                        <p className="text-xs text-brand-purple font-mono break-all line-clamp-1 mb-1" title={item.redirectUrl}>
+                          {item.redirectUrl}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-mono break-all line-clamp-1 mb-2" title={item.url}>
+                          {item.url}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-brand-purple font-mono break-all line-clamp-2 mb-2" title={item.url}>
+                        {item.url}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-slate-400 flex-shrink-0">
                         {new Date(item.generatedAt).toLocaleString()}
                       </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => {
-                          navigator.clipboard.writeText(item.url);
-                          toast.success('Copied');
-                        }}
-                      >
-                        Copy
-                      </Button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {item.linkId && (
+                          <Link to={`/analytics/link/${item.linkId}`}>
+                            <Button variant="ghost" size="sm" className="h-6 px-2">
+                              Stats
+                            </Button>
+                          </Link>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2"
+                          onClick={() => {
+                            navigator.clipboard.writeText(item.redirectUrl || item.url);
+                            toast.success('Copied');
+                          }}
+                        >
+                          <Copy className="h-3 w-3 mr-1" />
+                          Copy
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -338,6 +498,7 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
           </Card>
         </div>
       </div>
+      )}
     </div>
   );
 }

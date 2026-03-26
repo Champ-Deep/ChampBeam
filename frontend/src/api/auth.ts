@@ -19,6 +19,20 @@ export interface RegisterRequest {
   full_name?: string;
 }
 
+/** Backend returns user_id (not id) in the user object */
+interface BackendUser {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+}
+
+interface BackendAuthResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: BackendUser;
+}
+
 export interface AuthResponse {
   access_token: string;
   token_type: string;
@@ -26,19 +40,29 @@ export interface AuthResponse {
   user: User;
 }
 
+function mapUser(bu: BackendUser): User {
+  return {
+    id: bu.user_id,
+    email: bu.email,
+    full_name: bu.full_name,
+    is_active: true,
+    created_at: '',
+  };
+}
+
 export const authApi = {
   async login(data: LoginRequest): Promise<AuthResponse> {
-    const response = await api.post<AuthResponse>('/auth/login', data);
-    return response.data;
+    const response = await api.post<BackendAuthResponse>('/auth/login', data);
+    return { ...response.data, user: mapUser(response.data.user) };
   },
 
   async register(data: RegisterRequest): Promise<AuthResponse> {
-    const response = await api.post<AuthResponse>('/auth/register', data);
-    return response.data;
+    const response = await api.post<BackendAuthResponse>('/auth/register', data);
+    return { ...response.data, user: mapUser(response.data.user) };
   },
 
-  async me(): Promise<User> {
-    const response = await api.get<User>('/auth/me');
+  async me(): Promise<BackendUser> {
+    const response = await api.get<BackendUser>('/auth/me');
     return response.data;
   },
 };

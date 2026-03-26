@@ -6,11 +6,12 @@ import { RegisterPage } from './pages/RegisterPage';
 import { HomePage } from './pages/HomePage';
 import { PresetsPage } from './pages/PresetsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
-import { PerformancePage } from './pages/PerformancePage';
-import { BulkPage } from './pages/BulkPage';
-import { ProjectsPage } from './pages/ProjectsPage';
+import { LinksPage } from './pages/LinksPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { LinkAnalyticsPage } from './pages/LinkAnalyticsPage';
+import { CampaignsPage } from './pages/CampaignsPage';
+import { CampaignDetailPage } from './pages/CampaignDetailPage';
+import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 
 function ProtectedRoute({ children, isAuthenticated }: { children: React.ReactNode; isAuthenticated: boolean }) {
@@ -51,20 +52,25 @@ export default function App() {
                 <Route path="/analytics" element={
                   <ProtectedRoute isAuthenticated={isAuthenticated}><AnalyticsPage /></ProtectedRoute>
                 } />
-                <Route path="/performance" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><PerformancePage /></ProtectedRoute>
+                <Route path="/performance" element={<Navigate to="/analytics" replace />} />
+                <Route path="/links" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><LinksPage /></ProtectedRoute>
                 } />
-                <Route path="/bulk" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><BulkPage /></ProtectedRoute>
-                } />
-                <Route path="/projects" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><ProjectsPage /></ProtectedRoute>
-                } />
+                <Route path="/projects" element={<Navigate to="/links" replace />} />
                 <Route path="/projects/:projectId" element={
                   <ProtectedRoute isAuthenticated={isAuthenticated}><ProjectDetailPage /></ProtectedRoute>
                 } />
                 <Route path="/analytics/link/:linkId" element={
                   <ProtectedRoute isAuthenticated={isAuthenticated}><LinkAnalyticsPage /></ProtectedRoute>
+                } />
+                <Route path="/campaigns" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignsPage /></ProtectedRoute>
+                } />
+                <Route path="/campaigns/compare" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignComparisonPage /></ProtectedRoute>
+                } />
+                <Route path="/campaigns/:campaignName" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignDetailPage /></ProtectedRoute>
                 } />
               </Routes>
             </main>
