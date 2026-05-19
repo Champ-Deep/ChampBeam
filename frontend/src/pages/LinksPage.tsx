@@ -5,7 +5,7 @@ import {
   Link2, Copy, BarChart3, Trash2, FolderOpen, Plus, Save, X,
   Pencil, MousePointerClick, ExternalLink,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, Button, Input, Badge, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, Button, Input, Badge, LoadingSpinner, EmptyState } from '../components/ui';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, Project, ProjectCreate } from '../api/utm';
 

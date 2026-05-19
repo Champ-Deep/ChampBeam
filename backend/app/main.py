@@ -20,9 +20,8 @@ from app.db.redis import redis_client
 from app.middleware.rate_limit import setup_rate_limiting
 
 # Import routers
-from app.api.v1 import auth, health, projects, utm
+from app.api.v1 import auth, health, projects, utm, short_links
 from app.api.redirect import router as redirect_router
-from app.api.v1 import auth, health, utm, short_links
 
 
 @asynccontextmanager
