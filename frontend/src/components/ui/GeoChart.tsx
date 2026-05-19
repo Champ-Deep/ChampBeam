@@ -78,7 +78,7 @@ export function GeoChart({ data, onLevelChange, level = 'country', height = 320 
               />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
-                formatter={(value: number) => [value.toLocaleString(), 'Clicks']}
+                formatter={(value) => [Number(value).toLocaleString(), 'Clicks']}
                 labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || ''}
                 cursor={{ fill: 'rgba(59, 130, 246, 0.06)' }}
               />
