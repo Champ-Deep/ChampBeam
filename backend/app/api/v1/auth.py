@@ -54,6 +54,14 @@ class UserResponse(BaseModel):
     full_name: Optional[str] = None
 
 
+class AuthResponse(BaseModel):
+    """Login/register response with token + user data."""
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+
+
 class ProfileUpdateRequest(BaseModel):
     """Profile update request."""
     full_name: Optional[str] = None
@@ -64,7 +72,7 @@ class ProfileUpdateRequest(BaseModel):
 # ============================================================================
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=AuthResponse)
 async def login(
     request: LoginRequest,
     session: AsyncSession = Depends(get_db_session),
@@ -87,14 +95,19 @@ async def login(
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
     )
 
-    return Token(
+    return AuthResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=settings.jwt_access_token_expire_minutes * 60,
+        user=UserResponse(
+            user_id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+        ),
     )
 
 
-@router.post("/register", response_model=Token)
+@router.post("/register", response_model=AuthResponse)
 async def register(
     request: RegisterRequest,
     session: AsyncSession = Depends(get_db_session),
@@ -116,10 +129,15 @@ async def register(
         expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
     )
 
-    return Token(
+    return AuthResponse(
         access_token=access_token,
         token_type="bearer",
         expires_in=settings.jwt_access_token_expire_minutes * 60,
+        user=UserResponse(
+            user_id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+        ),
     )
 
 

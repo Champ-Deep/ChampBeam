@@ -21,14 +21,21 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Handle auth errors
+// Handle auth errors — only force logout when a non-auth API call gets 401
+// (means token is genuinely expired/invalid, not just a login attempt)
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      const url = error.config?.url || '';
+      // Don't redirect on login/register failures (wrong password etc.)
+      // Don't redirect on /auth/me (used for session verification on load)
+      const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/me');
+      if (!isAuthEndpoint && localStorage.getItem('access_token')) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

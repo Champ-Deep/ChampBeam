@@ -14,23 +14,35 @@ export function useAuth() {
     isLoading: true,
   });
 
-  // Check for existing token on mount
+  // Check for existing token on mount — verify with backend
   useEffect(() => {
     const token = localStorage.getItem('access_token');
-    const savedUser = localStorage.getItem('user');
 
-    if (token && savedUser) {
-      try {
-        const user = JSON.parse(savedUser) as User;
+    if (!token) {
+      setState({ user: null, isAuthenticated: false, isLoading: false });
+      return;
+    }
+
+    // We have a token — verify it by calling /auth/me
+    authApi.me()
+      .then((meUser) => {
+        // Token is valid, build user object from /auth/me response
+        const user: User = {
+          id: meUser.user_id,
+          email: meUser.email,
+          full_name: meUser.full_name ?? null,
+          is_active: true,
+          created_at: '',
+        };
+        localStorage.setItem('user', JSON.stringify(user));
         setState({ user, isAuthenticated: true, isLoading: false });
-      } catch {
+      })
+      .catch(() => {
+        // Token expired or invalid — clean up
         localStorage.removeItem('access_token');
         localStorage.removeItem('user');
         setState({ user: null, isAuthenticated: false, isLoading: false });
-      }
-    } else {
-      setState({ user: null, isAuthenticated: false, isLoading: false });
-    }
+      });
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

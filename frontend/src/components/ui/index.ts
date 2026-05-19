@@ -5,3 +5,6 @@ export { Badge } from './Badge';
 export { LoadingSpinner } from './LoadingSpinner';
 export { EmptyState } from './EmptyState';
 export { FileUploadZone } from './FileUploadZone';
+export { DateRangePicker } from './DateRangePicker';
+export { ExportButton } from './ExportButton';
+export { GeoChart } from './GeoChart';

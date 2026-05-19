@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"
 
+    # Base URL for redirect short links (e.g., https://api.champutm.com)
+    # Defaults to http://localhost:8000 for local dev. Set in production env.
+    redirect_base_url: str = "http://localhost:8000"
+
+    # GeoIP Configuration
+    # "maxmind" uses local GeoLite2-City.mmdb file (recommended for production)
+    # "ipapi" uses ip-api.com free API (fallback, rate-limited at 45 req/min)
+    geoip_provider: str = "maxmind"
+    maxmind_db_path: str = "data/GeoLite2-City.mmdb"
+    maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
+    maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
+
     @property
     def postgres_url(self) -> str:
         """Build PostgreSQL async connection URL."""

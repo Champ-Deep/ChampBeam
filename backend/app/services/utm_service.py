@@ -1,7 +1,7 @@
 """
 UTM Service for ChampUTM.
 
-Handles URL generation, bulk CSV processing, and click tracking.
+Handles URL generation, bulk CSV processing, click tracking, and redirect recording.
 """
 
 from __future__ import annotations
@@ -10,16 +10,18 @@ import csv
 import io
 import logging
 import re
+import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.postgres import async_session_maker
-from app.models.utm import LinkClick, UTMPreset
+from app.models.utm import ClickEvent, LinkClick, UTMPreset
+from app.services.ua_service import parse_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +117,7 @@ class UTMService:
         tracked_url: str,
         utm_params: Dict[str, str],
         project_name: Optional[str] = None,
+        project_id: Optional[UUID] = None,
         session: Optional[AsyncSession] = None,
     ) -> LinkClick:
         """Record a generated link for click tracking.
@@ -130,7 +133,9 @@ class UTMService:
         utm_params : dict
             The UTM parameters used.
         project_name : str or None
-            Optional project grouping.
+            Optional project grouping (legacy).
+        project_id : UUID or None
+            Optional project FK.
         session : AsyncSession or None
             Database session. Opens a new one if not provided.
 
@@ -139,15 +144,58 @@ class UTMService:
         LinkClick
             The created record.
         """
+        # Dedup: check if identical link already exists for this user
+        src = utm_params.get("utm_source")
+        med = utm_params.get("utm_medium")
+        cam = utm_params.get("utm_campaign")
+        con = utm_params.get("utm_content")
+        trm = utm_params.get("utm_term")
+
+        async def _find_existing(s: AsyncSession) -> Optional[LinkClick]:
+            stmt = select(LinkClick).where(
+                LinkClick.user_id == user_id,
+                LinkClick.original_url == original_url,
+                LinkClick.utm_source == src if src else LinkClick.utm_source.is_(None),
+                LinkClick.utm_medium == med if med else LinkClick.utm_medium.is_(None),
+                LinkClick.utm_campaign == cam if cam else LinkClick.utm_campaign.is_(None),
+                LinkClick.utm_content == con if con else LinkClick.utm_content.is_(None),
+                LinkClick.utm_term == trm if trm else LinkClick.utm_term.is_(None),
+            )
+            result = await s.execute(stmt)
+            return result.scalar_one_or_none()
+
+        # Check for existing link and update project if needed
+        if session:
+            existing = await _find_existing(session)
+            if existing:
+                if project_id and existing.project_id != project_id:
+                    existing.project_id = project_id
+                    await session.flush()
+                return existing
+        else:
+            async with async_session_maker() as s:
+                existing = await _find_existing(s)
+                if existing:
+                    if project_id and existing.project_id != project_id:
+                        existing.project_id = project_id
+                        await s.commit()
+                    return existing
         # Ensure unique short code
         s_code = self._generate_short_code()
 
         link = LinkClick(
             id=uuid4(),
             user_id=user_id,
+            short_code=self.generate_short_code(),
+            project_id=project_id,
             project_name=project_name,
             original_url=original_url,
             tracked_url=tracked_url,
+            utm_source=src,
+            utm_medium=med,
+            utm_campaign=cam,
+            utm_content=con,
+            utm_term=trm,
             short_code=s_code,
             utm_source=utm_params.get("utm_source"),
             utm_medium=utm_params.get("utm_medium"),
@@ -168,6 +216,80 @@ class UTMService:
                 await s.commit()
 
         return link
+
+    async def record_click_event(
+        self,
+        link: LinkClick,
+        ip_address: Optional[str],
+        user_agent_str: Optional[str],
+        referrer: Optional[str],
+        session: AsyncSession,
+    ) -> ClickEvent:
+        """Record an individual click event with parsed UA info.
+
+        GeoIP is resolved separately via a background task.
+        """
+        ua_info = parse_user_agent(user_agent_str or "")
+
+        # Check if this IP has clicked this link before (for unique tracking)
+        is_unique = True
+        if ip_address:
+            existing = await session.execute(
+                select(ClickEvent.id).where(
+                    ClickEvent.link_id == link.id,
+                    ClickEvent.ip_address == ip_address,
+                ).limit(1)
+            )
+            if existing.scalar_one_or_none() is not None:
+                is_unique = False
+
+        event = ClickEvent(
+            id=uuid4(),
+            link_id=link.id,
+            ip_address=ip_address,
+            user_agent=user_agent_str,
+            referrer=referrer,
+            device_type=ua_info["device_type"],
+            browser=ua_info["browser"],
+            os=ua_info["os"],
+        )
+        session.add(event)
+
+        # Update counters on LinkClick
+        now = datetime.utcnow()
+        link.click_count = (link.click_count or 0) + 1
+        link.last_clicked_at = now
+        if link.first_clicked_at is None:
+            link.first_clicked_at = now
+        if is_unique:
+            link.unique_clicks = (link.unique_clicks or 0) + 1
+
+        await session.flush()
+        return event
+
+    async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
+        """Background task: resolve GeoIP + VPN/ASN detection and update click event."""
+        from app.services.geoip_service import lookup_ip
+
+        geo = await lookup_ip(ip_address)
+        if not geo:
+            return
+
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(ClickEvent).where(ClickEvent.id == event_id)
+            )
+            event = result.scalar_one_or_none()
+            if event:
+                event.country = geo.get("country")
+                event.country_code = geo.get("country_code")
+                event.region = geo.get("region")
+                event.city = geo.get("city")
+                event.latitude = geo.get("latitude")
+                event.longitude = geo.get("longitude")
+                event.is_vpn = bool(geo.get("is_vpn")) if geo.get("is_vpn") is not None else False
+                event.asn_org = geo.get("asn_org")
+                await session.commit()
 
     # ------------------------------------------------------------------
     # Bulk CSV processing

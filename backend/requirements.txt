@@ -43,6 +43,14 @@ pandas>=2.0.0
 # Timezone support
 pytz>=2024.1
 
+# User agent parsing (for click tracking)
+user-agents>=2.2.0
+
+# GeoIP (MaxMind GeoLite2 local database)
+geoip2>=4.8.0
+
+# World map geo visualization (frontend dep listed here for reference)
+# react-simple-maps (npm)
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
