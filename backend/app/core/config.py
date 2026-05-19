@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
     maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
 
+    # Resend (email delivery)
+    resend_api_key: str = ""
+    resend_from_email: str = "ChampUTM <no-reply@champutm.com>"
+
+    # Password reset
+    password_reset_token_ttl_minutes: int = 30
+    password_reset_path: str = "/reset-password"
+
     @property
     def postgres_url(self) -> str:
         """Build PostgreSQL async connection URL."""

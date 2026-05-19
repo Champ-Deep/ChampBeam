@@ -60,6 +60,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             placeholder="Your password"
             required
           />
+          <div className="text-right -mt-2">
+            <Link
+              to="/forgot-password"
+              className="text-sm text-brand-purple font-medium hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <Button type="submit" className="w-full" isLoading={isLoading}>
             Sign In
           </Button>

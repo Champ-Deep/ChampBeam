@@ -50,6 +50,15 @@ function mapUser(bu: BackendUser): User {
   };
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
+export interface ResetPasswordResponse {
+  success: boolean;
+  message: string;
+}
+
 export const authApi = {
   async login(data: LoginRequest): Promise<AuthResponse> {
     const response = await api.post<BackendAuthResponse>('/auth/login', data);
@@ -63,6 +72,19 @@ export const authApi = {
 
   async me(): Promise<BackendUser> {
     const response = await api.get<BackendUser>('/auth/me');
+    return response.data;
+  },
+
+  async forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+    const response = await api.post<ForgotPasswordResponse>('/auth/forgot-password', { email });
+    return response.data;
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
+    const response = await api.post<ResetPasswordResponse>('/auth/reset-password', {
+      token,
+      new_password: newPassword,
+    });
     return response.data;
   },
 };

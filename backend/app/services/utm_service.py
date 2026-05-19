@@ -180,13 +180,12 @@ class UTMService:
                         existing.project_id = project_id
                         await s.commit()
                     return existing
-        # Ensure unique short code
         s_code = self._generate_short_code()
 
         link = LinkClick(
             id=uuid4(),
             user_id=user_id,
-            short_code=self.generate_short_code(),
+            short_code=s_code,
             project_id=project_id,
             project_name=project_name,
             original_url=original_url,
@@ -196,12 +195,6 @@ class UTMService:
             utm_campaign=cam,
             utm_content=con,
             utm_term=trm,
-            short_code=s_code,
-            utm_source=utm_params.get("utm_source"),
-            utm_medium=utm_params.get("utm_medium"),
-            utm_campaign=utm_params.get("utm_campaign"),
-            utm_content=utm_params.get("utm_content"),
-            utm_term=utm_params.get("utm_term"),
             click_count=0,
             unique_clicks=0,
         )

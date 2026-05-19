@@ -78,7 +78,6 @@ class LinkClick(Base):
     # Link details
     original_url = Column(Text, nullable=False)
     tracked_url = Column(Text, nullable=True)
-    short_code = Column(String(50), unique=True, index=True, nullable=True)
     anchor_text = Column(String(500), nullable=True)
     link_position = Column(Integer, nullable=True)
 

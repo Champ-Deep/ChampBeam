@@ -3,6 +3,8 @@ import { useAuth } from './hooks/useAuth';
 import { Navigation } from './components/layout/Navigation';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { HomePage } from './pages/HomePage';
 import { PresetsPage } from './pages/PresetsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -38,6 +40,10 @@ export default function App() {
         <Route path="/register" element={
           isAuthenticated ? <Navigate to="/" replace /> : <RegisterPage onRegister={register} />
         } />
+        <Route path="/forgot-password" element={
+          isAuthenticated ? <Navigate to="/" replace /> : <ForgotPasswordPage />
+        } />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* Main app with nav */}
         <Route path="*" element={

@@ -10,8 +10,8 @@ import logging
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ from app.core.security import (
     require_auth,
 )
 from app.db.postgres import get_db_session
+from app.services.email_service import email_service
 from app.services.user_service import user_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -65,6 +66,31 @@ class AuthResponse(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     """Profile update request."""
     full_name: Optional[str] = None
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Request a password reset email."""
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    """Generic response — always the same wording regardless of whether
+    the email matched an account, to prevent user enumeration."""
+    message: str = (
+        "If this email is in our system, you will receive a reset link shortly."
+    )
+
+
+class ResetPasswordRequest(BaseModel):
+    """Submit a new password using a reset token from the email link."""
+    token: str = Field(..., min_length=10, description="Raw token from the reset link.")
+    new_password: str = Field(..., min_length=8, description="The new password.")
+
+
+class ResetPasswordResponse(BaseModel):
+    """Outcome of a password reset."""
+    success: bool
+    message: str
 
 
 # ============================================================================
@@ -193,4 +219,70 @@ async def refresh_token(user: TokenData = Depends(require_auth)):
         access_token=access_token,
         token_type="bearer",
         expires_in=settings.jwt_access_token_expire_minutes * 60,
+    )
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Step 1 of the password reset flow.
+
+    Always returns the same generic success message regardless of whether
+    the email matches an account — prevents leaking which addresses are
+    registered. If the user does exist, a token is generated, hashed, and
+    persisted, and an email with the reset link is dispatched via Resend.
+    """
+    user = await user_service.get_by_email(session, request.email)
+
+    if user and user.is_active:
+        _row, raw_token = await user_service.create_password_reset_token(session, user)
+        await session.commit()
+
+        # Dispatch the email out-of-band so the request returns immediately
+        # and the response timing doesn't reveal whether the account exists.
+        background_tasks.add_task(
+            email_service.send_password_reset_email,
+            to=user.email,
+            token=raw_token,
+        )
+        logger.info("Password reset requested for user_id=%s", user.id)
+    else:
+        logger.info(
+            "Password reset requested for unknown email=%s (responding generically)",
+            request.email,
+        )
+
+    return ForgotPasswordResponse()
+
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(
+    request: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Step 2 of the password reset flow.
+
+    Validates the raw token against the stored bcrypt hash + expiry,
+    rotates the user's password, and deletes the token so it cannot be
+    replayed.
+    """
+    user = await user_service.consume_password_reset_token(
+        session, request.token, request.new_password
+    )
+    if not user:
+        # Generic 400 — don't leak whether the token was expired, unknown,
+        # or matched a disabled account.
+        raise HTTPException(
+            status_code=400,
+            detail="This reset link is invalid or has expired.",
+        )
+
+    await session.commit()
+    logger.info("Password reset completed for user_id=%s", user.id)
+    return ResetPasswordResponse(
+        success=True,
+        message="Your password has been reset. You can now sign in with your new password.",
     )
