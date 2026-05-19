@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, LogOut, LogIn, UserPlus, Bell } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, LogOut, LogIn, UserPlus, Bell, Settings } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Button } from '../ui/Button';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
@@ -129,10 +129,18 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
             )}
 
             {isAuthenticated ? (
-              <Button variant="ghost" size="sm" onClick={onLogout}>
-                <LogOut className="h-4 w-4 mr-1.5" />
-                Sign Out
-              </Button>
+              <>
+                <Link to="/settings">
+                  <Button variant="ghost" size="sm">
+                    <Settings className="h-4 w-4 mr-1.5" />
+                    Settings
+                  </Button>
+                </Link>
+                <Button variant="ghost" size="sm" onClick={onLogout}>
+                  <LogOut className="h-4 w-4 mr-1.5" />
+                  Sign Out
+                </Button>
+              </>
             ) : (
               <>
                 <Link to="/login">

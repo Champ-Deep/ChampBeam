@@ -5,6 +5,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { HomePage } from './pages/HomePage';
 import { PresetsPage } from './pages/PresetsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -77,6 +78,9 @@ export default function App() {
                 } />
                 <Route path="/campaigns/:campaignName" element={
                   <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignDetailPage /></ProtectedRoute>
+                } />
+                <Route path="/settings" element={
+                  <ProtectedRoute isAuthenticated={isAuthenticated}><SettingsPage /></ProtectedRoute>
                 } />
               </Routes>
             </main>

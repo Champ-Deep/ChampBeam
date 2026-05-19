@@ -59,6 +59,14 @@ export interface ResetPasswordResponse {
   message: string;
 }
 
+export interface ChangePasswordResponse {
+  success: boolean;
+  message: string;
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
 export const authApi = {
   async login(data: LoginRequest): Promise<AuthResponse> {
     const response = await api.post<BackendAuthResponse>('/auth/login', data);
@@ -83,6 +91,14 @@ export const authApi = {
   async resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
     const response = await api.post<ResetPasswordResponse>('/auth/reset-password', {
       token,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<ChangePasswordResponse> {
+    const response = await api.post<ChangePasswordResponse>('/auth/change-password', {
+      current_password: currentPassword,
       new_password: newPassword,
     });
     return response.data;

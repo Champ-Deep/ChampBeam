@@ -94,6 +94,22 @@ class ResetPasswordResponse(BaseModel):
     message: str
 
 
+class ChangePasswordRequest(BaseModel):
+    """Rotate password from within an authenticated session."""
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+
+
+class ChangePasswordResponse(BaseModel):
+    """Outcome of a change-password operation, with a fresh JWT so the
+    caller is not immediately locked out by the iat-invalidation rule."""
+    success: bool
+    message: str
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -299,4 +315,48 @@ async def reset_password(
     return ResetPasswordResponse(
         success=True,
         message="Your password has been reset. You can now sign in with your new password.",
+    )
+
+
+@router.post("/change-password", response_model=ChangePasswordResponse)
+async def change_password(
+    payload: ChangePasswordRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Rotate the current user's password.
+
+    Requires the current password to authorize the change. On success
+    every prior JWT for this user becomes invalid (via password_changed_at
+    + iat); we return a freshly minted token so the caller's current
+    session keeps working without re-prompting for login.
+    """
+    db_user = await user_service.get_by_id(session, user.user_id)
+    if not db_user or not db_user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    from app.core.security import verify_password
+    if not verify_password(payload.current_password, db_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    from app.core.security import get_password_hash
+    from datetime import datetime as _dt
+
+    now = _dt.utcnow()
+    db_user.hashed_password = get_password_hash(payload.new_password)
+    db_user.updated_at = now
+    db_user.password_changed_at = now
+    await session.flush()
+    await session.commit()
+
+    fresh_token = create_access_token(
+        data={"user_id": str(db_user.id), "email": db_user.email},
+        expires_delta=timedelta(minutes=settings.jwt_access_token_expire_minutes),
+    )
+    logger.info("Password changed for user_id=%s", db_user.id)
+    return ChangePasswordResponse(
+        success=True,
+        message="Password updated.",
+        access_token=fresh_token,
+        expires_in=settings.jwt_access_token_expire_minutes * 60,
     )
