@@ -16,7 +16,7 @@ from app.db.postgres import Base
 from app.core.config import settings
 
 # Import all models to register them with Base.metadata
-from app.models import User  # noqa: F401
+from app.models import User, UTMPreset, LinkClick, Project, ClickEvent  # noqa: F401
 
 # Alembic Config object
 config = context.config
