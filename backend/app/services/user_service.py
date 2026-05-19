@@ -174,6 +174,10 @@ class UserService:
 
         user.hashed_password = get_password_hash(new_password)
         user.updated_at = now
+        # Stamp the password change so any JWT issued before this moment
+        # is rejected. Combined with the access_token's `iat` claim this
+        # gives us "log out everywhere" semantics for free.
+        user.password_changed_at = now
 
         # Invalidate every reset token belonging to this user, including
         # the one we just consumed. Single-use, hard-delete.
@@ -182,6 +186,20 @@ class UserService:
         )
         await session.flush()
         return user
+
+    def jwt_iat_is_current(self, user: User, iat: Optional[int]) -> bool:
+        """Return True if a JWT's iat claim is still valid for this user.
+
+        A None ``password_changed_at`` means the user has never reset
+        their password — any token issued before that is valid. After a
+        reset, only tokens whose iat is >= password_changed_at are
+        accepted.
+        """
+        if user.password_changed_at is None:
+            return True
+        if iat is None:
+            return False
+        return iat >= int(user.password_changed_at.timestamp())
 
 
 # Singleton instance

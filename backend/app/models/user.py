@@ -28,3 +28,8 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
+
+    # Bumped whenever credentials change (password reset, future "log out
+    # everywhere"). Any JWT whose iat is older than this is rejected, which
+    # invalidates stolen-but-not-yet-expired tokens after a reset.
+    password_changed_at = Column(DateTime, nullable=True)

@@ -10,7 +10,7 @@ import logging
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from app.core.security import (
     require_auth,
 )
 from app.db.postgres import get_db_session
+from app.middleware.rate_limit import limiter
 from app.services.email_service import email_service
 from app.services.user_service import user_service
 
@@ -174,8 +175,14 @@ async def get_current_user_info(
 ):
     """Get current authenticated user info."""
     db_user = await user_service.get_by_id(session, user.user_id)
-    if not db_user:
+    if not db_user or not db_user.is_active:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if not user_service.jwt_iat_is_current(db_user, user.iat):
+        raise HTTPException(
+            status_code=401,
+            detail="Session invalidated. Please sign in again.",
+        )
 
     return UserResponse(
         user_id=str(db_user.id),
@@ -223,8 +230,10 @@ async def refresh_token(user: TokenData = Depends(require_auth)):
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
+@limiter.limit("5/15minutes")
 async def forgot_password(
-    request: ForgotPasswordRequest,
+    request: Request,
+    payload: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -234,8 +243,11 @@ async def forgot_password(
     the email matches an account — prevents leaking which addresses are
     registered. If the user does exist, a token is generated, hashed, and
     persisted, and an email with the reset link is dispatched via Resend.
+
+    Rate limited to 5 requests / 15 min per key (IP or authenticated user)
+    so this endpoint can't be used to flood an inbox or enumerate emails.
     """
-    user = await user_service.get_by_email(session, request.email)
+    user = await user_service.get_by_email(session, payload.email)
 
     if user and user.is_active:
         _row, raw_token = await user_service.create_password_reset_token(session, user)
@@ -252,25 +264,27 @@ async def forgot_password(
     else:
         logger.info(
             "Password reset requested for unknown email=%s (responding generically)",
-            request.email,
+            payload.email,
         )
 
     return ForgotPasswordResponse()
 
 
 @router.post("/reset-password", response_model=ResetPasswordResponse)
+@limiter.limit("10/15minutes")
 async def reset_password(
-    request: ResetPasswordRequest,
+    request: Request,
+    payload: ResetPasswordRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Step 2 of the password reset flow.
 
     Validates the raw token against the stored bcrypt hash + expiry,
     rotates the user's password, and deletes the token so it cannot be
-    replayed.
+    replayed. Rate limited to defeat brute-force guessing.
     """
     user = await user_service.consume_password_reset_token(
-        session, request.token, request.new_password
+        session, payload.token, payload.new_password
     )
     if not user:
         # Generic 400 — don't leak whether the token was expired, unknown,

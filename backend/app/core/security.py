@@ -27,6 +27,7 @@ class TokenData(BaseModel):
     user_id: str
     email: str
     exp: datetime | None = None
+    iat: int | None = None
 
 
 class Token(BaseModel):
@@ -62,14 +63,15 @@ def create_access_token(
     """
     to_encode = data.copy()
 
+    now = datetime.utcnow()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(
-            minutes=settings.jwt_access_token_expire_minutes
-        )
+        expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
 
-    to_encode.update({"exp": expire})
+    # iat lets us invalidate tokens issued before a credential change
+    # (see User.password_changed_at). jose accepts integer epoch seconds.
+    to_encode.update({"exp": expire, "iat": int(now.timestamp())})
 
     encoded_jwt = jwt.encode(
         to_encode,
@@ -108,7 +110,7 @@ def decode_token(token: str) -> TokenData:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        return TokenData(user_id=user_id, email=email)
+        return TokenData(user_id=user_id, email=email, iat=payload.get("iat"))
 
     except JWTError:
         raise HTTPException(

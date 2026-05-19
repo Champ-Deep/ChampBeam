@@ -244,3 +244,73 @@ async def test_email_service_no_op_without_api_key(app_client, monkeypatch):
         to="x@example.com", token="abc"
     )
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_rate_limited(app_client):
+    """The forgot-password endpoint refuses to spray emails."""
+    await _register(app_client, "spammer@example.com")
+
+    with patch(
+        "app.api.v1.auth.email_service.send_password_reset_email",
+        new=AsyncMock(),
+    ):
+        # 5 allowed, 6th should be rate-limited.
+        responses = []
+        for _ in range(6):
+            r = await app_client.post(
+                "/api/v1/auth/forgot-password",
+                json={"email": "spammer@example.com"},
+            )
+            responses.append(r.status_code)
+
+    assert responses[:5] == [200] * 5
+    assert responses[5] == 429
+
+
+@pytest.mark.asyncio
+async def test_password_reset_invalidates_existing_jwt(app_client):
+    """After a password reset, JWTs issued *before* the reset must stop
+    working — defends against stolen-but-not-yet-expired sessions."""
+    await _register(app_client, "ian@example.com", password="originalpw123")
+
+    # Sign in to get a JWT that's "in the field" before the reset.
+    login = await app_client.post(
+        "/api/v1/auth/login",
+        json={"email": "ian@example.com", "password": "originalpw123"},
+    )
+    assert login.status_code == 200
+    stale_token = login.json()["access_token"]
+    auth = {"Authorization": f"Bearer {stale_token}"}
+
+    me_before = await app_client.get("/api/v1/auth/me", headers=auth)
+    assert me_before.status_code == 200
+
+    # Reset the password.
+    raw_token = await _capture_token(app_client, "ian@example.com")
+    # ensure the iat of the new password_changed_at is strictly greater
+    # than the JWT's iat (1-second granularity in iat).
+    import asyncio
+
+    await asyncio.sleep(1.1)
+    reset = await app_client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": raw_token, "new_password": "brandnewpw456"},
+    )
+    assert reset.status_code == 200
+
+    # The pre-reset JWT is no longer accepted.
+    me_after = await app_client.get("/api/v1/auth/me", headers=auth)
+    assert me_after.status_code == 401
+
+    # But a freshly issued JWT is.
+    relogin = await app_client.post(
+        "/api/v1/auth/login",
+        json={"email": "ian@example.com", "password": "brandnewpw456"},
+    )
+    assert relogin.status_code == 200
+    fresh_token = relogin.json()["access_token"]
+    me_fresh = await app_client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {fresh_token}"}
+    )
+    assert me_fresh.status_code == 200

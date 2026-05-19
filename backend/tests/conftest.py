@@ -46,6 +46,11 @@ async def app_client() -> AsyncGenerator[AsyncClient, None]:
 
     from app.db.postgres import Base, get_db_session
     from app.main import app
+    from app.middleware.rate_limit import limiter
+
+    # Each test starts with an empty rate-limit window so the order/count
+    # of requests in one test never trips the limiter in another.
+    limiter.reset()
 
     sqlite_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
