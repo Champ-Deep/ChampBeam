@@ -15,6 +15,7 @@ development without Resend credentials never crashes the request.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Optional
 from urllib.parse import quote
@@ -110,16 +111,24 @@ class EmailService:
         if text:
             params["text"] = text
 
-        def _send_sync() -> dict:
-            return client.Emails.send(params)
-
         try:
-            result = await asyncio.to_thread(_send_sync)
+            # Prefer the SDK's native async path when present; fall back to
+            # running the sync method on a worker thread so the event loop
+            # is never blocked by the network call.
+            send_async = getattr(client.Emails, "send_async", None)
+            if send_async is not None and inspect.iscoroutinefunction(send_async):
+                result = await send_async(params)
+            else:
+                result = await asyncio.to_thread(client.Emails.send, params)
         except Exception as exc:
             logger.error("Resend send failed to=%s subject=%r err=%s", to, subject, exc)
             return None
 
-        message_id = result.get("id") if isinstance(result, dict) else None
+        if isinstance(result, dict):
+            message_id = result.get("id")
+        else:
+            # SendResponse is a TypedDict in newer SDKs; fall back to attr
+            message_id = getattr(result, "id", None)
         logger.info("Resend send queued to=%s id=%s", to, message_id)
         return message_id
 

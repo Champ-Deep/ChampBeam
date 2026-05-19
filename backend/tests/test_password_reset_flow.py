@@ -247,6 +247,41 @@ async def test_email_service_no_op_without_api_key(app_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_email_service_calls_resend_sdk(app_client, monkeypatch):
+    """With an API key configured, the email service hands off to the
+    Resend SDK with the expected payload shape."""
+    from app.services.email_service import email_service
+    from app.core.config import settings
+    import resend
+
+    monkeypatch.setattr(settings, "resend_api_key", "re_test_key")
+    monkeypatch.setattr(settings, "resend_from_email", "ChampUTM <a@b.com>")
+    monkeypatch.setattr(settings, "frontend_url", "https://app.example.com")
+
+    captured: dict = {}
+
+    def fake_send(params):
+        captured.update(params)
+        return {"id": "msg_abc"}
+
+    monkeypatch.setattr(resend.Emails, "send", staticmethod(fake_send))
+    # Make sure we hit the sync send via to_thread fallback for a stable
+    # assertion regardless of the SDK's async surface.
+    monkeypatch.setattr(resend.Emails, "send_async", None, raising=False)
+
+    msg_id = await email_service.send_password_reset_email(
+        to="dest@example.com", token="raw-token-abc"
+    )
+    assert msg_id == "msg_abc"
+    assert captured["from"] == "ChampUTM <a@b.com>"
+    assert captured["to"] == ["dest@example.com"]
+    assert "Reset" in captured["subject"]
+    assert "raw-token-abc" in captured["html"]
+    assert "https://app.example.com/reset-password?token=raw-token-abc" in captured["html"]
+    assert "raw-token-abc" in captured["text"]
+
+
+@pytest.mark.asyncio
 async def test_forgot_password_rate_limited(app_client):
     """The forgot-password endpoint refuses to spray emails."""
     await _register(app_client, "spammer@example.com")
