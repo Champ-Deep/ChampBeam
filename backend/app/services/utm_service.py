@@ -58,6 +58,11 @@ class UTMService:
         str
             The URL with UTM parameters.
         """
+        # Strip trailing hashes and question marks if user inputs them accidentally
+        base_url = base_url.strip()
+        while base_url.endswith(("?", "#")):
+            base_url = base_url[:-1]
+
         parsed = urlparse(base_url)
 
         # Ensure scheme
@@ -65,20 +70,31 @@ class UTMService:
             base_url = "https://" + base_url
             parsed = urlparse(base_url)
 
+        # Clean up path by replacing multiple slashes with a single one
+        # but don't mess up the domain/scheme part (e.g. https://)
+        cleaned_path = re.sub(r'//+', '/', parsed.path)
+
         existing_qs = parse_qs(parsed.query, keep_blank_values=True)
 
         for key, value in utm_params.items():
             if not value:
                 continue
+
+            # Clean up the value as well
+            value = str(value).strip()
+            if not value:
+                continue
+
             if preserve_existing and key in existing_qs:
                 continue
             existing_qs[key] = [value]
 
+        # Use doseq=True to handle multiple values correctly, but we only appended 1 value per list
         new_query = urlencode(existing_qs, doseq=True)
         return urlunparse((
             parsed.scheme,
             parsed.netloc,
-            parsed.path,
+            cleaned_path,
             parsed.params,
             new_query,
             parsed.fragment,
@@ -88,9 +104,11 @@ class UTMService:
     # Record a generated link for tracking
     # ------------------------------------------------------------------
 
-    def generate_short_code(self) -> str:
-        """Generate a URL-safe short code (8 characters)."""
-        return secrets.token_urlsafe(6)
+    def _generate_short_code(self) -> str:
+        import secrets
+        import string
+        alphabet = string.ascii_letters + string.digits
+        return ''.join(secrets.choice(alphabet) for _ in range(7))
 
     async def record_link(
         self,
@@ -162,6 +180,8 @@ class UTMService:
                         existing.project_id = project_id
                         await s.commit()
                     return existing
+        # Ensure unique short code
+        s_code = self._generate_short_code()
 
         link = LinkClick(
             id=uuid4(),
@@ -176,11 +196,18 @@ class UTMService:
             utm_campaign=cam,
             utm_content=con,
             utm_term=trm,
+            short_code=s_code,
+            utm_source=utm_params.get("utm_source"),
+            utm_medium=utm_params.get("utm_medium"),
+            utm_campaign=utm_params.get("utm_campaign"),
+            utm_content=utm_params.get("utm_content"),
+            utm_term=utm_params.get("utm_term"),
             click_count=0,
             unique_clicks=0,
         )
 
         if session:
+            # Check for uniqueness in loop if highly contested, but 7 chars is plenty.
             session.add(link)
             await session.flush()
         else:
@@ -297,15 +324,26 @@ class UTMService:
         if not reader.fieldnames or "url" not in reader.fieldnames:
             raise ValueError("CSV must contain a 'url' column")
 
-        output_fields = list(reader.fieldnames) + ["tracked_url"]
+        output_fields = list(reader.fieldnames) + ["tracked_url", "error"]
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=output_fields)
         writer.writeheader()
 
-        for row in reader:
+        for row_num, row in enumerate(reader, start=2): # Header is line 1
             base_url = row.get("url", "").strip()
+            row["error"] = ""
+            row["tracked_url"] = ""
+
             if not base_url:
-                row["tracked_url"] = ""
+                row["error"] = "Missing URL"
+                writer.writerow(row)
+                continue
+
+            # Basic validation
+            # urlparse adds https:// automatically below during generate, but if it has no netloc and no valid path...
+            # A better heuristic for CSV is if it doesn't look like a valid URL or domain
+            if "." not in base_url and "localhost" not in base_url and not base_url.startswith("http"):
+                row["error"] = "Invalid URL format"
                 writer.writerow(row)
                 continue
 
@@ -316,7 +354,11 @@ class UTMService:
                 if row_value:
                     params[key] = row_value
 
-            row["tracked_url"] = self.generate_utm_url(base_url, params)
+            try:
+                row["tracked_url"] = self.generate_utm_url(base_url, params)
+            except Exception as e:
+                row["error"] = f"Failed to generate: {str(e)}"
+
             writer.writerow(row)
 
         return output.getvalue()

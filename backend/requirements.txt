@@ -51,3 +51,7 @@ geoip2>=4.8.0
 
 # World map geo visualization (frontend dep listed here for reference)
 # react-simple-maps (npm)
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0

@@ -10,8 +10,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
+from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,7 @@ router = APIRouter(prefix="/utm", tags=["UTM"])
 
 class UTMPresetCreate(BaseModel):
     name: str
+    is_shared: bool = False
     utm_source: str = ""
     utm_medium: str = ""
     utm_campaign: str = ""
@@ -44,6 +45,7 @@ class UTMPresetCreate(BaseModel):
 
 class UTMPresetUpdate(BaseModel):
     name: Optional[str] = None
+    is_shared: Optional[bool] = None
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
     utm_campaign: Optional[str] = None
@@ -57,6 +59,7 @@ class UTMPresetResponse(BaseModel):
     user_id: str
     name: str
     is_default: bool = False
+    is_shared: bool = False
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
     utm_campaign: Optional[str] = None
@@ -85,6 +88,7 @@ class GenerateLinkResponse(BaseModel):
     short_code: Optional[str] = None
     utm_params: dict
     link_id: Optional[str] = None
+    short_url: Optional[str] = None
 
 
 class UTMBreakdownItem(BaseModel):
@@ -177,6 +181,7 @@ def _preset_to_response(preset: UTMPreset) -> dict:
         "user_id": str(preset.user_id),
         "name": preset.name,
         "is_default": preset.is_default or False,
+        "is_shared": preset.is_shared or False,
         "utm_source": preset.utm_source,
         "utm_medium": preset.utm_medium,
         "utm_campaign": preset.utm_campaign,
@@ -194,6 +199,7 @@ def _preset_to_response(preset: UTMPreset) -> dict:
 
 @router.post("/generate", response_model=GenerateLinkResponse)
 async def generate_utm_link(
+    request: Request,
     data: GenerateLinkRequest,
     user: TokenData | None = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
@@ -232,6 +238,7 @@ async def generate_utm_link(
     link_id = None
     short_code = None
     redirect_url = None
+    short_url = None
     if user:
         from uuid import UUID as _UUID
         project_id = _UUID(data.project_id) if data.project_id else None
@@ -247,6 +254,10 @@ async def generate_utm_link(
         link_id = str(link.id)
         short_code = link.short_code
         redirect_url = _build_redirect_url(link.short_code)
+        if link.short_code:
+            # The short URL is handled by the backend routing directly (/s/{short_code})
+            # Use request.base_url to construct the absolute URL.
+            short_url = str(request.base_url) + f"s/{link.short_code}"
 
     return GenerateLinkResponse(
         original_url=data.base_url,
@@ -255,6 +266,7 @@ async def generate_utm_link(
         short_code=short_code,
         utm_params=utm_params,
         link_id=link_id,
+        short_url=short_url,
     )
 
 
@@ -400,15 +412,22 @@ async def download_csv_template():
 # ============================================================================
 
 
+from sqlalchemy import or_
+
 @router.get("/presets", response_model=List[UTMPresetResponse])
 async def list_presets(
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """List all UTM presets for the authenticated user."""
+    """List all UTM presets for the authenticated user and shared presets."""
     result = await session.execute(
         select(UTMPreset)
-        .where(UTMPreset.user_id == user.user_id)
+        .where(
+            or_(
+                UTMPreset.user_id == user.user_id,
+                UTMPreset.is_shared == True
+            )
+        )
         .order_by(UTMPreset.created_at.desc())
     )
     presets = result.scalars().all()
@@ -428,6 +447,7 @@ async def create_preset(
         id=uuid4(),
         user_id=user.user_id,
         name=data.name,
+        is_shared=data.is_shared,
         utm_source=data.utm_source,
         utm_medium=data.utm_medium,
         utm_campaign=data.utm_campaign,

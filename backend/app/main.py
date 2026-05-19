@@ -22,6 +22,7 @@ from app.middleware.rate_limit import setup_rate_limiting
 # Import routers
 from app.api.v1 import auth, health, projects, utm
 from app.api.redirect import router as redirect_router
+from app.api.v1 import auth, health, utm, short_links
 
 
 @asynccontextmanager
@@ -102,6 +103,7 @@ app.include_router(redirect_router)  # /r/{short_code} — top-level, no prefix
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(utm.router, prefix=settings.api_v1_prefix)
 app.include_router(projects.router, prefix=settings.api_v1_prefix)
+app.include_router(short_links.router)
 
 
 if __name__ == "__main__":
