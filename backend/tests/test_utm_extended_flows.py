@@ -255,6 +255,36 @@ async def test_project_lifecycle_with_link(app_client):
 
 
 @pytest.mark.asyncio
+async def test_short_link_alt_redirect_path(app_client):
+    """The legacy /s/{short_code} path should also redirect and bump
+    click counts (it lives in app/api/v1/short_links.py and is mounted
+    separately from /r/)."""
+    token, _ = await _register(app_client)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    gen = await app_client.post(
+        "/api/v1/utm/generate",
+        headers=auth,
+        json={"base_url": "https://example.com/alt", "utm_source": "tw"},
+    )
+    short_code = gen.json()["short_code"]
+
+    r = await app_client.get(f"/s/{short_code}", follow_redirects=False)
+    assert r.status_code == 302
+    assert "utm_source=tw" in r.headers["location"]
+
+    # /s/ uses increment_link_click which doesn't write a ClickEvent row
+    # but does bump the LinkClick counter — verify via analytics.
+    perf = await app_client.get("/api/v1/utm/analytics/links", headers=auth)
+    rows = perf.json()
+    assert len(rows) == 1
+    assert rows[0]["click_count"] == 1
+
+    missing = await app_client.get("/s/doesnotexist", follow_redirects=False)
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_preset_crud(app_client):
     token, _ = await _register(app_client)
     auth = {"Authorization": f"Bearer {token}"}

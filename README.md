@@ -24,6 +24,12 @@
 - Apply presets or custom UTM parameters
 - Download tracked URLs instantly
 
+### 🔐 Account Security
+- Email + password authentication with JWT
+- "Forgot password?" 2-step reset flow with Resend
+- Authenticated "Change password" with old-session invalidation
+- Tokens stored bcrypt-hashed; reset links single-use and time-limited
+
 ## Tech Stack
 
 **Frontend:**
@@ -102,7 +108,42 @@ REDIS_URL=redis://localhost:6379
 JWT_SECRET_KEY=your-secret-key-here
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_MINUTES=1440
+
+# Resend (password reset emails). If unset, the backend logs the attempt
+# and returns the same generic response — useful for local dev where
+# you may not want to wire up real email delivery.
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
+RESEND_FROM_EMAIL=ChampUTM <no-reply@yourdomain.com>
+
+# Public URL the reset link points to. Must match the frontend deploy.
+FRONTEND_URL=https://app.yourdomain.com
+
+# How long a password reset link stays valid (minutes).
+PASSWORD_RESET_TOKEN_TTL_MINUTES=30
 ```
+
+### Password reset flow
+
+The forgot-password endpoint is decoupled into a two-step workflow.
+Resend acts solely as the email transport — the backend owns all token
+generation, hashing, and lifecycle management.
+
+1. `POST /api/v1/auth/forgot-password` accepts `{ email }`. Always
+   returns the same generic message regardless of whether the email is
+   registered (prevents user enumeration). For known users it
+   generates a 48-byte URL-safe random token, persists only its
+   bcrypt hash with a short expiry, and dispatches the reset email via
+   the Resend SDK in a background task. Rate-limited 5/15min per key.
+2. `POST /api/v1/auth/reset-password` accepts `{ token, new_password }`.
+   Validates the raw token against the stored hash + expiry, hashes
+   and saves the new password, stamps `password_changed_at` so any
+   previously issued JWT is invalidated, and deletes the token row
+   (single-use). Rate-limited 10/15min.
+
+Signed-in users can also rotate their password directly via
+`POST /api/v1/auth/change-password` (Settings page in the UI), which
+requires the current password and returns a freshly issued JWT so the
+caller is not booted by the invalidation rule.
 
 ## Deployment
 
