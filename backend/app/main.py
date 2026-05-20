@@ -64,7 +64,7 @@ app = FastAPI(
 )
 
 # CORS middleware
-allowed_origins = [settings.frontend_url]
+allowed_origins = [settings.frontend_url.rstrip("/")]
 if settings.environment == "development":
     allowed_origins.extend([
         "http://localhost:3000",
@@ -72,6 +72,7 @@ if settings.environment == "development":
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
     ])
+logger.info("CORS allowed_origins=%s", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
