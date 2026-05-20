@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
     startup_start = time.time()
 
     logger.info("Starting %s v%s [%s]", settings.app_name, settings.app_version, settings.environment)
+    logger.info("CORS frontend_url=%s | allowed_origins=%s", settings.frontend_url, allowed_origins)
 
     # Initialize PostgreSQL
     try:
