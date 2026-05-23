@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, Download } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
 import { FileUploadZone } from '../components/ui/FileUploadZone';
 import { utmApi } from '../api/utm';
@@ -19,11 +20,9 @@ interface HistoryItem {
   generatedAt: string;
 }
 
-interface HomePageProps {
-  isAuthenticated: boolean;
-}
-
-export function HomePage({ isAuthenticated }: HomePageProps) {
+export function HomePage() {
+  const { isSignedIn } = useAuth();
+  const isAuthenticated = !!isSignedIn;
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<GeneratorMode>('single');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -425,7 +424,7 @@ export function HomePage({ isAuthenticated }: HomePageProps) {
                     Sign up free to save presets, track clicks, view analytics, and process bulk URLs.
                   </p>
                 </div>
-                <Link to="/register">
+                <Link to="/sign-up">
                   <Button size="sm">Sign Up Free</Button>
                 </Link>
               </div>
