@@ -1,116 +1,75 @@
 """
-Security utilities for JWT authentication.
+Security utilities — Clerk session-token verification.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
+import time
 from typing import Any
 
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from jose import jwt, JWTError
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger(__name__)
 
-# Bearer token security
 security = HTTPBearer(auto_error=False)
+
+_jwks_cache: dict[str, Any] | None = None
+_jwks_fetched_at: float = 0
+JWKS_CACHE_TTL = 3600
 
 
 class TokenData(BaseModel):
-    """JWT token payload."""
     user_id: str
     email: str
-    exp: datetime | None = None
-    iat: int | None = None
 
 
-class Token(BaseModel):
-    """Token response."""
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
+def _fetch_clerk_jwks() -> dict[str, Any]:
+    global _jwks_cache, _jwks_fetched_at
+    now = time.time()
+    if _jwks_cache and (now - _jwks_fetched_at) < JWKS_CACHE_TTL:
+        return _jwks_cache
 
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def get_password_hash(password: str) -> str:
-    """Hash a password."""
-    return pwd_context.hash(password)
-
-
-def create_access_token(
-    data: dict[str, Any],
-    expires_delta: timedelta | None = None,
-) -> str:
-    """
-    Create a JWT access token.
-
-    Args:
-        data: Payload data (user_id, email, role)
-        expires_delta: Token expiration time
-
-    Returns:
-        Encoded JWT token string
-    """
-    to_encode = data.copy()
-
-    now = datetime.utcnow()
-    if expires_delta:
-        expire = now + expires_delta
-    else:
-        expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
-
-    # iat lets us invalidate tokens issued before a credential change
-    # (see User.password_changed_at). jose accepts integer epoch seconds.
-    to_encode.update({"exp": expire, "iat": int(now.timestamp())})
-
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
+    resp = httpx.get(
+        "https://api.clerk.com/v1/jwks",
+        headers={"Authorization": f"Bearer {settings.clerk_secret_key}"},
+        timeout=10,
     )
-    return encoded_jwt
+    resp.raise_for_status()
+    _jwks_cache = resp.json()
+    _jwks_fetched_at = now
+    return _jwks_cache
 
 
-def decode_token(token: str) -> TokenData:
-    """
-    Decode and validate a JWT token.
-
-    Args:
-        token: JWT token string
-
-    Returns:
-        TokenData with user information
-
-    Raises:
-        HTTPException: If token is invalid or expired
-    """
+def _verify_clerk_token(token: str) -> str:
+    """Verify a Clerk session JWT. Returns the Clerk user ID (sub)."""
     try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-        )
-        user_id: str = payload.get("user_id")
-        email: str = payload.get("email")
+        jwks = _fetch_clerk_jwks()
+        header = jwt.get_unverified_header(token)
+        kid = header.get("kid")
 
-        if user_id is None or email is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        key = next((k for k in jwks.get("keys", []) if k["kid"] == kid), None)
+        if key is None:
+            # Key not found — force refresh in case keys rotated
+            global _jwks_cache
+            _jwks_cache = None
+            jwks = _fetch_clerk_jwks()
+            key = next((k for k in jwks.get("keys", []) if k["kid"] == kid), None)
+            if key is None:
+                raise HTTPException(status_code=401, detail="Unknown signing key")
 
-        return TokenData(user_id=user_id, email=email, iat=payload.get("iat"))
+        payload = jwt.decode(token, key, algorithms=["RS256"], options={"verify_aud": False})
+        clerk_user_id = payload.get("sub")
+        if not clerk_user_id:
+            raise HTTPException(status_code=401, detail="Invalid token: missing sub")
+        return clerk_user_id
 
     except JWTError:
         raise HTTPException(
@@ -123,25 +82,22 @@ def decode_token(token: str) -> TokenData:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> TokenData | None:
-    """
-    Dependency to get the current authenticated user.
-
-    Returns None if no auth provided (for optional auth).
-    """
     if credentials is None:
         return None
 
-    return decode_token(credentials.credentials)
+    from app.db.postgres import async_session_maker
+    from app.services.user_service import user_service
+
+    clerk_user_id = _verify_clerk_token(credentials.credentials)
+    async with async_session_maker() as session:
+        user = await user_service.get_or_create_by_clerk_id(session, clerk_user_id)
+        await session.commit()
+        return TokenData(user_id=str(user.id), email=user.email or "")
 
 
 async def require_auth(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> TokenData:
-    """
-    Dependency that requires authentication.
-
-    Raises HTTPException if not authenticated.
-    """
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -149,6 +105,11 @@ async def require_auth(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return decode_token(credentials.credentials)
+    from app.db.postgres import async_session_maker
+    from app.services.user_service import user_service
 
-
+    clerk_user_id = _verify_clerk_token(credentials.credentials)
+    async with async_session_maker() as session:
+        user = await user_service.get_or_create_by_clerk_id(session, clerk_user_id)
+        await session.commit()
+        return TokenData(user_id=str(user.id), email=user.email or "")
