@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { SignedIn, SignedOut, RedirectToSignIn, SignIn, SignUp, useAuth } from '@clerk/clerk-react';
+import { Show, useAuth } from '@clerk/react';
 import { useEffect } from 'react';
 import { Navigation } from './components/layout/Navigation';
 import { HomePage } from './pages/HomePage';
@@ -24,8 +24,8 @@ function ClerkTokenSync() {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <SignedIn>{children}</SignedIn>
-      <SignedOut><RedirectToSignIn /></SignedOut>
+      <Show when="signed-in">{children}</Show>
+      <Show when="signed-out"><Navigate to="/sign-in" replace /></Show>
     </>
   );
 }
@@ -35,11 +35,6 @@ export default function App() {
     <div className="min-h-screen bg-slate-50">
       <ClerkTokenSync />
       <Routes>
-        {/* Clerk auth pages */}
-        <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" />} />
-        <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" />} />
-
-        {/* Main app with nav */}
         <Route path="*" element={
           <>
             <Navigation />

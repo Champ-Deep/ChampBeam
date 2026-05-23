@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, Download } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@clerk/react';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
 import { FileUploadZone } from '../components/ui/FileUploadZone';
 import { utmApi } from '../api/utm';

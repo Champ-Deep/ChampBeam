@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, LogIn, UserPlus, Bell } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell } from 'lucide-react';
 import { clsx } from 'clsx';
-import { SignedIn, SignedOut, UserButton, useAuth } from '@clerk/clerk-react';
+import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/Button';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
@@ -69,7 +69,7 @@ export function Navigation() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SignedIn>
+            <Show when="signed-in">
               <div className="relative" ref={bellRef}>
                 <button
                   onClick={() => setShowBell(!showBell)}
@@ -116,23 +116,17 @@ export function Navigation() {
                   </div>
                 )}
               </div>
-              <UserButton afterSignOutUrl="/" />
-            </SignedIn>
+              <UserButton />
+            </Show>
 
-            <SignedOut>
-              <Link to="/sign-in">
-                <Button variant="ghost" size="sm">
-                  <LogIn className="h-4 w-4 mr-1.5" />
-                  Sign In
-                </Button>
-              </Link>
-              <Link to="/sign-up">
-                <Button variant="primary" size="sm">
-                  <UserPlus className="h-4 w-4 mr-1.5" />
-                  Sign Up
-                </Button>
-              </Link>
-            </SignedOut>
+            <Show when="signed-out">
+              <SignInButton>
+                <Button variant="ghost" size="sm">Sign In</Button>
+              </SignInButton>
+              <SignUpButton>
+                <Button variant="primary" size="sm">Sign Up</Button>
+              </SignUpButton>
+            </Show>
           </div>
         </div>
       </div>
