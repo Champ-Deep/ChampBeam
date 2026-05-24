@@ -38,8 +38,11 @@ export function CampaignsPage() {
     <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Campaigns</h1>
-          <p className="text-slate-600 mt-1">Aggregate analytics across all links in each campaign.</p>
+          <h1 className="text-3xl font-bold text-slate-900">Campaign Analytics</h1>
+          <p className="text-slate-600 mt-1">
+            Performance grouped by the <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded">utm_campaign</code> tag on your tracked links. To group links into folders, use{' '}
+            <button onClick={() => navigate('/projects')} className="text-brand-purple hover:underline font-medium">Projects</button>.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <ExportButton onExport={() => utmApi.exportCampaignSummary(dateRange)} />
