@@ -1,14 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, LogOut, LogIn, UserPlus, Bell, Settings, Briefcase } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Briefcase } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/Button';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
-
-interface NavigationProps {
-  isAuthenticated: boolean;
-  onLogout: () => void;
-}
 
 const navLinks = [
   { to: '/', label: 'Generator', icon: Link2 },
@@ -19,13 +15,13 @@ const navLinks = [
   { to: '/campaigns', label: 'Campaign Analytics', icon: Megaphone, requiresAuth: true },
 ];
 
-export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
+export function Navigation() {
   const location = useLocation();
-  const { recentClicks } = useClickNotifications(isAuthenticated);
+  const { isSignedIn } = useAuth();
+  const { recentClicks } = useClickNotifications(!!isSignedIn);
   const [showBell, setShowBell] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
@@ -40,7 +36,6 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
     <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
             <Link2 className="h-7 w-7 text-brand-purple" />
             <span className="text-xl font-bold text-slate-900">
@@ -48,10 +43,9 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
             </span>
           </Link>
 
-          {/* Nav links */}
           <div className="hidden md:flex items-center gap-1">
             {navLinks
-              .filter((link) => !link.requiresAuth || isAuthenticated)
+              .filter((link) => !link.requiresAuth || isSignedIn)
               .map((link) => {
                 const Icon = link.icon;
                 const isActive = link.to === '/'
@@ -75,9 +69,8 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
               })}
           </div>
 
-          {/* Auth buttons + notification bell */}
           <div className="flex items-center gap-2">
-            {isAuthenticated && (
+            <Show when="signed-in">
               <div className="relative" ref={bellRef}>
                 <button
                   onClick={() => setShowBell(!showBell)}
@@ -89,16 +82,13 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
                     <span className="absolute top-1 right-1 w-2 h-2 bg-brand-purple rounded-full" />
                   )}
                 </button>
-
                 {showBell && (
                   <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-slate-200 z-50 max-h-96 overflow-y-auto">
                     <div className="px-4 py-3 border-b border-slate-100">
                       <p className="text-sm font-semibold text-slate-900">Recent Clicks</p>
                     </div>
                     {recentClicks.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-sm text-slate-400">
-                        No recent clicks
-                      </div>
+                      <div className="px-4 py-6 text-center text-sm text-slate-400">No recent clicks</div>
                     ) : (
                       <div className="divide-y divide-slate-100">
                         {recentClicks.slice(0, 10).map((click) => (
@@ -110,7 +100,7 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
                             </p>
                             <p className="text-xs text-slate-500 mt-0.5">
                               {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}
-                              {' \u2022 '}
+                              {' • '}
                               {click.device_type || 'Unknown device'}
                             </p>
                             {click.clicked_at && (
@@ -127,37 +117,17 @@ export function Navigation({ isAuthenticated, onLogout }: NavigationProps) {
                   </div>
                 )}
               </div>
-            )}
+              <UserButton />
+            </Show>
 
-            {isAuthenticated ? (
-              <>
-                <Link to="/settings">
-                  <Button variant="ghost" size="sm">
-                    <Settings className="h-4 w-4 mr-1.5" />
-                    Settings
-                  </Button>
-                </Link>
-                <Button variant="ghost" size="sm" onClick={onLogout}>
-                  <LogOut className="h-4 w-4 mr-1.5" />
-                  Sign Out
-                </Button>
-              </>
-            ) : (
-              <>
-                <Link to="/login">
-                  <Button variant="ghost" size="sm">
-                    <LogIn className="h-4 w-4 mr-1.5" />
-                    Sign In
-                  </Button>
-                </Link>
-                <Link to="/register">
-                  <Button variant="primary" size="sm">
-                    <UserPlus className="h-4 w-4 mr-1.5" />
-                    Sign Up
-                  </Button>
-                </Link>
-              </>
-            )}
+            <Show when="signed-out">
+              <SignInButton>
+                <Button variant="ghost" size="sm">Sign In</Button>
+              </SignInButton>
+              <SignUpButton>
+                <Button variant="primary" size="sm">Sign Up</Button>
+              </SignUpButton>
+            </Show>
           </div>
         </div>
       </div>

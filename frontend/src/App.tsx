@@ -1,11 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './hooks/useAuth';
+import { Show, useAuth } from '@clerk/react';
+import { useEffect } from 'react';
 import { Navigation } from './components/layout/Navigation';
-import { LoginPage } from './pages/LoginPage';
-import { RegisterPage } from './pages/RegisterPage';
-import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
-import { ResetPasswordPage } from './pages/ResetPasswordPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { HomePage } from './pages/HomePage';
 import { PresetsPage } from './pages/PresetsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -16,75 +12,46 @@ import { LinkAnalyticsPage } from './pages/LinkAnalyticsPage';
 import { CampaignsPage } from './pages/CampaignsPage';
 import { CampaignDetailPage } from './pages/CampaignDetailPage';
 import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
-import { LoadingSpinner } from './components/ui/LoadingSpinner';
+import { setTokenGetter } from './api/client';
 
-function ProtectedRoute({ children, isAuthenticated }: { children: React.ReactNode; isAuthenticated: boolean }) {
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-  return <>{children}</>;
+function ClerkTokenSync() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setTokenGetter(() => getToken());
+  }, [getToken]);
+  return null;
+}
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <Show when="signed-in">{children}</Show>
+      <Show when="signed-out"><Navigate to="/sign-in" replace /></Show>
+    </>
+  );
 }
 
 export default function App() {
-  const { isAuthenticated, isLoading, login, register, logout } = useAuth();
-
-  if (isLoading) {
-    return <LoadingSpinner />;
-  }
-
   return (
     <div className="min-h-screen bg-slate-50">
+      <ClerkTokenSync />
       <Routes>
-        {/* Auth pages (no nav) */}
-        <Route path="/login" element={
-          isAuthenticated ? <Navigate to="/" replace /> : <LoginPage onLogin={login} />
-        } />
-        <Route path="/register" element={
-          isAuthenticated ? <Navigate to="/" replace /> : <RegisterPage onRegister={register} />
-        } />
-        <Route path="/forgot-password" element={
-          isAuthenticated ? <Navigate to="/" replace /> : <ForgotPasswordPage />
-        } />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-
-        {/* Main app with nav */}
         <Route path="*" element={
           <>
-            <Navigation isAuthenticated={isAuthenticated} onLogout={logout} />
+            <Navigation />
             <main>
               <Routes>
-                <Route path="/" element={<HomePage isAuthenticated={isAuthenticated} />} />
-                <Route path="/presets" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><PresetsPage /></ProtectedRoute>
-                } />
-                <Route path="/analytics" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><AnalyticsPage /></ProtectedRoute>
-                } />
+                <Route path="/" element={<HomePage />} />
+                <Route path="/presets" element={<ProtectedRoute><PresetsPage /></ProtectedRoute>} />
+                <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
                 <Route path="/performance" element={<Navigate to="/analytics" replace />} />
-                <Route path="/links" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><LinksPage /></ProtectedRoute>
-                } />
-                <Route path="/projects" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><ProjectsPage /></ProtectedRoute>
-                } />
-                <Route path="/projects/:projectId" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><ProjectDetailPage /></ProtectedRoute>
-                } />
-                <Route path="/analytics/link/:linkId" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><LinkAnalyticsPage /></ProtectedRoute>
-                } />
-                <Route path="/campaigns" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignsPage /></ProtectedRoute>
-                } />
-                <Route path="/campaigns/compare" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignComparisonPage /></ProtectedRoute>
-                } />
-                <Route path="/campaigns/:campaignName" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><CampaignDetailPage /></ProtectedRoute>
-                } />
-                <Route path="/settings" element={
-                  <ProtectedRoute isAuthenticated={isAuthenticated}><SettingsPage /></ProtectedRoute>
-                } />
+                <Route path="/links" element={<ProtectedRoute><LinksPage /></ProtectedRoute>} />
+                <Route path="/projects" element={<ProtectedRoute><ProjectsPage /></ProtectedRoute>} />
+                <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
+                <Route path="/analytics/link/:linkId" element={<ProtectedRoute><LinkAnalyticsPage /></ProtectedRoute>} />
+                <Route path="/campaigns" element={<ProtectedRoute><CampaignsPage /></ProtectedRoute>} />
+                <Route path="/campaigns/compare" element={<ProtectedRoute><CampaignComparisonPage /></ProtectedRoute>} />
+                <Route path="/campaigns/:campaignName" element={<ProtectedRoute><CampaignDetailPage /></ProtectedRoute>} />
               </Routes>
             </main>
           </>

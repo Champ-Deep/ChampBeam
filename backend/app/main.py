@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from app.core.config import settings
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
     startup_start = time.time()
 
     logger.info("Starting %s v%s [%s]", settings.app_name, settings.app_version, settings.environment)
+    logger.info("CORS frontend_url=%s | allowed_origins=%s", settings.frontend_url, allowed_origins)
 
     # Initialize PostgreSQL
     try:
@@ -64,14 +66,14 @@ app = FastAPI(
 )
 
 # CORS middleware
-allowed_origins = [settings.frontend_url]
-if settings.environment == "development":
-    allowed_origins.extend([
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ])
+allowed_origins = [
+    "https://champ-utm.vercel.app",
+    settings.frontend_url.rstrip("/"),
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
 
 app.add_middleware(
     CORSMiddleware,

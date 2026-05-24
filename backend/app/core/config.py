@@ -39,10 +39,8 @@ class Settings(BaseSettings):
     # Redis Cache
     redis_url: str = "redis://localhost:6379/0"
 
-    # JWT Authentication
-    jwt_secret_key: str = "your-secret-key-change-in-production"
-    jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 1440  # 24 hours
+    # Clerk
+    clerk_secret_key: str = ""
 
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"
@@ -58,14 +56,6 @@ class Settings(BaseSettings):
     maxmind_db_path: str = "data/GeoLite2-City.mmdb"
     maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
     maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
-
-    # Resend (email delivery)
-    resend_api_key: str = ""
-    resend_from_email: str = "ChampUTM <no-reply@champutm.com>"
-
-    # Password reset
-    password_reset_token_ttl_minutes: int = 30
-    password_reset_path: str = "/reset-password"
 
     @property
     def postgres_url(self) -> str:
