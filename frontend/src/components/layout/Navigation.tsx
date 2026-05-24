@@ -1,8 +1,8 @@
+import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Menu, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
-import { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/Button';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 
@@ -19,6 +19,7 @@ export function Navigation() {
   const { isSignedIn } = useAuth();
   const { recentClicks } = useClickNotifications(!!isSignedIn);
   const [showBell, setShowBell] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,6 +31,12 @@ export function Navigation() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  const visibleLinks = navLinks.filter((link) => !link.requiresAuth || isSignedIn);
 
   return (
     <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
@@ -43,29 +50,27 @@ export function Navigation() {
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
-            {navLinks
-              .filter((link) => !link.requiresAuth || isSignedIn)
-              .map((link) => {
-                const Icon = link.icon;
-                const isActive = link.to === '/'
-                  ? location.pathname === '/'
-                  : location.pathname.startsWith(link.to);
-                return (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    className={clsx(
-                      'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                      isActive
-                        ? 'bg-brand-purple/10 text-brand-purple'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {link.label}
-                  </Link>
-                );
-              })}
+            {visibleLinks.map((link) => {
+              const Icon = link.icon;
+              const isActive = link.to === '/'
+                ? location.pathname === '/'
+                : location.pathname.startsWith(link.to);
+              return (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className={clsx(
+                    'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-brand-purple/10 text-brand-purple'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {link.label}
+                </Link>
+              );
+            })}
           </div>
 
           <div className="flex items-center gap-2">
@@ -120,16 +125,65 @@ export function Navigation() {
             </Show>
 
             <Show when="signed-out">
-              <SignInButton>
-                <Button variant="ghost" size="sm">Sign In</Button>
-              </SignInButton>
-              <SignUpButton>
-                <Button variant="primary" size="sm">Sign Up</Button>
-              </SignUpButton>
+              <div className="hidden md:flex items-center gap-2">
+                <SignInButton>
+                  <Button variant="ghost" size="sm">Sign In</Button>
+                </SignInButton>
+                <SignUpButton>
+                  <Button variant="primary" size="sm">Sign Up</Button>
+                </SignUpButton>
+              </div>
             </Show>
+
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
           </div>
         </div>
       </div>
+
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-slate-200 bg-white">
+          <div className="px-4 py-3 space-y-1">
+            {visibleLinks.map((link) => {
+              const Icon = link.icon;
+              const isActive = link.to === '/'
+                ? location.pathname === '/'
+                : location.pathname.startsWith(link.to);
+              return (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-brand-purple/10 text-brand-purple'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  )}
+                >
+                  <Icon className="h-5 w-5" />
+                  {link.label}
+                </Link>
+              );
+            })}
+          </div>
+          <Show when="signed-out">
+            <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-2">
+              <SignInButton>
+                <Button variant="ghost" size="sm" className="flex-1 justify-center">Sign In</Button>
+              </SignInButton>
+              <SignUpButton>
+                <Button variant="primary" size="sm" className="flex-1 justify-center">Sign Up</Button>
+              </SignUpButton>
+            </div>
+          </Show>
+        </div>
+      )}
     </nav>
   );
 }

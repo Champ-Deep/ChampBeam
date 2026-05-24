@@ -169,7 +169,7 @@ export function LinksPage() {
         </div>
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Main content — Links */}
         <div className="flex-1 min-w-0 space-y-4">
           {/* Search + filter */}
@@ -361,7 +361,7 @@ export function LinksPage() {
         </div>
 
         {/* Right sidebar — Projects */}
-        <div className="w-72 flex-shrink-0 space-y-4">
+        <div className="w-full lg:w-72 flex-shrink-0 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Projects</h2>
             {!showForm && (
