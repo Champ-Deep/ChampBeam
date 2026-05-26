@@ -287,7 +287,7 @@ export const utmApi = {
   // Presets
   async getPresets(): Promise<UTMPreset[]> {
     const response = await api.get<UTMPreset[]>('/utm/presets');
-    return response.data;
+    return Array.isArray(response.data) ? response.data : [];
   },
 
   async createPreset(preset: UTMPresetCreate): Promise<UTMPreset> {
@@ -312,7 +312,7 @@ export const utmApi = {
   // Projects
   async getProjects(): Promise<Project[]> {
     const response = await api.get<Project[]>('/projects');
-    return response.data;
+    return Array.isArray(response.data) ? response.data : [];
   },
 
   async createProject(data: ProjectCreate): Promise<Project> {
