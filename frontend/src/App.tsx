@@ -6,6 +6,7 @@ import { HomePage } from './pages/HomePage';
 import { PresetsPage } from './pages/PresetsPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LinksPage } from './pages/LinksPage';
+import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { LinkAnalyticsPage } from './pages/LinkAnalyticsPage';
 import { CampaignsPage } from './pages/CampaignsPage';
@@ -45,7 +46,7 @@ export default function App() {
                 <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
                 <Route path="/performance" element={<Navigate to="/analytics" replace />} />
                 <Route path="/links" element={<ProtectedRoute><LinksPage /></ProtectedRoute>} />
-                <Route path="/projects" element={<Navigate to="/links" replace />} />
+                <Route path="/projects" element={<ProtectedRoute><ProjectsPage /></ProtectedRoute>} />
                 <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
                 <Route path="/analytics/link/:linkId" element={<ProtectedRoute><LinkAnalyticsPage /></ProtectedRoute>} />
                 <Route path="/campaigns" element={<ProtectedRoute><CampaignsPage /></ProtectedRoute>} />
