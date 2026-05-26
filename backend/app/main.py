@@ -66,6 +66,9 @@ app = FastAPI(
 )
 
 # CORS middleware
+# Exact production + local origins, plus a regex that admits any Vercel
+# preview deployment of this project (champ-utm.vercel.app for prod;
+# champ-utm-git-<branch>-... and champ-utm-<commit>-... for previews).
 allowed_origins = [
     "https://champ-utm.vercel.app",
     settings.frontend_url.rstrip("/"),
@@ -74,10 +77,12 @@ allowed_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
 ]
+allowed_origin_regex = r"^https://champ-utm(-[a-z0-9-]+)?\.vercel\.app$"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept"],
