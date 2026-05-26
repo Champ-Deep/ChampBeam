@@ -7,19 +7,19 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line,
 } from 'recharts';
-import { Card, CardHeader, CardTitle, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, CardHeader, CardTitle, Badge, LoadingSpinner, EmptyState } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
 import { utmApi } from '../api/utm';
 import type {
   UTMOverview, UTMBreakdownItem, PerformanceOverTime,
-  Project, GeoBreakdownItem, DateRangeOpts,
+  Project, GeoBreakdownItem, DateRangeOpts, LinkPerformanceItem,
 } from '../api/utm';
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
-type Tab = 'dashboard' | 'projects';
+type Tab = 'dashboard' | 'projects' | 'links';
 
 export function AnalyticsPage() {
   const navigate = useNavigate();
@@ -42,6 +42,11 @@ export function AnalyticsPage() {
   // Projects tab data
   const [projectOverviews, setProjectOverviews] = useState<Map<string, UTMOverview>>(new Map());
   const [projectsTabLoaded, setProjectsTabLoaded] = useState(false);
+
+  // Links tab data
+  const [linksList, setLinksList] = useState<LinkPerformanceItem[]>([]);
+  const [linksLoading, setLinksLoading] = useState(false);
+  const [linksSearch, setLinksSearch] = useState('');
 
   useEffect(() => {
     utmApi.getProjects().then(setProjects).catch(() => {});
@@ -86,6 +91,26 @@ export function AnalyticsPage() {
   }, [projects]);
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
+
+  // Load links for the Links tab
+  const loadLinks = useCallback(async () => {
+    try {
+      setLinksLoading(true);
+      const data = await utmApi.getLinkPerformance({
+        projectId: projectId || undefined,
+        ...dateRange,
+      });
+      setLinksList(data);
+    } catch {
+      // graceful
+    } finally {
+      setLinksLoading(false);
+    }
+  }, [projectId, dateRange]);
+
+  useEffect(() => {
+    if (activeTab === 'links') loadLinks();
+  }, [activeTab, loadLinks]);
 
   useEffect(() => {
     if (activeTab === 'projects' && !projectsTabLoaded) loadProjectOverviews();
@@ -182,6 +207,17 @@ export function AnalyticsPage() {
                 {projects.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab('links')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'links'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Link2 className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Links
           </button>
         </div>
       </div>
@@ -320,6 +356,124 @@ export function AnalyticsPage() {
               </div>
             </>
           )}
+        </>
+      )}
+
+      {/* Links tab */}
+      {activeTab === 'links' && (
+        <>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <input
+              type="text"
+              placeholder="Search by URL or campaign..."
+              value={linksSearch}
+              onChange={(e) => setLinksSearch(e.target.value)}
+              className="flex-1 min-w-[240px] max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
+            />
+            <p className="text-xs text-slate-500">
+              Click any link to drill into its analytics.
+            </p>
+          </div>
+
+          {linksLoading ? (
+            <LoadingSpinner />
+          ) : (() => {
+            const q = linksSearch.trim().toLowerCase();
+            const filtered = q
+              ? linksList.filter((l) =>
+                  l.original_url.toLowerCase().includes(q) ||
+                  (l.utm_campaign || '').toLowerCase().includes(q) ||
+                  (l.utm_source || '').toLowerCase().includes(q)
+                )
+              : linksList;
+
+            if (filtered.length === 0) {
+              return (
+                <EmptyState
+                  icon={Link2}
+                  title={linksList.length === 0 ? 'No Links Yet' : 'No Matches'}
+                  description={
+                    linksList.length === 0
+                      ? 'Generate UTM links from the Generator to see them here.'
+                      : 'No links match your search. Try a different query.'
+                  }
+                />
+              );
+            }
+
+            return (
+              <Card padding="none">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">UTM Params</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Clicks</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Unique</th>
+                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Analytics</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filtered.map((link) => (
+                        <tr
+                          key={link.link_id}
+                          onClick={() => navigate(`/analytics/link/${link.link_id}`)}
+                          className="hover:bg-brand-purple/5 cursor-pointer transition-colors"
+                        >
+                          <td className="px-4 py-3 text-sm max-w-[280px]">
+                            <span
+                              className="text-brand-purple font-mono text-xs inline-flex items-center gap-1.5"
+                              title={link.original_url}
+                            >
+                              {link.original_url.length > 50
+                                ? link.original_url.slice(0, 50) + '...'
+                                : link.original_url}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-500">
+                            <div className="flex flex-wrap gap-1">
+                              {link.utm_source && (
+                                <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{link.utm_source}</span>
+                              )}
+                              {link.utm_medium && (
+                                <span className="bg-green-50 text-green-700 px-1.5 py-0.5 rounded">{link.utm_medium}</span>
+                              )}
+                              {link.utm_campaign && (
+                                <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded truncate max-w-[140px]" title={link.utm_campaign}>
+                                  {link.utm_campaign}
+                                </span>
+                              )}
+                              {!link.utm_source && !link.utm_medium && !link.utm_campaign && (
+                                <span className="text-gray-400">--</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            {link.project_name ? (
+                              <Badge variant="info" size="sm">{link.project_name}</Badge>
+                            ) : (
+                              <span className="text-gray-400 text-xs">--</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">
+                            {link.click_count.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 text-right">
+                            {link.unique_clicks.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <BarChart3 className="h-4 w-4 text-brand-purple inline" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            );
+          })()}
         </>
       )}
 
