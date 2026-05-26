@@ -55,8 +55,16 @@ export function HomePage() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setHistory(JSON.parse(stored));
-    } catch { /* ignore */ }
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        setHistory(parsed);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+    }
   }, []);
 
   // Fill form from preset
@@ -306,8 +314,8 @@ export function HomePage() {
                 </div>
               )}
 
-              {/* Project selector (auth only, always visible) */}
-              {isAuthenticated && (
+              {/* Project selector (auth only, when projects exist) */}
+              {isAuthenticated && projects.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Project (optional)
