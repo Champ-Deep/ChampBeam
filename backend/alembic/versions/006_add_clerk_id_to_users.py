@@ -1,18 +1,16 @@
 """Add clerk_id to users; relax hashed_password to nullable.
 
-Why this exists: the User model declares ``clerk_id`` (since the
-backend migrated to Clerk session tokens) but no migration ever
-created the column. Every authenticated request 500s in production
-with ``UndefinedColumnError: column users.clerk_id does not exist``.
-We also relax ``hashed_password`` to nullable because Clerk-managed
-users never have a local password to store.
+Idempotent on purpose: the deployed Railway Postgres was originally
+bootstrapped via ``Base.metadata.create_all()``, so it can be in a
+mixed state where some of these changes were already made out-of-band
+(e.g., by a hand-applied ALTER). Using raw SQL with ``IF NOT EXISTS``
+makes this migration safe to run against any of those shapes.
 
 Revision ID: 006_add_clerk_id
 Revises: 52f5b4d7d10e
 Create Date: 2026-05-24 10:00:00.000000
 """
 from alembic import op
-import sqlalchemy as sa
 
 
 revision = "006_add_clerk_id"
@@ -22,30 +20,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "users",
-        sa.Column("clerk_id", sa.String(length=255), nullable=True),
-    )
-    op.create_index(
-        "ix_users_clerk_id",
-        "users",
-        ["clerk_id"],
-        unique=True,
-    )
-    op.alter_column(
-        "users",
-        "hashed_password",
-        existing_type=sa.String(length=255),
-        nullable=True,
-    )
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_id VARCHAR(255)")
+    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_clerk_id ON users (clerk_id)")
+    # DROP NOT NULL is naturally idempotent in Postgres — succeeds whether
+    # the column was previously NOT NULL or already nullable.
+    op.execute("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL")
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "users",
-        "hashed_password",
-        existing_type=sa.String(length=255),
-        nullable=False,
-    )
-    op.drop_index("ix_users_clerk_id", table_name="users")
-    op.drop_column("users", "clerk_id")
+    op.execute("ALTER TABLE users ALTER COLUMN hashed_password SET NOT NULL")
+    op.execute("DROP INDEX IF EXISTS ix_users_clerk_id")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS clerk_id")
