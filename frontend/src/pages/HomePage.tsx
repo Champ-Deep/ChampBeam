@@ -374,15 +374,20 @@ export function HomePage() {
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                   Generated URL
                 </h4>
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 bg-white border border-slate-200 rounded-lg p-3 min-h-[3rem] text-sm break-all font-mono text-slate-700">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                  <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg p-3 min-h-[3rem] text-sm break-all font-mono text-slate-700">
                     {finalUrl || (
                       <span className="text-slate-400 italic">
                         Enter a URL above to generate your trackable link
                       </span>
                     )}
                   </div>
-                  <Button onClick={handleCopy} disabled={!finalUrl} leftIcon={<Copy className="h-4 w-4" />}>
+                  <Button
+                    onClick={handleCopy}
+                    disabled={!finalUrl}
+                    leftIcon={<Copy className="h-4 w-4" />}
+                    className="w-full sm:w-auto flex-shrink-0"
+                  >
                     Copy
                   </Button>
                 </div>
@@ -391,8 +396,8 @@ export function HomePage() {
                     <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                       Redirect URL
                     </h4>
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 bg-white border border-slate-200 rounded-lg p-3 text-sm break-all font-mono text-brand-purple">
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                      <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg p-3 text-sm break-all font-mono text-brand-purple">
                         {lastGenerateResponse.redirect_url}
                       </div>
                       <Button
@@ -401,6 +406,7 @@ export function HomePage() {
                           toast.success('Redirect URL copied to clipboard');
                         }}
                         leftIcon={<Copy className="h-4 w-4" />}
+                        className="w-full sm:w-auto flex-shrink-0"
                       >
                         Copy Redirect URL
                       </Button>
