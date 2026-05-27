@@ -9,8 +9,11 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+import re
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,6 +93,38 @@ app.add_middleware(
 
 # Rate limiting
 setup_rate_limiting(app)
+
+
+# Belt-and-suspenders: if anything escapes the route handlers, make sure the
+# 500 response still carries the CORS header the browser needs. Without this,
+# Starlette's default 500 path can produce a response that the browser reports
+# as a CORS error instead of a 500, which makes diagnosis painful.
+_allowed_origin_regex = re.compile(allowed_origin_regex)
+
+
+def _cors_origin_for(request: Request) -> str | None:
+    origin = request.headers.get("origin")
+    if not origin:
+        return None
+    if origin in allowed_origins or _allowed_origin_regex.match(origin):
+        return origin
+    return None
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    headers: dict[str, str] = {}
+    origin = _cors_origin_for(request)
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers=headers,
+    )
 
 
 @app.get("/", tags=["Root"])
