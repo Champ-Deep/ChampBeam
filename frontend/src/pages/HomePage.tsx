@@ -139,10 +139,10 @@ export function HomePage() {
       }
     }
 
-    // Copy the redirect URL (trackable) if available, otherwise the UTM URL
+    // Copy the short link (trackable) if available, otherwise the UTM URL
     const urlToCopy = redirectUrl || finalUrl;
     navigator.clipboard.writeText(urlToCopy);
-    toast.success(redirectUrl ? 'Trackable redirect URL copied' : 'URL copied to clipboard');
+    toast.success(redirectUrl ? 'Short link generated and copied' : 'URL copied to clipboard');
 
     // Save to localStorage history with redirect URL
     const newHistory = [
@@ -278,7 +278,7 @@ export function HomePage() {
               <li>Download the CSV template or prepare your own CSV with a <code className="bg-white px-1 py-0.5 rounded text-brand-purple">url</code> column.</li>
               <li>Optionally include <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_source</code>, <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_medium</code>, etc. columns for per-row overrides.</li>
               <li>Select a preset if you want default UTM values applied to all rows.</li>
-              <li>Upload the CSV — a processed file with <code className="bg-white px-1 py-0.5 rounded text-brand-purple">tracked_url</code> column will download automatically.</li>
+              <li>Upload the CSV — a processed file with <code className="bg-white px-1 py-0.5 rounded text-brand-purple">tracked_url</code> and <code className="bg-white px-1 py-0.5 rounded text-brand-purple">short_link</code> columns will download automatically. Every short link is tracked, so opens by region and device show up on the Analytics page.</li>
             </ol>
           </Card>
         </div>
@@ -401,13 +401,13 @@ export function HomePage() {
                     leftIcon={<Copy className="h-4 w-4" />}
                     className="w-full sm:w-auto flex-shrink-0"
                   >
-                    Copy
+                    {isAuthenticated ? 'Generate' : 'Copy'}
                   </Button>
                 </div>
                 {lastGenerateResponse?.redirect_url && (
                   <div className="mt-3">
                     <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                      Redirect URL
+                      Short Link
                     </h4>
                     <div className="flex flex-col sm:flex-row sm:items-start gap-3">
                       <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg p-3 text-sm break-all font-mono text-brand-purple">
@@ -416,18 +416,18 @@ export function HomePage() {
                       <Button
                         onClick={() => {
                           navigator.clipboard.writeText(lastGenerateResponse.redirect_url!);
-                          toast.success('Redirect URL copied to clipboard');
+                          toast.success('Short link copied');
                         }}
                         leftIcon={<Copy className="h-4 w-4" />}
                         className="w-full sm:w-auto flex-shrink-0"
                       >
-                        Copy Redirect URL
+                        Copy Short Link
                       </Button>
                     </div>
                     {lastGenerateResponse.link_id && (
                       <div className="mt-3 flex items-center justify-between bg-brand-purple/5 border border-brand-purple/20 rounded-lg p-3">
                         <p className="text-sm text-slate-700">
-                          This link is being tracked. Open the redirect URL once and clicks will appear here.
+                          This link is being tracked. Open the short link once and clicks will appear here.
                         </p>
                         <Link to={`/analytics/link/${lastGenerateResponse.link_id}`}>
                           <Button variant="outline" size="sm" leftIcon={<BarChart3 className="h-4 w-4" />}>

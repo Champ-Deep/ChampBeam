@@ -45,9 +45,10 @@ class Settings(BaseSettings):
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"
 
-    # Base URL for redirect short links (e.g., https://api.champutm.com)
-    # Defaults to http://localhost:8000 for local dev. Set in production env.
-    redirect_base_url: str = "http://localhost:8000"
+    # Optional override for short-link base URL (e.g. behind a reverse proxy
+    # that rewrites Host). When unset, _build_redirect_url falls back to
+    # request.base_url so the URL always matches the host the client used.
+    redirect_base_url: str = ""
 
     # GeoIP Configuration
     # "maxmind" uses local GeoLite2-City.mmdb file (recommended for production)

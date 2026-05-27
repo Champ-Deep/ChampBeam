@@ -134,11 +134,23 @@ class UTMOverviewResponse(BaseModel):
 # ============================================================================
 
 
-def _build_redirect_url(short_code: str | None) -> str | None:
-    """Build a full redirect URL from a short code."""
+def _build_redirect_url(short_code: str | None, request: Request | None = None) -> str | None:
+    """Build a full redirect URL from a short code.
+
+    Prefers ``request.base_url`` so the URL always matches the host the
+    client used. Falls back to ``settings.redirect_base_url`` when an
+    explicit override is configured (useful behind a reverse proxy that
+    rewrites Host).
+    """
     if not short_code:
         return None
-    base = settings.redirect_base_url.rstrip("/") if settings.redirect_base_url else ""
+    override = settings.redirect_base_url.rstrip("/") if settings.redirect_base_url else ""
+    if override:
+        base = override
+    elif request is not None:
+        base = str(request.base_url).rstrip("/")
+    else:
+        base = ""
     return f"{base}/r/{short_code}"
 
 
@@ -253,7 +265,7 @@ async def generate_utm_link(
         )
         link_id = str(link.id)
         short_code = link.short_code
-        redirect_url = _build_redirect_url(link.short_code)
+        redirect_url = _build_redirect_url(link.short_code, request)
         if link.short_code:
             # The short URL is handled by the backend routing directly (/s/{short_code})
             # Use request.base_url to construct the absolute URL.
@@ -349,6 +361,7 @@ async def update_link(
 
 @router.post("/bulk/generate")
 async def generate_bulk_utm_links(
+    request: Request,
     file: UploadFile = File(...),
     preset_id: Optional[str] = Query(default=None),
     user: TokenData = Depends(require_auth),
@@ -357,7 +370,9 @@ async def generate_bulk_utm_links(
     """Process a CSV of URLs and append UTM parameters.
 
     CSV must have a 'url' column. Can optionally include utm_source,
-    utm_medium, etc. columns to override per row.
+    utm_medium, etc. columns to override per row. Every row is persisted
+    as a trackable short link so the resulting URLs can be sent out and
+    measured via per-link analytics.
     """
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a CSV")
@@ -382,7 +397,14 @@ async def generate_bulk_utm_links(
                     default_params[key] = val
 
     try:
-        result_csv = utm_service.process_bulk_csv(csv_content, default_params)
+        result_csv = await utm_service.process_bulk_csv(
+            csv_content,
+            default_params,
+            user_id=user.user_id,
+            session=session,
+            short_link_builder=lambda code: _build_redirect_url(code, request),
+        )
+        await session.commit()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -706,6 +728,7 @@ async def get_utm_breakdown(
 
 @router.get("/analytics/links", response_model=List[LinkPerformanceItem])
 async def get_link_performance(
+    request: Request,
     project_name: Optional[str] = Query(default=None, description="Filter by project name"),
     project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
     days: int = Query(default=30, ge=1, le=365),
@@ -740,7 +763,7 @@ async def get_link_performance(
             link_id=str(link.id),
             original_url=link.original_url,
             tracked_url=link.tracked_url,
-            redirect_url=_build_redirect_url(link.short_code),
+            redirect_url=_build_redirect_url(link.short_code, request),
             short_code=link.short_code,
             anchor_text=link.anchor_text,
             utm_source=link.utm_source,
@@ -1380,6 +1403,7 @@ async def get_campaign_devices(
 @router.get("/analytics/campaigns/{campaign_name}/links")
 async def get_campaign_links(
     campaign_name: str,
+    request: Request,
     days: int = Query(default=90, ge=1, le=365),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
@@ -1406,7 +1430,7 @@ async def get_campaign_links(
             "link_id": str(link.id),
             "original_url": link.original_url,
             "tracked_url": link.tracked_url,
-            "redirect_url": _build_redirect_url(link.short_code),
+            "redirect_url": _build_redirect_url(link.short_code, request),
             "short_code": link.short_code,
             "utm_source": link.utm_source,
             "utm_medium": link.utm_medium,

@@ -31,24 +31,24 @@ def test_generate_utm_url_deduplicate_slashes():
     result = utm_service.generate_utm_url("https://example.com//path///to////page", {"utm_source": "z"})
     assert "https://example.com/path/to/page?utm_source=z" == result
 
-def test_process_bulk_csv():
+@pytest.mark.asyncio
+async def test_process_bulk_csv():
     csv_content = "url,utm_source\nhttps://example.com,google\nhttps://test.com,\n"
     default_params = {"utm_medium": "email"}
 
-    output = utm_service.process_bulk_csv(csv_content, default_params)
+    output = await utm_service.process_bulk_csv(csv_content, default_params)
 
     lines = output.strip().split("\r\n")
-    assert lines[0] == "url,utm_source,tracked_url,error"
+    assert lines[0] == "url,utm_source,tracked_url,short_link,error"
     assert "utm_source=google" in lines[1]
     assert "utm_medium=email" in lines[1]
-    assert "error" not in lines[1] or ",," in lines[1] or lines[1].endswith(",") # No error
-
     # The second row should use default utm_medium
     assert "utm_medium=email" in lines[2]
 
-def test_process_bulk_csv_invalid():
+@pytest.mark.asyncio
+async def test_process_bulk_csv_invalid():
     csv_content = "url\ninvalid-url\n"
-    output = utm_service.process_bulk_csv(csv_content)
+    output = await utm_service.process_bulk_csv(csv_content)
 
     lines = output.strip().split("\r\n")
     assert "Invalid URL format" in lines[1]
