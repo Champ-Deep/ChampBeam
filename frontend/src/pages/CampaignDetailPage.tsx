@@ -127,7 +127,7 @@ export function CampaignDetailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-green-600 font-medium">Total Clicks</p>
-              <p className="text-2xl font-bold text-green-900">{detail.total_clicks.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-green-900">{(detail.total_clicks ?? 0).toLocaleString()}</p>
             </div>
             <div className="w-12 h-12 bg-green-200 rounded-lg flex items-center justify-center">
               <MousePointer className="w-6 h-6 text-green-600" />
@@ -138,7 +138,7 @@ export function CampaignDetailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-purple-600 font-medium">Unique Clicks</p>
-              <p className="text-2xl font-bold text-purple-900">{detail.unique_clicks.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-purple-900">{(detail.unique_clicks ?? 0).toLocaleString()}</p>
             </div>
             <div className="w-12 h-12 bg-purple-200 rounded-lg flex items-center justify-center">
               <ExternalLink className="w-6 h-6 text-purple-600" />
@@ -149,7 +149,7 @@ export function CampaignDetailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-amber-600 font-medium">Click Rate</p>
-              <p className="text-2xl font-bold text-amber-900">{detail.click_rate.toFixed(1)}%</p>
+              <p className="text-2xl font-bold text-amber-900">{(detail.click_rate ?? 0).toFixed(1)}%</p>
             </div>
             <div className="w-12 h-12 bg-amber-200 rounded-lg flex items-center justify-center">
               <BarChart3 className="w-6 h-6 text-amber-600" />

@@ -204,7 +204,7 @@ export function LinkAnalyticsPage() {
             <div>
               <p className="text-sm text-green-600 font-medium">Total Clicks</p>
               <p className="text-2xl font-bold text-green-900">
-                {linkInfo.click_count.toLocaleString()}
+                {(linkInfo.click_count ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="w-12 h-12 bg-green-200 rounded-lg flex items-center justify-center">
@@ -218,7 +218,7 @@ export function LinkAnalyticsPage() {
             <div>
               <p className="text-sm text-purple-600 font-medium">Unique Clicks</p>
               <p className="text-2xl font-bold text-purple-900">
-                {linkInfo.unique_clicks.toLocaleString()}
+                {(linkInfo.unique_clicks ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-200 rounded-lg flex items-center justify-center">

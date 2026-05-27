@@ -93,11 +93,11 @@ export function CampaignsPage() {
                   </div>
                   <div className="text-center">
                     <div className="flex items-center gap-1 text-slate-500"><MousePointer className="h-3.5 w-3.5" /> Clicks</div>
-                    <p className="font-bold text-slate-900">{c.total_clicks.toLocaleString()}</p>
+                    <p className="font-bold text-slate-900">{(c.total_clicks ?? 0).toLocaleString()}</p>
                   </div>
                   <div className="text-center">
                     <div className="flex items-center gap-1 text-slate-500"><TrendingUp className="h-3.5 w-3.5" /> Rate</div>
-                    <p className="font-bold text-slate-900">{c.click_rate.toFixed(1)}%</p>
+                    <p className="font-bold text-slate-900">{(c.click_rate ?? 0).toFixed(1)}%</p>
                   </div>
                 </div>
               </div>

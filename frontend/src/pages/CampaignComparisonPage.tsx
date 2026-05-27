@@ -111,9 +111,9 @@ export function CampaignComparisonPage() {
                 <h3 className="font-semibold text-slate-900 mb-2 truncate">{c.campaign}</h3>
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500">Links</span><span className="font-medium">{c.total_links}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Clicks</span><span className="font-medium">{c.total_clicks.toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Unique</span><span className="font-medium">{c.unique_clicks.toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Rate</span><span className="font-medium">{c.click_rate.toFixed(1)}%</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Clicks</span><span className="font-medium">{(c.total_clicks ?? 0).toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Unique</span><span className="font-medium">{(c.unique_clicks ?? 0).toLocaleString()}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Rate</span><span className="font-medium">{(c.click_rate ?? 0).toFixed(1)}%</span></div>
                 </div>
               </Card>
             ))}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, Download } from 'lucide-react';
+import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, Download, BarChart3 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@clerk/react';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
@@ -23,6 +23,7 @@ interface HistoryItem {
 export function HomePage() {
   const { isSignedIn } = useAuth();
   const isAuthenticated = !!isSignedIn;
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<GeneratorMode>('single');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -129,6 +130,10 @@ export function HomePage() {
         setLastGenerateResponse(response);
         redirectUrl = response.redirect_url || undefined;
         linkId = response.link_id || undefined;
+        // Bump the projects cache so the per-project counts on the
+        // Generator + Analytics pages reflect the new link immediately
+        // rather than waiting for react-query's 5-minute staleTime.
+        queryClient.invalidateQueries({ queryKey: ['projects'] });
       } catch {
         // Non-blocking — fall back to copying the UTM URL
       }
@@ -413,6 +418,18 @@ export function HomePage() {
                         Copy Redirect URL
                       </Button>
                     </div>
+                    {lastGenerateResponse.link_id && (
+                      <div className="mt-3 flex items-center justify-between bg-brand-purple/5 border border-brand-purple/20 rounded-lg p-3">
+                        <p className="text-sm text-slate-700">
+                          This link is being tracked. Open the redirect URL once and clicks will appear here.
+                        </p>
+                        <Link to={`/analytics/link/${lastGenerateResponse.link_id}`}>
+                          <Button variant="outline" size="sm" leftIcon={<BarChart3 className="h-4 w-4" />}>
+                            View Analytics
+                          </Button>
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

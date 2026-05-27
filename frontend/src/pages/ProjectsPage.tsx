@@ -200,7 +200,7 @@ export function ProjectsPage() {
                   </div>
                   <div className="flex items-center gap-1.5" title="Total Clicks">
                     <MousePointerClick className="h-3.5 w-3.5 text-gray-400" />
-                    <span>{project.total_clicks.toLocaleString()} {project.total_clicks === 1 ? 'click' : 'clicks'}</span>
+                    <span>{(project.total_clicks ?? 0).toLocaleString()} {project.total_clicks === 1 ? 'click' : 'clicks'}</span>
                   </div>
                 </div>
 
