@@ -288,10 +288,15 @@ class UTMService:
     # Bulk CSV processing
     # ------------------------------------------------------------------
 
-    def process_bulk_csv(
+    async def process_bulk_csv(
         self,
         csv_content: str,
         default_params: Optional[Dict[str, str]] = None,
+        *,
+        user_id: Optional[str] = None,
+        session: Optional[AsyncSession] = None,
+        project_id: Optional[UUID] = None,
+        short_link_builder: Optional[Any] = None,
     ) -> str:
         """Process a CSV of URLs and append UTM parameters.
 
@@ -299,48 +304,44 @@ class UTMService:
         utm_source, utm_medium, utm_campaign, utm_content, utm_term
         columns to override defaults per row.
 
-        Parameters
-        ----------
-        csv_content : str
-            Raw CSV string.
-        default_params : dict or None
-            Default UTM params applied when row-level values are empty.
+        When ``user_id`` and ``session`` are provided, every row is
+        persisted via :meth:`record_link` so each generated URL has a
+        trackable short code. ``short_link_builder`` is an optional
+        callable ``(short_code: str) -> str`` used to populate a
+        ``short_link`` column in the output CSV.
 
-        Returns
-        -------
-        str
-            CSV string with a `tracked_url` column appended.
+        Returns CSV string with ``tracked_url``, ``short_link``, and
+        ``error`` columns appended (``short_link`` left blank when
+        tracking is not enabled).
         """
         default_params = default_params or {}
+        track = user_id is not None and session is not None
 
         reader = csv.DictReader(io.StringIO(csv_content))
         if not reader.fieldnames or "url" not in reader.fieldnames:
             raise ValueError("CSV must contain a 'url' column")
 
-        output_fields = list(reader.fieldnames) + ["tracked_url", "error"]
+        output_fields = list(reader.fieldnames) + ["tracked_url", "short_link", "error"]
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=output_fields)
         writer.writeheader()
 
-        for row_num, row in enumerate(reader, start=2): # Header is line 1
+        for row in reader:
             base_url = row.get("url", "").strip()
             row["error"] = ""
             row["tracked_url"] = ""
+            row["short_link"] = ""
 
             if not base_url:
                 row["error"] = "Missing URL"
                 writer.writerow(row)
                 continue
 
-            # Basic validation
-            # urlparse adds https:// automatically below during generate, but if it has no netloc and no valid path...
-            # A better heuristic for CSV is if it doesn't look like a valid URL or domain
             if "." not in base_url and "localhost" not in base_url and not base_url.startswith("http"):
                 row["error"] = "Invalid URL format"
                 writer.writerow(row)
                 continue
 
-            # Row-level UTM params override defaults
             params = dict(default_params)
             for key in UTM_KEYS:
                 row_value = row.get(key, "").strip()
@@ -348,9 +349,28 @@ class UTMService:
                     params[key] = row_value
 
             try:
-                row["tracked_url"] = self.generate_utm_url(base_url, params)
+                tracked = self.generate_utm_url(base_url, params)
+                row["tracked_url"] = tracked
             except Exception as e:
                 row["error"] = f"Failed to generate: {str(e)}"
+                writer.writerow(row)
+                continue
+
+            if track:
+                try:
+                    link = await self.record_link(
+                        user_id=user_id,
+                        original_url=base_url if base_url.startswith("http") else f"https://{base_url}",
+                        tracked_url=tracked,
+                        utm_params=params,
+                        project_id=project_id,
+                        session=session,
+                    )
+                    if link.short_code and short_link_builder is not None:
+                        row["short_link"] = short_link_builder(link.short_code) or ""
+                except Exception as e:
+                    logger.exception("bulk: failed to persist trackable link for %s", base_url)
+                    row["error"] = f"Tracking failed: {str(e)}"
 
             writer.writerow(row)
 
