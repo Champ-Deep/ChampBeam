@@ -11,6 +11,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -79,7 +80,13 @@ class UserService:
         return user is not None
 
     async def get_or_create_by_clerk_id(self, session: AsyncSession, clerk_id: str) -> User:
-        """Look up a user by Clerk ID, creating a stub row on first auth."""
+        """Look up a user by Clerk ID, creating a stub row on first auth.
+
+        Race-safe: if two concurrent requests for a brand-new Clerk ID try to
+        INSERT at the same time, one will hit the unique constraint on
+        ``clerk_id``. We catch that, roll back, and re-SELECT to return the
+        row the winner just created.
+        """
         result = await session.execute(
             select(User).where(User.clerk_id == clerk_id)
         )
@@ -94,8 +101,18 @@ class UserService:
             is_active=True,
         )
         session.add(user)
-        await session.flush()
-        return user
+        try:
+            await session.flush()
+            return user
+        except IntegrityError:
+            await session.rollback()
+            result = await session.execute(
+                select(User).where(User.clerk_id == clerk_id)
+            )
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                raise
+            return existing
 
 
 # Singleton instance

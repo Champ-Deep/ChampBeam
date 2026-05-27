@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Briefcase, Menu, X } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Menu, X } from 'lucide-react';
 
 import { clsx } from 'clsx';
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
@@ -11,7 +11,6 @@ import { useClickNotifications } from '../../hooks/useClickNotifications';
 const navLinks = [
   { to: '/', label: 'Generator', icon: Link2 },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
-  { to: '/projects', label: 'Projects', icon: Briefcase, requiresAuth: true },
   { to: '/presets', label: 'Presets', icon: BookmarkCheck, requiresAuth: true },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, requiresAuth: true },
   { to: '/campaigns', label: 'Campaign Analytics', icon: Megaphone, requiresAuth: true },
