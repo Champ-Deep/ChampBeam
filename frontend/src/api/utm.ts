@@ -247,6 +247,14 @@ function _downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// Coerce an API response to an array so a single odd response shape
+// (null, an unexpected object, an HTML error page, etc.) can't take a
+// page down via `.map`. All list-returning endpoints below go through
+// this. Pages are still expected to handle empty arrays gracefully.
+function _arr<T>(data: unknown): T[] {
+  return Array.isArray(data) ? (data as T[]) : [];
+}
+
 // ============================================================
 // UTM API
 // ============================================================
@@ -287,7 +295,7 @@ export const utmApi = {
   // Presets
   async getPresets(): Promise<UTMPreset[]> {
     const response = await api.get<UTMPreset[]>('/utm/presets');
-    return Array.isArray(response.data) ? response.data : [];
+    return _arr<UTMPreset>(response.data);
   },
 
   async createPreset(preset: UTMPresetCreate): Promise<UTMPreset> {
@@ -312,7 +320,7 @@ export const utmApi = {
   // Projects
   async getProjects(): Promise<Project[]> {
     const response = await api.get<Project[]>('/projects');
-    return Array.isArray(response.data) ? response.data : [];
+    return _arr<Project>(response.data);
   },
 
   async createProject(data: ProjectCreate): Promise<Project> {
@@ -351,7 +359,7 @@ export const utmApi = {
     const response = await api.get<UTMBreakdownItem[]>(
       `/utm/analytics/breakdown?${params.toString()}`
     );
-    return response.data;
+    return _arr<UTMBreakdownItem>(response.data);
   },
 
   async getLinkPerformance(
@@ -363,7 +371,7 @@ export const utmApi = {
     const response = await api.get<LinkPerformanceItem[]>(
       _appendQuery('/utm/analytics/links', params)
     );
-    return response.data;
+    return _arr<LinkPerformanceItem>(response.data);
   },
 
   async getPerformanceOverTime(
@@ -384,7 +392,7 @@ export const utmApi = {
     const response = await api.get<ClickEvent[]>(
       _appendQuery(`/utm/analytics/links/${linkId}/events`, params)
     );
-    return response.data;
+    return _arr<ClickEvent>(response.data);
   },
 
   async getLinkGeoBreakdown(linkId: string, opts?: DateRangeOpts & { level?: string }): Promise<GeoBreakdownItem[]> {
@@ -393,7 +401,7 @@ export const utmApi = {
     const response = await api.get<GeoBreakdownItem[]>(
       _appendQuery(`/utm/analytics/links/${linkId}/geo`, params)
     );
-    return response.data;
+    return _arr<GeoBreakdownItem>(response.data);
   },
 
   async getLinkDeviceBreakdown(linkId: string, opts?: DateRangeOpts): Promise<DeviceBreakdown> {
@@ -414,7 +422,7 @@ export const utmApi = {
     const response = await api.get<CampaignSummary[]>(
       _appendQuery('/utm/analytics/campaigns', params)
     );
-    return response.data;
+    return _arr<CampaignSummary>(response.data);
   },
 
   async getCampaignDetail(name: string, opts?: DateRangeOpts): Promise<CampaignDetail> {
@@ -431,7 +439,7 @@ export const utmApi = {
     const response = await api.get<GeoBreakdownItem[]>(
       _appendQuery(`/utm/analytics/campaigns/${encodeURIComponent(name)}/geo`, params)
     );
-    return response.data;
+    return _arr<GeoBreakdownItem>(response.data);
   },
 
   async getCampaignDevices(name: string, opts?: DateRangeOpts): Promise<DeviceBreakdown> {
@@ -447,7 +455,7 @@ export const utmApi = {
     const response = await api.get<LinkPerformanceItem[]>(
       _appendQuery(`/utm/analytics/campaigns/${encodeURIComponent(name)}/links`, params)
     );
-    return response.data;
+    return _arr<LinkPerformanceItem>(response.data);
   },
 
   async getCampaignTimeline(name: string, opts?: DateRangeOpts): Promise<{ campaign: string; data: CampaignTimelinePoint[] }> {
@@ -455,7 +463,11 @@ export const utmApi = {
     const response = await api.get(
       _appendQuery(`/utm/analytics/campaigns/${encodeURIComponent(name)}/timeline`, params)
     );
-    return response.data;
+    const raw = response.data as { campaign?: string; data?: unknown } | null;
+    return {
+      campaign: raw?.campaign ?? name,
+      data: _arr<CampaignTimelinePoint>(raw?.data),
+    };
   },
 
   async compareCampaigns(campaigns: string[], opts?: DateRangeOpts): Promise<{ campaigns: CampaignComparisonItem[] }> {
@@ -464,7 +476,8 @@ export const utmApi = {
     const response = await api.get(
       _appendQuery('/utm/analytics/campaigns/compare', params)
     );
-    return response.data;
+    const raw = response.data as { campaigns?: unknown } | null;
+    return { campaigns: _arr<CampaignComparisonItem>(raw?.campaigns) };
   },
 
   // ============================================================
@@ -479,7 +492,7 @@ export const utmApi = {
     const response = await api.get<GeoBreakdownItem[]>(
       _appendQuery('/utm/analytics/geo/overview', params)
     );
-    return response.data;
+    return _arr<GeoBreakdownItem>(response.data);
   },
 
   // ============================================================
@@ -522,7 +535,7 @@ export const utmApi = {
 
   async getTags(): Promise<LinkTag[]> {
     const response = await api.get<LinkTag[]>('/utm/tags');
-    return response.data;
+    return _arr<LinkTag>(response.data);
   },
 
   async createTag(name: string, color?: string): Promise<LinkTag> {
@@ -552,7 +565,7 @@ export const utmApi = {
     const response = await api.get<RecentClick[]>(
       _appendQuery('/utm/analytics/clicks/recent', params)
     );
-    return response.data;
+    return _arr<RecentClick>(response.data);
   },
 };
 
