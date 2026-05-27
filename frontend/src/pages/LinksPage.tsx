@@ -315,12 +315,12 @@ export function LinksPage() {
 
                         {/* Clicks */}
                         <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">
-                          {link.click_count.toLocaleString()}
+                          {(link.click_count ?? 0).toLocaleString()}
                         </td>
 
                         {/* Unique */}
                         <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                          {link.unique_clicks.toLocaleString()}
+                          {(link.unique_clicks ?? 0).toLocaleString()}
                         </td>
 
                         {/* Created */}
@@ -468,7 +468,7 @@ export function LinksPage() {
                             <Link2 className="h-3 w-3" /> {project.link_count}
                           </span>
                           <span className="flex items-center gap-0.5">
-                            <MousePointerClick className="h-3 w-3" /> {project.total_clicks.toLocaleString()}
+                            <MousePointerClick className="h-3 w-3" /> {(project.total_clicks ?? 0).toLocaleString()}
                           </span>
                         </div>
                       </div>

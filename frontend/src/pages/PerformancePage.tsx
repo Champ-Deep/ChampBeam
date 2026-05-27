@@ -167,10 +167,10 @@ export function PerformancePage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 font-semibold text-right">
-                      {link.click_count.toLocaleString()}
+                      {(link.click_count ?? 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 text-right">
-                      {link.unique_clicks.toLocaleString()}
+                      {(link.unique_clicks ?? 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-sm max-w-xs">
                       {link.redirect_url ? (
