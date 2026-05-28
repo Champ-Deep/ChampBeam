@@ -27,10 +27,12 @@ async def redirect_link(
 ):
     """Redirect a short code to its destination, recording the click best-effort.
 
-    Click tracking is wrapped so that a tracking failure (e.g. schema drift
-    on a not-yet-migrated database) never blocks the redirect itself —
-    sending the user to the right page is the contract of this endpoint;
-    analytics are a bonus.
+    The click counter increment and the ``click_events`` row insert are
+    performed against independent sessions so a failure in one (e.g. a
+    legacy DB missing a column on ``click_events``) cannot prevent the
+    other from committing. The redirect itself always returns 302 — sending
+    the user to the right page is the contract of this endpoint; analytics
+    are a bonus.
     """
     try:
         result = await session.execute(
@@ -48,33 +50,42 @@ async def redirect_link(
     if not destination:
         return RedirectResponse(url="/", status_code=302)
 
-    # Best-effort click recording. Any failure (missing column, bad UA
-    # string, etc.) is swallowed after rolling back so the response below
-    # still goes out.
-    try:
-        ip_address = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        if not ip_address:
-            ip_address = request.client.host if request.client else None
-        user_agent = request.headers.get("User-Agent")
-        referrer = request.headers.get("Referer")
+    ip_address = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    if not ip_address:
+        ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("User-Agent")
+    referrer = request.headers.get("Referer")
+    link_id = link.id
 
-        event = await utm_service.record_click_event(
-            link=link,
+    # Step 1: bump counters via a fresh session + raw UPDATE on link_clicks.
+    # This commits independently of any click_events trouble, so analytics
+    # (clicks / unique clicks) keep working even when the events table is
+    # broken.
+    try:
+        await utm_service.bump_click_counter(link_id, ip_address)
+    except Exception:
+        logger.exception(
+            "redirect: counter bump failed for short_code=%s link_id=%s",
+            short_code, link_id,
+        )
+
+    # Step 2: best-effort event insert in its own session. Failures here
+    # don't roll back the counter increment above.
+    try:
+        event_id = await utm_service.insert_click_event(
+            link_id=link_id,
             ip_address=ip_address,
             user_agent_str=user_agent,
             referrer=referrer,
-            session=session,
         )
-
-        if ip_address:
+        if event_id and ip_address:
             background_tasks.add_task(
-                utm_service.resolve_geo_for_event, event.id, ip_address,
+                utm_service.resolve_geo_for_event, event_id, ip_address,
             )
     except Exception:
-        logger.exception("redirect: click tracking failed for short_code=%s", short_code)
-        try:
-            await session.rollback()
-        except Exception:
-            logger.exception("redirect: rollback after tracking failure also failed")
+        logger.exception(
+            "redirect: click event insert failed for short_code=%s link_id=%s",
+            short_code, link_id,
+        )
 
     return RedirectResponse(url=destination, status_code=302)
