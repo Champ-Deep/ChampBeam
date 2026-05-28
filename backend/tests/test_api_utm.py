@@ -55,3 +55,58 @@ async def test_redirect_endpoint_mocked():
         assert response.json()["detail"] == "Short link not found"
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_r_redirect_survives_click_tracking_failure(monkeypatch):
+    """If click tracking blows up (e.g. legacy schema missing columns), the
+    /r/ redirect must still return 302 to the link's destination."""
+    from uuid import uuid4
+
+    from app.db.postgres import get_db_session
+    from app.models.utm import LinkClick
+    from app.services.utm_service import utm_service
+
+    destination = "https://example.com/landing?utm_source=test"
+    link = LinkClick(
+        id=uuid4(),
+        user_id=uuid4(),
+        short_code="ABC1234",
+        original_url="https://example.com/landing",
+        tracked_url=destination,
+    )
+
+    class _Result:
+        def scalar_one_or_none(self_inner):
+            return link
+
+    class _Session:
+        async def execute(self_inner, _query):
+            return _Result()
+
+        async def rollback(self_inner):
+            return None
+
+        async def commit(self_inner):
+            return None
+
+    async def override_get_db():
+        yield _Session()
+
+    async def _boom(**_kwargs):
+        raise RuntimeError("simulated: click_events.is_vpn column missing")
+
+    monkeypatch.setattr(utm_service, "record_click_event", _boom)
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            follow_redirects=False,
+        ) as client:
+            response = await client.get("/r/ABC1234")
+            assert response.status_code == 302
+            assert response.headers["location"] == destination
+    finally:
+        app.dependency_overrides.clear()
