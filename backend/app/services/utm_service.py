@@ -321,16 +321,25 @@ class UTMService:
         :meth:`bump_click_counter` so this can fail independently."""
         ua_info = parse_user_agent(user_agent_str or "")
         event_id = uuid4()
+
+        # Clamp every VARCHAR field to its column length so a freakishly
+        # long UA / Railway-edge IP chain can never raise
+        # ``StringDataRightTruncation`` and lose the click event entirely.
+        def _clip(value: Optional[str], length: int) -> Optional[str]:
+            if value is None:
+                return None
+            return value[:length]
+
         async with async_session_maker() as session:
             event = ClickEvent(
                 id=event_id,
                 link_id=link_id,
-                ip_address=ip_address,
+                ip_address=_clip(ip_address, 45),
                 user_agent=user_agent_str,
                 referrer=referrer,
-                device_type=ua_info["device_type"],
-                browser=ua_info["browser"],
-                os=ua_info["os"],
+                device_type=_clip(ua_info["device_type"], 50),
+                browser=_clip(ua_info["browser"], 100),
+                os=_clip(ua_info["os"], 100),
             )
             session.add(event)
             await session.commit()
