@@ -49,6 +49,21 @@ class Settings(BaseSettings):
     # Defaults to http://localhost:8000 for local dev. Set in production env.
     redirect_base_url: str = "http://localhost:8000"
 
+    # The hostname (no scheme, no path) used when a click arrives on the
+    # platform's default redirect host. The redirect handler matches the
+    # incoming Host header against this string to decide whether to look up
+    # links in the "no custom domain" bucket. Derived from redirect_base_url
+    # when unset.
+    platform_redirect_host: str = ""
+
+    # Cloudflare for SaaS Custom Hostnames integration. When both token and
+    # zone_id are set, the /api/v1/domains endpoints provision certs via CF.
+    # When either is empty, those endpoints return 503 with a setup hint.
+    cloudflare_api_token: str = ""
+    cloudflare_zone_id: str = ""
+    # The CNAME target customers point their domain at. e.g. cname.champutm.com
+    cloudflare_cname_target: str = ""
+
     # GeoIP Configuration
     # "maxmind" uses local GeoLite2-City.mmdb file (recommended for production)
     # "ipapi" uses ip-api.com free API (fallback, rate-limited at 45 req/min)
@@ -56,6 +71,23 @@ class Settings(BaseSettings):
     maxmind_db_path: str = "data/GeoLite2-City.mmdb"
     maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
     maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
+
+    @property
+    def resolved_platform_redirect_host(self) -> str:
+        """Hostname (lowercased, no port) of the platform-default redirect host.
+
+        Falls back to parsing redirect_base_url when platform_redirect_host
+        isn't explicitly set.
+        """
+        if self.platform_redirect_host:
+            return self.platform_redirect_host.lower().strip()
+        from urllib.parse import urlparse
+        parsed = urlparse(self.redirect_base_url)
+        return (parsed.hostname or "").lower()
+
+    @property
+    def cloudflare_configured(self) -> bool:
+        return bool(self.cloudflare_api_token and self.cloudflare_zone_id)
 
     @property
     def postgres_url(self) -> str:

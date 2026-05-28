@@ -7,7 +7,7 @@ import { useAuth } from '@clerk/react';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
 import { FileUploadZone } from '../components/ui/FileUploadZone';
 import { utmApi } from '../api/utm';
-import type { UTMPreset, Project, GenerateLinkResponse } from '../api/utm';
+import type { UTMPreset, Project, GenerateLinkResponse, Domain } from '../api/utm';
 
 type GeneratorMode = 'single' | 'bulk';
 
@@ -35,6 +35,7 @@ export function HomePage() {
   const [utmTerm, setUtmTerm] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState(searchParams.get('project') || '');
+  const [selectedDomainId, setSelectedDomainId] = useState('');
   const [lastGenerateResponse, setLastGenerateResponse] = useState<GenerateLinkResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -51,6 +52,21 @@ export function HomePage() {
     queryFn: () => utmApi.getProjects(),
     enabled: isAuthenticated,
   });
+
+  // Fetch custom domains so the user can pick one for the short URL.
+  const { data: domains = [] } = useQuery<Domain[]>({
+    queryKey: ['domains'],
+    queryFn: () => utmApi.listDomains(),
+    enabled: isAuthenticated,
+  });
+  const activeDomains = domains.filter((d) => d.status === 'active');
+
+  // Default the selector to the primary domain on first load.
+  useEffect(() => {
+    if (selectedDomainId) return;
+    const primary = activeDomains.find((d) => d.is_primary);
+    if (primary) setSelectedDomainId(primary.id);
+  }, [activeDomains, selectedDomainId]);
 
   // Load history from localStorage
   useEffect(() => {
@@ -126,6 +142,7 @@ export function HomePage() {
           utm_term: utmTerm || undefined,
           project_id: selectedProjectId || undefined,
           preset_id: selectedPresetId || undefined,
+          domain_id: selectedDomainId || undefined,
         });
         setLastGenerateResponse(response);
         redirectUrl = response.redirect_url || undefined;
@@ -334,6 +351,27 @@ export function HomePage() {
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Domain selector (auth only, when at least one active domain exists) */}
+              {isAuthenticated && activeDomains.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Short link domain
+                  </label>
+                  <select
+                    className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
+                    value={selectedDomainId}
+                    onChange={(e) => setSelectedDomainId(e.target.value)}
+                  >
+                    <option value="">Platform default</option>
+                    {activeDomains.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.hostname}{d.is_primary ? ' (primary)' : ''}
                       </option>
                     ))}
                   </select>

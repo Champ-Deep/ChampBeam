@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.security import TokenData, require_auth, get_current_user
 from app.db.postgres import get_db_session
+from app.models.domain import Domain, STATUS_ACTIVE
 from app.models.utm import ClickEvent, LinkClick, UTMPreset
 from app.services.utm_service import utm_service
 
@@ -79,6 +80,7 @@ class GenerateLinkRequest(BaseModel):
     project_name: Optional[str] = None
     project_id: Optional[str] = None
     preset_id: Optional[str] = None
+    domain_id: Optional[str] = None
 
 
 class GenerateLinkResponse(BaseModel):
@@ -134,12 +136,76 @@ class UTMOverviewResponse(BaseModel):
 # ============================================================================
 
 
-def _build_redirect_url(short_code: str | None) -> str | None:
-    """Build a full redirect URL from a short code."""
+def _build_redirect_url(short_code: str | None, domain: Domain | None = None) -> str | None:
+    """Build a full redirect URL from a short code.
+
+    When a verified custom ``domain`` is provided, the URL is rooted at that
+    hostname (always HTTPS). Otherwise the platform-default
+    ``settings.redirect_base_url`` is used.
+    """
     if not short_code:
         return None
+    if domain is not None:
+        return f"https://{domain.hostname}/r/{short_code}"
     base = settings.redirect_base_url.rstrip("/") if settings.redirect_base_url else ""
     return f"{base}/r/{short_code}"
+
+
+async def _resolve_link_domain(
+    user_id: str,
+    domain_id: str | None,
+    session: AsyncSession,
+) -> Domain | None:
+    """Return the Domain to use for a new link.
+
+    When ``domain_id`` is provided it must belong to the user and be active.
+    When omitted, the user's primary domain is used; falling back to the
+    platform default (None) when the user has no primary.
+    """
+    if domain_id:
+        uid = _to_uuid(domain_id)
+        if uid is None:
+            raise HTTPException(status_code=400, detail="Invalid domain_id.")
+        result = await session.execute(
+            select(Domain).where(
+                Domain.id == uid,
+                Domain.user_id == user_id,
+                Domain.status == STATUS_ACTIVE,
+            )
+        )
+        domain = result.scalar_one_or_none()
+        if domain is None:
+            raise HTTPException(status_code=404, detail="Active domain not found.")
+        return domain
+
+    result = await session.execute(
+        select(Domain).where(
+            Domain.user_id == user_id,
+            Domain.is_primary.is_(True),
+            Domain.status == STATUS_ACTIVE,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _domain_for_link(link: LinkClick, session: AsyncSession) -> Domain | None:
+    """Load the Domain row a LinkClick belongs to, if any."""
+    if not link.domain_id:
+        return None
+    result = await session.execute(select(Domain).where(Domain.id == link.domain_id))
+    return result.scalar_one_or_none()
+
+
+async def _domains_by_link(
+    links: list[LinkClick], session: AsyncSession
+) -> dict:
+    """Map link_id → Domain for a batch of LinkClicks (one query)."""
+    domain_ids = {link.domain_id for link in links if link.domain_id}
+    if not domain_ids:
+        return {}
+    result = await session.execute(select(Domain).where(Domain.id.in_(domain_ids)))
+    by_id = {d.id: d for d in result.scalars().all()}
+    return {link.id: by_id[link.domain_id] for link in links if link.domain_id in by_id}
 
 
 def _resolve_date_range(
@@ -242,6 +308,7 @@ async def generate_utm_link(
     if user:
         from uuid import UUID as _UUID
         project_id = _UUID(data.project_id) if data.project_id else None
+        domain = await _resolve_link_domain(user.user_id, data.domain_id, session)
         link = await utm_service.record_link(
             user_id=user.user_id,
             original_url=data.base_url,
@@ -249,15 +316,19 @@ async def generate_utm_link(
             utm_params=utm_params,
             project_name=data.project_name,
             project_id=project_id,
+            domain_id=domain.id if domain else None,
             session=session,
         )
         link_id = str(link.id)
         short_code = link.short_code
-        redirect_url = _build_redirect_url(link.short_code)
+        redirect_url = _build_redirect_url(link.short_code, domain)
         if link.short_code:
-            # The short URL is handled by the backend routing directly (/s/{short_code})
-            # Use request.base_url to construct the absolute URL.
-            short_url = str(request.base_url) + f"s/{link.short_code}"
+            # Short URL mirrors the redirect URL's host when a custom domain is
+            # used; otherwise it falls back to the request's own base URL.
+            if domain is not None:
+                short_url = f"https://{domain.hostname}/s/{link.short_code}"
+            else:
+                short_url = str(request.base_url) + f"s/{link.short_code}"
 
     return GenerateLinkResponse(
         original_url=data.base_url,
@@ -734,13 +805,15 @@ async def get_link_performance(
         .limit(200)
     )
 
+    links = list(result.scalars().all())
+    link_to_domain = await _domains_by_link(links, session)
     items = []
-    for link in result.scalars().all():
+    for link in links:
         items.append(LinkPerformanceItem(
             link_id=str(link.id),
             original_url=link.original_url,
             tracked_url=link.tracked_url,
-            redirect_url=_build_redirect_url(link.short_code),
+            redirect_url=_build_redirect_url(link.short_code, link_to_domain.get(link.id)),
             short_code=link.short_code,
             anchor_text=link.anchor_text,
             utm_source=link.utm_source,
@@ -1401,12 +1474,14 @@ async def get_campaign_links(
         .limit(100)
     )
 
+    links = list(result.scalars().all())
+    link_to_domain = await _domains_by_link(links, session)
     return [
         {
             "link_id": str(link.id),
             "original_url": link.original_url,
             "tracked_url": link.tracked_url,
-            "redirect_url": _build_redirect_url(link.short_code),
+            "redirect_url": _build_redirect_url(link.short_code, link_to_domain.get(link.id)),
             "short_code": link.short_code,
             "utm_source": link.utm_source,
             "utm_medium": link.utm_medium,
@@ -1414,7 +1489,7 @@ async def get_campaign_links(
             "unique_clicks": link.unique_clicks or 0,
             "created_at": link.created_at.isoformat() if link.created_at else None,
         }
-        for link in result.scalars().all()
+        for link in links
     ]
 
 

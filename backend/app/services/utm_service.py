@@ -118,6 +118,7 @@ class UTMService:
         utm_params: Dict[str, str],
         project_name: Optional[str] = None,
         project_id: Optional[UUID] = None,
+        domain_id: Optional[UUID] = None,
         session: Optional[AsyncSession] = None,
     ) -> LinkClick:
         """Record a generated link for click tracking.
@@ -160,6 +161,7 @@ class UTMService:
                 LinkClick.utm_campaign == cam if cam else LinkClick.utm_campaign.is_(None),
                 LinkClick.utm_content == con if con else LinkClick.utm_content.is_(None),
                 LinkClick.utm_term == trm if trm else LinkClick.utm_term.is_(None),
+                LinkClick.domain_id == domain_id if domain_id else LinkClick.domain_id.is_(None),
             )
             result = await s.execute(stmt)
             return result.scalar_one_or_none()
@@ -188,6 +190,7 @@ class UTMService:
             short_code=s_code,
             project_id=project_id,
             project_name=project_name,
+            domain_id=domain_id,
             original_url=original_url,
             tracked_url=tracked_url,
             utm_source=src,
@@ -217,6 +220,7 @@ class UTMService:
         user_agent_str: Optional[str],
         referrer: Optional[str],
         session: AsyncSession,
+        domain_id: Optional[UUID] = None,
     ) -> ClickEvent:
         """Record an individual click event with parsed UA info.
 
@@ -239,6 +243,7 @@ class UTMService:
         event = ClickEvent(
             id=uuid4(),
             link_id=link.id,
+            domain_id=domain_id if domain_id is not None else link.domain_id,
             ip_address=ip_address,
             user_agent=user_agent_str,
             referrer=referrer,
