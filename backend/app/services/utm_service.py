@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.postgres import async_session_maker
@@ -259,6 +259,82 @@ class UTMService:
 
         await session.flush()
         return event
+
+    async def bump_click_counter(
+        self,
+        link_id: UUID,
+        ip_address: Optional[str],
+    ) -> None:
+        """Atomically increment click counters on a LinkClick.
+
+        Uses its own fresh session and a single UPDATE statement that only
+        touches the ``link_clicks`` row, so the increment commits even when
+        the ``click_events`` table is unhealthy (missing columns, broken
+        constraints, etc.).
+
+        Uniqueness detection is best-effort: if querying ``click_events``
+        fails, the click is conservatively counted as unique.
+        """
+        now = datetime.utcnow()
+        async with async_session_maker() as session:
+            is_unique = True
+            if ip_address:
+                try:
+                    existing = await session.execute(
+                        select(ClickEvent.id).where(
+                            ClickEvent.link_id == link_id,
+                            ClickEvent.ip_address == ip_address,
+                        ).limit(1)
+                    )
+                    if existing.scalar_one_or_none() is not None:
+                        is_unique = False
+                except Exception:
+                    logger.exception(
+                        "bump_click_counter: unique check failed for link_id=%s; "
+                        "treating click as unique",
+                        link_id,
+                    )
+                    await session.rollback()
+
+            unique_inc = 1 if is_unique else 0
+            await session.execute(
+                sa_update(LinkClick)
+                .where(LinkClick.id == link_id)
+                .values(
+                    click_count=func.coalesce(LinkClick.click_count, 0) + 1,
+                    unique_clicks=func.coalesce(LinkClick.unique_clicks, 0) + unique_inc,
+                    last_clicked_at=now,
+                    first_clicked_at=func.coalesce(LinkClick.first_clicked_at, now),
+                )
+            )
+            await session.commit()
+
+    async def insert_click_event(
+        self,
+        link_id: UUID,
+        ip_address: Optional[str],
+        user_agent_str: Optional[str],
+        referrer: Optional[str],
+    ) -> Optional[UUID]:
+        """Insert a ClickEvent row in its own session. Returns event id on
+        success, None on failure. Counter increments live in
+        :meth:`bump_click_counter` so this can fail independently."""
+        ua_info = parse_user_agent(user_agent_str or "")
+        event_id = uuid4()
+        async with async_session_maker() as session:
+            event = ClickEvent(
+                id=event_id,
+                link_id=link_id,
+                ip_address=ip_address,
+                user_agent=user_agent_str,
+                referrer=referrer,
+                device_type=ua_info["device_type"],
+                browser=ua_info["browser"],
+                os=ua_info["os"],
+            )
+            session.add(event)
+            await session.commit()
+        return event_id
 
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
         """Background task: resolve GeoIP + VPN/ASN detection and update click event."""

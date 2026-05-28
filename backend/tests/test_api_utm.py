@@ -96,7 +96,10 @@ async def test_r_redirect_survives_click_tracking_failure(monkeypatch):
     async def _boom(**_kwargs):
         raise RuntimeError("simulated: click_events.is_vpn column missing")
 
-    monkeypatch.setattr(utm_service, "record_click_event", _boom)
+    # Both the counter bump and the event insert must be allowed to fail
+    # without taking down the redirect.
+    monkeypatch.setattr(utm_service, "bump_click_counter", _boom)
+    monkeypatch.setattr(utm_service, "insert_click_event", _boom)
     app.dependency_overrides[get_db_session] = override_get_db
 
     try:
@@ -110,3 +113,61 @@ async def test_r_redirect_survives_click_tracking_failure(monkeypatch):
             assert response.headers["location"] == destination
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_r_redirect_bumps_counter_even_when_event_insert_fails(app_client, monkeypatch):
+    """The counter must increment even when the ClickEvent insert blows up —
+    that's the whole point of running them in independent sessions. Without
+    this guarantee, analytics shows 0 on prod whenever the events table is
+    broken."""
+    import importlib
+    from uuid import uuid4
+    from sqlalchemy import select
+
+    from app.models.user import User
+    from app.models.utm import LinkClick
+    from app.services.utm_service import utm_service
+
+    utm_service_module = importlib.import_module("app.services.utm_service")
+
+    # 1) Seed a user + tracked link directly via the (test) session maker
+    link_id = uuid4()
+    user_id = uuid4()
+    async with utm_service_module.async_session_maker() as s:
+        s.add(User(id=user_id, email="counter@test.com"))
+        s.add(LinkClick(
+            id=link_id,
+            user_id=user_id,
+            short_code="COUNT01",
+            original_url="https://example.com/landing",
+            tracked_url="https://example.com/landing?utm_source=test",
+            click_count=0,
+            unique_clicks=0,
+        ))
+        await s.commit()
+
+    # 2) Force the event insert to blow up, mimicking a missing column in prod
+    async def _boom(**_kwargs):
+        raise RuntimeError("simulated: click_events.is_vpn column missing")
+
+    monkeypatch.setattr(utm_service, "insert_click_event", _boom)
+
+    # 3) Hit the redirect — should still 302 AND increment the counter
+    resp = await app_client.get("/r/COUNT01", follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "https://example.com/landing?utm_source=test"
+
+    # 4) Counter must have been bumped despite the event insert failure
+    async with utm_service_module.async_session_maker() as s:
+        row = (await s.execute(
+            select(LinkClick).where(LinkClick.id == link_id)
+        )).scalar_one()
+        assert row.click_count == 1, (
+            f"expected click_count=1 after redirect, got {row.click_count} "
+            f"(this is the prod bug — counters get rolled back when "
+            f"click_events insert fails)"
+        )
+        assert row.unique_clicks == 1
+        assert row.first_clicked_at is not None
+        assert row.last_clicked_at is not None
