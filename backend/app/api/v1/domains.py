@@ -260,6 +260,56 @@ async def set_primary(
     return _to_response(domain)
 
 
+@router.get("/health")
+async def domains_health(
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Diagnostic snapshot of the user's domains and CF provisioning state.
+
+    For each non-active domain, re-polls Cloudflare so a stuck row can be
+    diagnosed without having to refresh each one in the UI. The CF env vars
+    (``CLOUDFLARE_API_TOKEN``, ``CLOUDFLARE_ZONE_ID``, ``CLOUDFLARE_CNAME_TARGET``)
+    must all be set on the deployment for this to do useful work; otherwise
+    each row reports ``cf_status: 'not_configured'``.
+    """
+    cf_configured = settings.cloudflare_configured
+
+    result = await session.execute(
+        select(Domain).where(Domain.user_id == user.user_id).order_by(Domain.created_at.desc())
+    )
+    rows = result.scalars().all()
+
+    items: list[dict] = []
+    for d in rows:
+        item: dict = {
+            "id": str(d.id),
+            "hostname": d.hostname,
+            "status": d.status,
+            "is_primary": bool(d.is_primary),
+            "cf_managed": bool(d.cf_custom_hostname_id),
+            "ssl_status": d.ssl_status,
+            "verification_errors": d.verification_errors,
+        }
+        if d.status != STATUS_ACTIVE and d.cf_custom_hostname_id and cf_configured:
+            try:
+                cf = await cloudflare.get_custom_hostname(d.cf_custom_hostname_id)
+                item["cf_status"] = cf.get("status")
+                item["cf_ssl"] = (cf.get("ssl") or {}).get("status")
+            except cloudflare.CloudflareError as exc:
+                item["cf_status"] = "error"
+                item["cf_error"] = str(exc)
+        elif not cf_configured:
+            item["cf_status"] = "not_configured"
+        items.append(item)
+
+    return {
+        "cloudflare_configured": cf_configured,
+        "cname_target": settings.cloudflare_cname_target or None,
+        "domains": items,
+    }
+
+
 @router.delete("/{domain_id}", status_code=204)
 async def delete_domain(
     domain_id: str,

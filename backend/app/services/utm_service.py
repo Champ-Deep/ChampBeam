@@ -265,6 +265,47 @@ class UTMService:
         await session.flush()
         return event
 
+    async def record_file_view_event(
+        self,
+        file,
+        ip_address: Optional[str],
+        user_agent_str: Optional[str],
+        referrer: Optional[str],
+        session: AsyncSession,
+        domain_id: Optional[UUID] = None,
+    ) -> ClickEvent:
+        """Record a view against a FileAsset, mirroring ``record_click_event``.
+
+        Imported lazily to keep models.utm decoupled from models.file_asset.
+        """
+        from app.models.file_asset import FileAsset
+
+        if not isinstance(file, FileAsset):
+            raise TypeError("file must be a FileAsset instance")
+
+        ua_info = parse_user_agent(user_agent_str or "")
+
+        event = ClickEvent(
+            id=uuid4(),
+            link_id=None,
+            file_id=file.id,
+            domain_id=domain_id if domain_id is not None else file.domain_id,
+            ip_address=ip_address,
+            user_agent=user_agent_str,
+            referrer=referrer,
+            device_type=ua_info["device_type"],
+            browser=ua_info["browser"],
+            os=ua_info["os"],
+        )
+        session.add(event)
+
+        now = datetime.utcnow()
+        file.view_count = (file.view_count or 0) + 1
+        file.last_viewed_at = now
+
+        await session.flush()
+        return event
+
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
         """Background task: resolve GeoIP + VPN/ASN detection and update click event."""
         from app.services.geoip_service import lookup_ip

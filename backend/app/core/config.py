@@ -64,6 +64,25 @@ class Settings(BaseSettings):
     # The CNAME target customers point their domain at. e.g. cname.champutm.com
     cloudflare_cname_target: str = ""
 
+    # Supabase Storage — used as a standalone S3-compatible blob store for the
+    # file-hosting feature. Supabase itself is not the database; only Storage
+    # is in play. Configure all five in production. When any are unset, the
+    # /api/v1/files endpoints return 503 with a setup hint (same pattern as
+    # Cloudflare for SaaS).
+    #
+    #   SUPABASE_STORAGE_ENDPOINT=https://<project>.supabase.co/storage/v1/s3
+    #   SUPABASE_STORAGE_REGION=<your_project_region>      e.g. "us-east-1"
+    #   SUPABASE_STORAGE_BUCKET=files
+    supabase_storage_endpoint: str = ""
+    supabase_storage_region: str = "us-east-1"
+    supabase_storage_access_key_id: str = ""
+    supabase_storage_secret_access_key: str = ""
+    supabase_storage_bucket: str = "files"
+
+    # Hard cap on per-user storage. Hardcoded for v1 (no User-tier model yet).
+    # Upload intent returns 402 when the user would exceed this.
+    max_bytes_per_user: int = 5 * 1024 * 1024 * 1024  # 5 GiB
+
     # GeoIP Configuration
     # "maxmind" uses local GeoLite2-City.mmdb file (recommended for production)
     # "ipapi" uses ip-api.com free API (fallback, rate-limited at 45 req/min)
@@ -88,6 +107,15 @@ class Settings(BaseSettings):
     @property
     def cloudflare_configured(self) -> bool:
         return bool(self.cloudflare_api_token and self.cloudflare_zone_id)
+
+    @property
+    def storage_configured(self) -> bool:
+        return bool(
+            self.supabase_storage_endpoint
+            and self.supabase_storage_access_key_id
+            and self.supabase_storage_secret_access_key
+            and self.supabase_storage_bucket
+        )
 
     @property
     def postgres_url(self) -> str:
