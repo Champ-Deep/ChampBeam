@@ -9,6 +9,11 @@
 - Clean, intuitive interface
 - Recent links saved locally
 
+### 📤 File Sharing with Read Receipts
+- Share PDFs, video, images, and HTML as one trackable link — no signup needed
+- Real-time "Seen ✓ / Not opened yet" read receipts on every file
+- Geo + device analytics on each open; guest links auto-expire
+
 ### 📋 Presets (Account Required)
 - Save reusable UTM templates
 - Quick-apply presets to any URL
@@ -45,6 +50,7 @@
 - Redis for caching
 - SQLAlchemy ORM
 - Alembic for migrations
+- Object storage for files: local disk, MongoDB GridFS, or S3-compatible (Supabase / Cloudflare R2)
 
 ## Quick Start
 
@@ -129,11 +135,11 @@ Frontend (`frontend/.env`):
 VITE_API_URL=http://localhost:8000
 ```
 
-Leave `REDIRECT_BASE_URL` and the `CLOUDFLARE_*` / `SUPABASE_STORAGE_*`
-vars unset for local dev — `/r/{code}` will use whatever Host the
-client called, BYOD domains land in `active` status without a real
-cert, and the file-hosting endpoints return 503 with a setup hint
-until storage is configured.
+Leave `REDIRECT_BASE_URL` and the `CLOUDFLARE_*` vars unset for local
+dev — `/r/{code}` will use whatever Host the client called and BYOD
+domains land in `active` status without a real cert. File hosting works
+out of the box: `STORAGE_BACKEND` defaults to `local`, writing uploads
+under `STORAGE_LOCAL_PATH` (`./data/files`).
 
 ### Production — Railway (backend)
 
@@ -159,12 +165,13 @@ CLOUDFLARE_API_TOKEN=...
 CLOUDFLARE_ZONE_ID=...
 CLOUDFLARE_CNAME_TARGET=cname.yourdomain.com
 
-# File hosting — Supabase Storage S3-compat endpoint.
-SUPABASE_STORAGE_ENDPOINT=https://<project>.supabase.co/storage/v1/s3
-SUPABASE_STORAGE_REGION=us-east-1
-SUPABASE_STORAGE_ACCESS_KEY_ID=...
-SUPABASE_STORAGE_SECRET_ACCESS_KEY=...
-SUPABASE_STORAGE_BUCKET=files
+# File hosting — pick a storage backend (see the File hosting section).
+#   local (default): mount a Railway VOLUME at STORAGE_LOCAL_PATH or uploads reset on redeploy
+#   mongo: add the Railway Mongo plugin, then set STORAGE_BACKEND=mongo + MONGO_URL
+#   s3:    any S3-compatible bucket (Supabase Storage, Cloudflare R2, ...)
+STORAGE_BACKEND=local
+STORAGE_LOCAL_PATH=/data/files            # mount a Railway Volume here
+STORAGE_UPLOAD_SECRET=<long-random-string>
 ```
 
 `railway.toml` already runs `bootstrap_db.py` + `alembic upgrade head`
@@ -223,18 +230,45 @@ curl -i -H "Host: track.example.com" http://localhost:8000/r/<short_code>
 
 ### File hosting
 
-Authenticated users can upload PDFs, videos, HTML, and images at
-`POST /api/v1/files`; the file gets a `/f/{short_code}` URL that
-serves the bytes (stream mode for PDFs/HTML/images, 302-to-signed-URL
-for video) and records a tracked view per request. Files inherit the
-BYOD routing — uploading against a custom Domain lands the URL on
-that hostname.
+Anyone can share a file at `POST /api/v1/files` — **no account
+required**. The file gets a `/f/{short_code}` URL that serves the bytes
+and records a tracked view per request, so the sender gets **read
+receipts** ("Seen ✓ / Not opened yet") via
+`GET /api/v1/files/{id}/status`. Signed-out (guest) uploads get tighter
+size caps, a 24-hour auto-expiry (`ANON_FILE_TTL_SECONDS`), and an
+`owner_token` to poll status; a background sweeper reclaims expired
+blobs. Authenticated uploads never expire, count against a per-user
+quota (`MAX_BYTES_PER_USER`, 5 GiB), and inherit BYOD routing —
+uploading against a custom Domain lands the URL on that hostname.
 
-The storage backend is Supabase Storage, accessed via its
-S3-compatible endpoint with boto3. The service module is named
-`storage.py` (not `supabase.py`) so a later swap to S3/B2/MinIO
-touches env-var names only. Per-user storage cap is hardcoded at
-5 GiB for v1 (`MAX_BYTES_PER_USER`); raise via env override.
+**Storage backends** are swappable via `STORAGE_BACKEND`
+(`app/services/storage.py`):
+
+| Backend | `STORAGE_BACKEND` | Stores bytes in | Best for |
+|---|---|---|---|
+| Local disk (default) | `local` | `STORAGE_LOCAL_PATH` (mount a Railway **Volume**) | Quick start, self-contained |
+| MongoDB GridFS | `mongo` | GridFS (`MONGO_URL`) | Railway testing — one-click plugin, no volume, survives redeploys |
+| S3-compatible | `s3` | Supabase Storage / Cloudflare R2 / S3 / MinIO | Production scale |
+
+`local` and `mongo` route uploads through a token-gated
+`PUT /api/v1/files/{id}/blob` and stream serves back through the API;
+`s3` uses presigned PUT/GET so bytes never transit the API. Switching
+backends is an env-var change only — no code changes.
+
+**Cloudflare R2 (S3-compatible), to scale up:** create a bucket and an
+R2 API token (S3 credentials) in the Cloudflare dashboard, then set:
+
+```env
+STORAGE_BACKEND=s3
+SUPABASE_STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+SUPABASE_STORAGE_REGION=auto
+SUPABASE_STORAGE_ACCESS_KEY_ID=<R2 access key id>
+SUPABASE_STORAGE_SECRET_ACCESS_KEY=<R2 secret access key>
+SUPABASE_STORAGE_BUCKET=<your bucket>
+```
+
+(The `SUPABASE_STORAGE_*` names are historical — they carry any
+S3-compatible endpoint, R2 included.)
 
 ## Deployment
 
@@ -243,7 +277,7 @@ touches env-var names only. Per-user storage cap is hardcoded at
 | Frontend | Vercel | SPA via `frontend/vercel.json`. Build `npm run build`, output `dist/`. |
 | Backend  | Railway | `nixpacks` build per `railway.toml`. Postgres + Redis plugins. |
 | Custom-hostname certs | Cloudflare for SaaS | One zone hosts the per-tenant CNAME target. |
-| File storage | Supabase Storage | S3-compatible endpoint; bucket named `files` by default. |
+| File storage | Local disk / MongoDB GridFS / S3-compatible | `STORAGE_BACKEND` selects: `local` needs a Railway Volume, `mongo` the Mongo plugin, `s3` any bucket (Supabase / Cloudflare R2). |
 
 On every Railway deploy the boot sequence is:
 

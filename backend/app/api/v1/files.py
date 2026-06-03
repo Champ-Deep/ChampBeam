@@ -159,9 +159,10 @@ def _ensure_storage() -> None:
         raise HTTPException(
             status_code=503,
             detail=(
-                "File storage is not configured on this deployment. "
-                "Set SUPABASE_STORAGE_ENDPOINT, _ACCESS_KEY_ID, "
-                "_SECRET_ACCESS_KEY, and _BUCKET, then redeploy."
+                "File storage is not configured on this deployment. Set "
+                "STORAGE_BACKEND and its credentials (local needs none; mongo "
+                "needs MONGO_URL; s3 needs the SUPABASE_STORAGE_* vars), then "
+                "redeploy."
             ),
         )
 

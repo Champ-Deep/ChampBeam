@@ -26,6 +26,10 @@ httpx>=0.26.0
 # for the file-hosting feature).
 boto3>=1.34.0
 
+# MongoDB GridFS storage backend (STORAGE_BACKEND=mongo). gridfs ships with
+# pymongo. Only used when the mongo backend is selected.
+pymongo>=4.6.0
+
 # Redis (caching)
 redis>=5.0.0
 

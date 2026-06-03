@@ -332,15 +332,111 @@ class LocalStorage(StorageBackend):
 
 
 # ============================================================================
+# MongoDB GridFS backend (Railway Mongo plugin; no volume needed)
+# ============================================================================
+
+
+@lru_cache(maxsize=1)
+def _mongo_bucket():
+    """Build (once) a GridFS bucket. pymongo is imported lazily so deployments
+    that don't use the mongo backend don't need it installed."""
+    if not settings.mongo_url:
+        raise StorageNotConfigured("MongoDB storage is not configured (set MONGO_URL).")
+    from gridfs import GridFSBucket
+    from pymongo import MongoClient
+
+    client = MongoClient(settings.mongo_url)
+    db = client[settings.mongo_db]
+    return GridFSBucket(db, bucket_name=settings.mongo_bucket)
+
+
+class MongoStorage(StorageBackend):
+    """Stores blobs in GridFS. Like the local backend, bytes route through the
+    API blob endpoint and serves stream back out — pymongo is sync so each call
+    is bounced through anyio's thread pool to keep the event loop free."""
+
+    name = "mongo"
+
+    def prepare_upload(self, *, file_id, key, content_type, size_bytes):
+        token = make_blob_token(file_id)
+        url = f"{settings.api_v1_prefix}/files/{file_id}/blob?token={token}"
+        return {"url": url, "headers": {"Content-Type": content_type}, "via_backend": True}
+
+    def generate_presigned_get(self, key, filename=None, expires=300):
+        raise StorageError("Mongo backend serves files by streaming, not redirect.")
+
+    def _head_sync(self, key: str) -> dict:
+        bucket = _mongo_bucket()
+        for f in bucket.find({"filename": key}).sort("uploadDate", -1).limit(1):
+            return {"size": int(f.length), "etag": getattr(f, "md5", None), "content_type": None}
+        raise StorageError(f"Object not found: {key}")
+
+    async def head_object(self, key):
+        return await anyio.to_thread.run_sync(self._head_sync, key)
+
+    def _delete_sync(self, key: str) -> None:
+        bucket = _mongo_bucket()
+        for f in bucket.find({"filename": key}):
+            bucket.delete(f._id)
+
+    async def delete_object(self, key):
+        await anyio.to_thread.run_sync(self._delete_sync, key)
+
+    async def stream_object(self, key, chunk_size=64 * 1024):
+        bucket = _mongo_bucket()
+
+        def _open():
+            try:
+                return bucket.open_download_stream_by_name(key)
+            except Exception as exc:  # gridfs.NoFile and friends
+                raise StorageError(f"Object not found: {key}") from exc
+
+        grid_out = await anyio.to_thread.run_sync(_open)
+        try:
+            while True:
+                chunk = await anyio.to_thread.run_sync(grid_out.read, chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            await anyio.to_thread.run_sync(grid_out.close)
+
+    async def write_stream(self, *, key, source, max_bytes):
+        bucket = _mongo_bucket()
+        grid_in = await anyio.to_thread.run_sync(lambda: bucket.open_upload_stream(key))
+        total = 0
+        try:
+            async for chunk in source:
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    raise StorageFileTooLarge(
+                        f"Upload exceeds the allowed size ({max_bytes} bytes)."
+                    )
+                await anyio.to_thread.run_sync(grid_in.write, chunk)
+            await anyio.to_thread.run_sync(grid_in.close)
+        except BaseException:
+            await anyio.to_thread.run_sync(grid_in.abort)
+            raise
+        return total
+
+
+# ============================================================================
 # Backend selection + module-level shims (the public surface)
 # ============================================================================
 
 
 def _backend() -> StorageBackend:
-    """Return the active backend. Cheap to construct; the boto3 client it may
-    use is cached separately in ``_client()``. Not memoized so test suites can
-    switch backends per process without a stale singleton."""
-    return LocalStorage() if settings.storage_backend_normalized == "local" else S3Storage()
+    """Return the active backend. Cheap to construct; any client it uses is
+    cached separately (``_client`` / ``_mongo_bucket``). Not memoized so test
+    suites can switch backends per process without a stale singleton."""
+    backend = settings.storage_backend_normalized
+    if backend == "local":
+        return LocalStorage()
+    if backend == "mongo":
+        return MongoStorage()
+    return S3Storage()
 
 
 def backend_is_s3() -> bool:

@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     anon_file_ttl_seconds: int = 24 * 3600
     anon_sweep_interval_seconds: int = 900
 
+    # MongoDB GridFS storage backend (STORAGE_BACKEND=mongo). Stores file bytes
+    # in GridFS — handy on Railway (one-click Mongo plugin, no volume needed,
+    # survives redeploys). The app's primary DB stays PostgreSQL; Mongo holds
+    # blobs only. On Railway the Mongo plugin injects MONGO_URL.
+    mongo_url: str = ""
+    mongo_db: str = "champutm_files"
+    mongo_bucket: str = "fs"
+
     # GeoIP Configuration
     # "maxmind" uses local GeoLite2-City.mmdb file (recommended for production)
     # "ipapi" uses ip-api.com free API (fallback, rate-limited at 45 req/min)
@@ -133,9 +141,12 @@ class Settings(BaseSettings):
     @property
     def storage_configured(self) -> bool:
         # The local backend is always "ready" — the directory is created on
-        # demand. S3 still requires all four credentials before /files works.
-        if self.storage_backend_normalized == "local":
+        # demand. Mongo needs a URL; S3 needs all four credentials.
+        backend = self.storage_backend_normalized
+        if backend == "local":
             return True
+        if backend == "mongo":
+            return bool(self.mongo_url)
         return bool(
             self.supabase_storage_endpoint
             and self.supabase_storage_access_key_id
