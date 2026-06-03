@@ -320,6 +320,7 @@ class UTMService:
         ip_address: Optional[str],
         user_agent_str: Optional[str],
         referrer: Optional[str],
+        domain_id: Optional[UUID] = None,
     ) -> Optional[UUID]:
         """Insert a ClickEvent row in its own session. Returns event id on
         success, None on failure. Counter increments live in
@@ -339,6 +340,7 @@ class UTMService:
             event = ClickEvent(
                 id=event_id,
                 link_id=link_id,
+                domain_id=domain_id,
                 ip_address=_clip(ip_address, 45),
                 user_agent=user_agent_str,
                 referrer=referrer,
@@ -349,6 +351,7 @@ class UTMService:
             session.add(event)
             await session.commit()
         return event_id
+
     async def record_file_view_event(
         self,
         file,

@@ -136,16 +136,23 @@ class UTMOverviewResponse(BaseModel):
 # ============================================================================
 
 
-def _build_redirect_url(short_code: str | None, request: Request | None = None) -> str | None:
+def _build_redirect_url(
+    short_code: str | None,
+    domain: Domain | None = None,
+    request: Request | None = None,
+) -> str | None:
     """Build a full redirect URL from a short code.
 
-    Prefers ``request.base_url`` so the URL always matches the host the
-    client used. Falls back to ``settings.redirect_base_url`` when an
-    explicit override is configured (useful behind a reverse proxy that
-    rewrites Host).
+    Host precedence: a custom ``domain`` (always HTTPS, BYOD) →
+    ``settings.redirect_base_url`` (explicit deploy-time override,
+    useful behind a proxy that rewrites Host) → ``request.base_url``
+    (the host the client actually used). Returning a relative
+    ``/r/{code}`` is the last resort.
     """
     if not short_code:
         return None
+    if domain is not None:
+        return f"https://{domain.hostname}/r/{short_code}"
     override = settings.redirect_base_url.rstrip("/") if settings.redirect_base_url else ""
     if override:
         base = override
@@ -326,7 +333,7 @@ async def generate_utm_link(
         )
         link_id = str(link.id)
         short_code = link.short_code
-        redirect_url = _build_redirect_url(link.short_code, domain)
+        redirect_url = _build_redirect_url(link.short_code, domain, request=request)
         if link.short_code:
             # Short URL mirrors the redirect URL's host when a custom domain is
             # used; otherwise it falls back to the request's own base URL.
@@ -466,7 +473,7 @@ async def generate_bulk_utm_links(
             default_params,
             user_id=user.user_id,
             session=session,
-            short_link_builder=lambda code: _build_redirect_url(code, request),
+            short_link_builder=lambda code: _build_redirect_url(code, request=request),
         )
         await session.commit()
     except ValueError as e:
@@ -829,7 +836,9 @@ async def get_link_performance(
             link_id=str(link.id),
             original_url=link.original_url,
             tracked_url=link.tracked_url,
-            redirect_url=_build_redirect_url(link.short_code, link_to_domain.get(link.id)),
+            redirect_url=_build_redirect_url(
+                link.short_code, link_to_domain.get(link.id), request=request,
+            ),
             short_code=link.short_code,
             anchor_text=link.anchor_text,
             utm_source=link.utm_source,
@@ -1498,7 +1507,9 @@ async def get_campaign_links(
             "link_id": str(link.id),
             "original_url": link.original_url,
             "tracked_url": link.tracked_url,
-            "redirect_url": _build_redirect_url(link.short_code, link_to_domain.get(link.id)),
+            "redirect_url": _build_redirect_url(
+                link.short_code, link_to_domain.get(link.id), request=request,
+            ),
             "short_code": link.short_code,
             "utm_source": link.utm_source,
             "utm_medium": link.utm_medium,

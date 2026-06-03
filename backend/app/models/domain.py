@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -43,7 +43,9 @@ class Domain(Base):
     # Mirrored from CF for the UI; e.g. "pending_validation", "active", "deleted".
     ssl_status = Column(String(64), nullable=True)
     # Last CF status payload when in `failed` state; surfaced in the UI.
-    verification_errors = Column(JSONB, nullable=True)
+    # JSON with a JSONB variant for Postgres so sqlite-backed tests can
+    # build the table without choking on the Postgres-specific type.
+    verification_errors = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # When true, this is the user's default domain for new link generation.
     is_primary = Column(Boolean, default=False, nullable=False)

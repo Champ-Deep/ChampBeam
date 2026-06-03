@@ -107,6 +107,7 @@ async def redirect_link(
             ip_address=ip_address,
             user_agent_str=user_agent,
             referrer=referrer,
+            domain_id=domain.id if domain else None,
         )
         if event_id and ip_address:
             background_tasks.add_task(
@@ -116,20 +117,6 @@ async def redirect_link(
         logger.exception(
             "redirect: click event insert failed for short_code=%s link_id=%s",
             short_code, link_id,
-    # Record click event (UA parsed inline, geo resolved in background)
-    event = await utm_service.record_click_event(
-        link=link,
-        ip_address=ip_address,
-        user_agent_str=user_agent,
-        referrer=referrer,
-        session=session,
-        domain_id=domain.id if domain else None,
-    )
-
-    # Resolve GeoIP in background so the redirect is fast
-    if ip_address:
-        background_tasks.add_task(
-            utm_service.resolve_geo_for_event, event.id, ip_address,
         )
 
     return RedirectResponse(url=destination, status_code=302)
