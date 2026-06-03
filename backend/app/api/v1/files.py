@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from urllib.parse import urlparse
 from uuid import UUID as _UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.security import TokenData, require_auth
+from app.core.security import TokenData, get_current_user, require_auth
 from app.db.postgres import async_session_maker, get_db_session
 from app.models.domain import Domain, STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE
 from app.models.file_asset import (
@@ -67,6 +68,16 @@ _KIND_CAP_BYTES = {
     KIND_OTHER: 50 * 1024 * 1024,
 }
 
+# Tighter caps for anonymous (signed-out) uploads — bounds abuse and disk use
+# on the shared platform-default namespace. Authed users keep _KIND_CAP_BYTES.
+_GUEST_KIND_CAP_BYTES = {
+    KIND_PDF: 10 * 1024 * 1024,
+    KIND_HTML: 1 * 1024 * 1024,
+    KIND_IMAGE: 5 * 1024 * 1024,
+    KIND_VIDEO: 50 * 1024 * 1024,
+    KIND_OTHER: 10 * 1024 * 1024,
+}
+
 _KIND_SERVE_MODE = {
     KIND_PDF: SERVE_STREAM,
     KIND_HTML: SERVE_STREAM,
@@ -91,9 +102,17 @@ class FileInit(BaseModel):
 class FileInitResponse(BaseModel):
     file_id: str
     short_code: str
+    # For S3 this is a presigned PUT URL; for the local backend it's the API
+    # path of the blob endpoint (with a signed token). The field name is kept
+    # for backwards compatibility with the frontend client.
     presigned_put_url: str
     headers: dict
     serve_mode: str
+    # Guest (anonymous) uploads only — returned once.
+    owner_token: Optional[str] = None
+    expires_at: Optional[str] = None
+    # True when the browser uploads to our own backend (local) rather than S3.
+    upload_via_backend: bool = False
 
 
 class FileResponse(BaseModel):
@@ -110,10 +129,24 @@ class FileResponse(BaseModel):
     created_at: str
     serve_url: str
     domain_id: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
+class FileFinalizeRequest(BaseModel):
+    # Lets an anonymous uploader finalize their own guest file without auth.
+    owner_token: Optional[str] = None
 
 
 class FileFinalizeResponse(FileResponse):
     pass
+
+
+class FileStatusResponse(BaseModel):
+    view_count: int
+    last_viewed_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    status: str
+    seen: bool
 
 
 # ============================================================================
@@ -142,41 +175,45 @@ def _classify(content_type: str) -> str:
     return _MIME_KIND.get(content_type.lower().split(";", 1)[0].strip(), KIND_OTHER)
 
 
-def _storage_key(user_id: str, file_id: _UUID, filename: str) -> str:
+def _storage_key(user_id: Optional[str], file_id: _UUID, filename: str) -> str:
     # Sanitize to ASCII-safe slug; original filename is preserved on the row.
     safe = "".join(c if c.isalnum() or c in ".-_" else "_" for c in filename)[:80]
-    return f"u/{user_id}/{file_id}/{safe}"
+    if user_id:
+        return f"u/{user_id}/{file_id}/{safe}"
+    return f"anon/{file_id}/{safe}"
 
 
 async def _serve_host(
-    session: AsyncSession, user_id: str, domain_id: Optional[_UUID]
+    session: AsyncSession, user_id, domain_id: Optional[_UUID]
 ) -> str:
     """Pick the hostname to embed in the file's serve URL.
 
     Order: explicit domain_id → user's primary active domain → platform default.
+    Anonymous assets (no user_id) always use the platform-default host.
     """
-    if domain_id is not None:
+    if user_id:
+        if domain_id is not None:
+            result = await session.execute(
+                select(Domain).where(
+                    Domain.id == domain_id,
+                    Domain.user_id == user_id,
+                    Domain.status == DOMAIN_STATUS_ACTIVE,
+                )
+            )
+            d = result.scalar_one_or_none()
+            if d:
+                return d.hostname
+
         result = await session.execute(
             select(Domain).where(
-                Domain.id == domain_id,
                 Domain.user_id == user_id,
+                Domain.is_primary.is_(True),
                 Domain.status == DOMAIN_STATUS_ACTIVE,
             )
         )
-        d = result.scalar_one_or_none()
-        if d:
-            return d.hostname
-
-    result = await session.execute(
-        select(Domain).where(
-            Domain.user_id == user_id,
-            Domain.is_primary.is_(True),
-            Domain.status == DOMAIN_STATUS_ACTIVE,
-        )
-    )
-    primary = result.scalar_one_or_none()
-    if primary:
-        return primary.hostname
+        primary = result.scalar_one_or_none()
+        if primary:
+            return primary.hostname
 
     return settings.resolved_platform_redirect_host or _host_from_base_url()
 
@@ -198,10 +235,8 @@ def _build_serve_url(host: str, short_code: str, filename: str) -> str:
     return f"{_scheme_for(host)}://{host}/f/{short_code}/{safe}"
 
 
-async def _to_response(
-    session: AsyncSession, user_id: str, asset: FileAsset
-) -> FileResponse:
-    host = await _serve_host(session, user_id, asset.domain_id)
+async def _to_response(session: AsyncSession, asset: FileAsset) -> FileResponse:
+    host = await _serve_host(session, asset.user_id, asset.domain_id)
     return FileResponse(
         id=str(asset.id),
         short_code=asset.short_code,
@@ -216,7 +251,20 @@ async def _to_response(
         created_at=asset.created_at.isoformat() if asset.created_at else "",
         serve_url=_build_serve_url(host, asset.short_code, asset.filename),
         domain_id=str(asset.domain_id) if asset.domain_id else None,
+        expires_at=asset.expires_at.isoformat() if asset.expires_at else None,
     )
+
+
+def _authorize_asset(
+    asset: FileAsset, user: Optional[TokenData], owner_token: Optional[str]
+) -> bool:
+    """True if the caller owns the asset (authed user) or holds its owner token."""
+    if user is not None and asset.user_id is not None and str(asset.user_id) == user.user_id:
+        return True
+    if owner_token and asset.owner_token_hash:
+        digest = hashlib.sha256(owner_token.encode()).hexdigest()
+        return hmac.compare_digest(digest, asset.owner_token_hash)
+    return False
 
 
 async def _user_storage_used(session: AsyncSession, user_id: str) -> int:
@@ -289,15 +337,19 @@ async def _delete_storage_async(storage_key: str) -> None:
 @router.post("", response_model=FileInitResponse, status_code=201)
 async def init_upload(
     data: FileInit,
-    user: TokenData = Depends(require_auth),
+    user: Optional[TokenData] = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Begin an upload: validate, allocate a short_code, return a presigned PUT.
+    """Begin an upload: validate, allocate a short_code, return an upload target.
 
-    The browser then PUTs the bytes directly to Supabase and follows up with
+    Works signed-out: an anonymous (guest) upload gets a tighter size cap, an
+    auto-expiry, and an owner_token so the uploader can later check whether the
+    file has been opened. The browser then PUTs the bytes to the returned URL
+    (S3 presigned URL, or our local blob endpoint) and calls
     POST /api/v1/files/{file_id}/finalize.
     """
     _ensure_storage()
+    is_guest = user is None
 
     kind = _classify(data.content_type)
     if kind == KIND_OTHER and data.content_type.lower() not in _MIME_KIND:
@@ -306,57 +358,75 @@ async def init_upload(
             detail=f"Unsupported content type: {data.content_type}",
         )
 
-    cap = _KIND_CAP_BYTES[kind]
+    caps = _GUEST_KIND_CAP_BYTES if is_guest else _KIND_CAP_BYTES
+    cap = caps[kind]
     if data.size_bytes > cap:
         raise HTTPException(
             status_code=413,
             detail=f"{kind.upper()} uploads are capped at {cap // (1024 * 1024)} MB.",
         )
 
-    used = await _user_storage_used(session, user.user_id)
-    if used + data.size_bytes > settings.max_bytes_per_user:
-        raise HTTPException(
-            status_code=402,
-            detail=(
-                f"Storage quota exceeded "
-                f"({used // (1024 * 1024)} MB used of "
-                f"{settings.max_bytes_per_user // (1024 * 1024)} MB)."
-            ),
-        )
-
     domain_uuid: Optional[_UUID] = None
-    if data.domain_id:
-        try:
-            domain_uuid = _UUID(data.domain_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid domain_id.")
-        d = await session.execute(
-            select(Domain).where(
-                Domain.id == domain_uuid,
-                Domain.user_id == user.user_id,
-                Domain.status == DOMAIN_STATUS_ACTIVE,
-            )
-        )
-        if d.scalar_one_or_none() is None:
+    if is_guest:
+        # Guests share the platform-default namespace; custom domains need auth.
+        if data.domain_id:
+            raise HTTPException(status_code=400, detail="Custom domains require an account.")
+    else:
+        used = await _user_storage_used(session, user.user_id)
+        if used + data.size_bytes > settings.max_bytes_per_user:
             raise HTTPException(
-                status_code=400,
-                detail="Domain not found, not yours, or not active.",
+                status_code=402,
+                detail=(
+                    f"Storage quota exceeded "
+                    f"({used // (1024 * 1024)} MB used of "
+                    f"{settings.max_bytes_per_user // (1024 * 1024)} MB)."
+                ),
             )
+        if data.domain_id:
+            try:
+                domain_uuid = _UUID(data.domain_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid domain_id.")
+            d = await session.execute(
+                select(Domain).where(
+                    Domain.id == domain_uuid,
+                    Domain.user_id == user.user_id,
+                    Domain.status == DOMAIN_STATUS_ACTIVE,
+                )
+            )
+            if d.scalar_one_or_none() is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Domain not found, not yours, or not active.",
+                )
 
     short_code = await _allocate_unique_short_code(session, domain_uuid)
     file_id = uuid4()
-    key = _storage_key(user.user_id, file_id, data.filename)
+    owner_user_id = user.user_id if user else None
+    key = _storage_key(owner_user_id, file_id, data.filename)
+
+    # The local backend has no redirect serve mode (it streams from disk);
+    # only S3 uses the per-kind redirect mode for large videos.
+    serve_mode = _KIND_SERVE_MODE[kind] if storage.backend_is_s3() else SERVE_STREAM
 
     try:
-        presigned = storage.generate_presigned_put(key, data.content_type)
+        upload = storage.prepare_upload(str(file_id), key, data.content_type, data.size_bytes)
     except storage.StorageNotConfigured:
         raise HTTPException(status_code=503, detail="File storage is not configured.")
     except storage.StorageError as exc:
         raise HTTPException(status_code=502, detail=f"Storage error: {exc}")
 
+    expires_at: Optional[datetime] = None
+    owner_token_raw: Optional[str] = None
+    owner_token_hash: Optional[str] = None
+    if is_guest:
+        expires_at = datetime.utcnow() + timedelta(seconds=settings.anon_file_ttl_seconds)
+        owner_token_raw = secrets.token_urlsafe(32)
+        owner_token_hash = hashlib.sha256(owner_token_raw.encode()).hexdigest()
+
     asset = FileAsset(
         id=file_id,
-        user_id=user.user_id,
+        user_id=owner_user_id,
         domain_id=domain_uuid,
         short_code=short_code,
         filename=data.filename,
@@ -365,9 +435,11 @@ async def init_upload(
         size_bytes=data.size_bytes,
         storage_key=key,
         status=STATUS_PENDING_UPLOAD,
-        serve_mode=_KIND_SERVE_MODE[kind],
+        serve_mode=serve_mode,
         view_count=0,
         created_at=datetime.utcnow(),
+        expires_at=expires_at,
+        owner_token_hash=owner_token_hash,
     )
     session.add(asset)
     await session.commit()
@@ -375,9 +447,12 @@ async def init_upload(
     return FileInitResponse(
         file_id=str(asset.id),
         short_code=asset.short_code,
-        presigned_put_url=presigned["url"],
-        headers=presigned["headers"],
+        presigned_put_url=upload["url"],
+        headers=upload["headers"],
         serve_mode=asset.serve_mode,
+        owner_token=owner_token_raw,
+        expires_at=expires_at.isoformat() if expires_at else None,
+        upload_via_backend=bool(upload.get("via_backend")),
     )
 
 
@@ -385,10 +460,15 @@ async def init_upload(
 async def finalize_upload(
     file_id: str,
     background_tasks: BackgroundTasks,
-    user: TokenData = Depends(require_auth),
+    body: Optional[FileFinalizeRequest] = None,
+    user: Optional[TokenData] = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Verify the bytes landed in storage and flip the asset to active."""
+    """Verify the bytes landed in storage and flip the asset to active.
+
+    Callable by the owning user OR by an anonymous uploader presenting the
+    owner_token returned from init_upload.
+    """
     _ensure_storage()
 
     try:
@@ -396,18 +476,14 @@ async def finalize_upload(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid file_id.")
 
-    result = await session.execute(
-        select(FileAsset).where(
-            FileAsset.id == fid,
-            FileAsset.user_id == user.user_id,
-        )
-    )
+    result = await session.execute(select(FileAsset).where(FileAsset.id == fid))
     asset = result.scalar_one_or_none()
-    if asset is None:
+    owner_token = body.owner_token if body else None
+    if asset is None or not _authorize_asset(asset, user, owner_token):
         raise HTTPException(status_code=404, detail="File not found.")
 
     if asset.status == STATUS_ACTIVE:
-        return await _to_response(session, user.user_id, asset)
+        return await _to_response(session, asset)
     if asset.status not in {STATUS_PENDING_UPLOAD, STATUS_FAILED}:
         raise HTTPException(
             status_code=409,
@@ -443,7 +519,81 @@ async def finalize_upload(
 
     background_tasks.add_task(_compute_sha256_async, asset.id, asset.storage_key)
 
-    return await _to_response(session, user.user_id, asset)
+    return await _to_response(session, asset)
+
+
+@router.put("/{file_id}/blob", status_code=204)
+async def upload_blob(
+    file_id: str,
+    request: Request,
+    token: str = Query(..., description="Signed upload token from init_upload."),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Receive raw bytes for the LOCAL storage backend (S3 uploads bypass this).
+
+    Authorized by the HMAC token from init_upload — passed in the query string,
+    not a header, so the cross-origin PUT doesn't trip CORS preflight. The body
+    is streamed straight to disk and capped at the declared size.
+    """
+    if storage.backend_is_s3():
+        raise HTTPException(status_code=404, detail="Not found.")
+    try:
+        fid = _UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file_id.")
+    if not storage.verify_blob_token(file_id, token):
+        raise HTTPException(status_code=403, detail="Invalid or expired upload token.")
+
+    result = await session.execute(select(FileAsset).where(FileAsset.id == fid))
+    asset = result.scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    if asset.status != STATUS_PENDING_UPLOAD:
+        raise HTTPException(status_code=409, detail="This upload was already finalized.")
+
+    try:
+        await storage.write_stream(asset.storage_key, request.stream(), asset.size_bytes)
+    except storage.StorageFileTooLarge:
+        asset.status = STATUS_FAILED
+        await session.commit()
+        raise HTTPException(status_code=413, detail="Upload exceeds the declared size.")
+    except storage.StorageError as exc:
+        asset.status = STATUS_FAILED
+        await session.commit()
+        raise HTTPException(status_code=502, detail=f"Storage error: {exc}")
+
+    return Response(status_code=204)
+
+
+@router.get("/{file_id}/status", response_model=FileStatusResponse)
+async def file_status(
+    file_id: str,
+    owner_token: Optional[str] = Query(None),
+    user: Optional[TokenData] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Lightweight 'has it been opened?' poll for a file's owner or guest token."""
+    try:
+        fid = _UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file_id.")
+
+    result = await session.execute(select(FileAsset).where(FileAsset.id == fid))
+    asset = result.scalar_one_or_none()
+    if asset is None or asset.status == STATUS_DELETED:
+        raise HTTPException(status_code=404, detail="File not found.")
+    if not _authorize_asset(asset, user, owner_token):
+        raise HTTPException(status_code=403, detail="Not authorized for this file.")
+
+    expired = asset.expires_at is not None and asset.expires_at < datetime.utcnow()
+    views = asset.view_count or 0
+    return FileStatusResponse(
+        view_count=views,
+        last_viewed_at=asset.last_viewed_at.isoformat() if asset.last_viewed_at else None,
+        expires_at=asset.expires_at.isoformat() if asset.expires_at else None,
+        status="expired" if expired else asset.status,
+        seen=views > 0,
+    )
 
 
 @router.get("", response_model=List[FileResponse])
@@ -462,7 +612,7 @@ async def list_files(
     rows = result.scalars().all()
     out: list[FileResponse] = []
     for a in rows:
-        out.append(await _to_response(session, user.user_id, a))
+        out.append(await _to_response(session, a))
     return out
 
 

@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, Download, BarChart3 } from 'lucide-react';
+import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, FileText, Eye, Download, BarChart3 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@clerk/react';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
 import { FileUploadZone } from '../components/ui/FileUploadZone';
+import { ShareFilePanel } from '../components/ShareFilePanel';
 import { utmApi } from '../api/utm';
 import type { UTMPreset, Project, GenerateLinkResponse, Domain } from '../api/utm';
+import { filesApi } from '../api/files';
+import type { FileAsset } from '../api/files';
 
 type GeneratorMode = 'single' | 'bulk';
 
@@ -26,6 +29,7 @@ export function HomePage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<GeneratorMode>('single');
+  const [primaryMode, setPrimaryMode] = useState<'link' | 'file'>('link');
   const [isProcessing, setIsProcessing] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
   const [utmSource, setUtmSource] = useState('');
@@ -60,6 +64,13 @@ export function HomePage() {
     enabled: isAuthenticated,
   });
   const activeDomains = domains.filter((d) => d.status === 'active');
+
+  // Recent files for the signed-in dashboard's "Your Files" card.
+  const { data: recentFiles = [] } = useQuery<FileAsset[]>({
+    queryKey: ['files'],
+    queryFn: () => filesApi.list(),
+    enabled: isAuthenticated,
+  });
 
   // Default the selector to the primary domain on first load.
   useEffect(() => {
@@ -207,41 +218,73 @@ export function HomePage() {
     <div className="max-w-6xl mx-auto py-8 px-4">
       <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">UTM Link Generator</h1>
+          <h1 className="text-3xl font-bold text-slate-900">
+            {primaryMode === 'file' ? 'Share & Track Files' : 'UTM Link Generator'}
+          </h1>
           <p className="text-slate-600 mt-1">
-            Create trackable UTM-tagged URLs for your marketing campaigns.
+            {primaryMode === 'file'
+              ? 'Send a file and see the moment it’s opened — no account needed.'
+              : 'Create trackable UTM-tagged URLs for your marketing campaigns.'}
           </p>
         </div>
-        {isAuthenticated && (
+        <div className="flex flex-col items-end gap-2">
+          {/* Primary mode: links vs files — available to everyone */}
           <div className="flex rounded-lg border border-slate-200 overflow-hidden">
             <button
-              onClick={() => setMode('single')}
+              onClick={() => setPrimaryMode('link')}
               className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
-                mode === 'single'
+                primaryMode === 'link'
                   ? 'bg-brand-purple text-white'
                   : 'bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Link2 className="h-4 w-4" />
-              Single URL
+              Create Link
             </button>
             <button
-              onClick={() => setMode('bulk')}
+              onClick={() => setPrimaryMode('file')}
               className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
-                mode === 'bulk'
+                primaryMode === 'file'
                   ? 'bg-brand-purple text-white'
                   : 'bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <FileSpreadsheet className="h-4 w-4" />
-              Bulk CSV
+              <FileText className="h-4 w-4" />
+              Share File
             </button>
           </div>
-        )}
+          {/* Link sub-mode: single vs bulk — authed only */}
+          {primaryMode === 'link' && isAuthenticated && (
+            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+              <button
+                onClick={() => setMode('single')}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                  mode === 'single'
+                    ? 'bg-brand-purple text-white'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Link2 className="h-4 w-4" />
+                Single URL
+              </button>
+              <button
+                onClick={() => setMode('bulk')}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                  mode === 'bulk'
+                    ? 'bg-brand-purple text-white'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Bulk CSV
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Bulk CSV mode */}
-      {mode === 'bulk' && isAuthenticated && (
+      {primaryMode === 'link' && mode === 'bulk' && isAuthenticated && (
         <div className="max-w-4xl space-y-6">
           <Card>
             <CardHeader>
@@ -302,7 +345,7 @@ export function HomePage() {
       )}
 
       {/* Single URL mode */}
-      {mode === 'single' && (
+      {primaryMode === 'link' && mode === 'single' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main form */}
         <div className="lg:col-span-2 space-y-6">
@@ -564,9 +607,53 @@ export function HomePage() {
               </div>
             )}
           </Card>
+
+          {isAuthenticated && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Your Files
+                </CardTitle>
+              </CardHeader>
+              {recentFiles.length === 0 ? (
+                <div className="text-center text-sm text-slate-500 py-4">
+                  No files yet.{' '}
+                  <button
+                    onClick={() => setPrimaryMode('file')}
+                    className="text-brand-purple hover:underline"
+                  >
+                    Share one
+                  </button>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 -mx-6 -mb-6">
+                  {recentFiles.slice(0, 4).map((f) => (
+                    <div key={f.id} className="px-6 py-3 flex items-center justify-between gap-2">
+                      <span className="text-sm text-slate-700 truncate" title={f.filename}>
+                        {f.filename}
+                      </span>
+                      <span className="text-xs text-slate-500 flex items-center gap-1 flex-shrink-0">
+                        <Eye className="h-3 w-3" />
+                        {f.view_count}
+                      </span>
+                    </div>
+                  ))}
+                  <Link
+                    to="/files"
+                    className="block px-6 py-3 text-sm text-brand-purple hover:underline"
+                  >
+                    Manage all files →
+                  </Link>
+                </div>
+              )}
+            </Card>
+          )}
         </div>
       </div>
       )}
+
+      {primaryMode === 'file' && <ShareFilePanel isAuthenticated={isAuthenticated} />}
     </div>
   );
 }

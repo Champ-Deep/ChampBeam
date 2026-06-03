@@ -84,6 +84,23 @@ class Settings(BaseSettings):
     # Upload intent returns 402 when the user would exceed this.
     max_bytes_per_user: int = 5 * 1024 * 1024 * 1024  # 5 GiB
 
+    # Storage backend selector: "local" (Railway volume) | "s3" (Supabase/R2/...).
+    # Local routes upload/serve bytes through the API and needs no external creds;
+    # "s3" keeps the presigned-URL flow using the SUPABASE_STORAGE_* vars above.
+    # Flip this to scale up later without code changes.
+    storage_backend: str = "local"
+    # Filesystem root for the local backend. On Railway, point this at a MOUNTED
+    # VOLUME (e.g. /data/files) or uploads are wiped on every redeploy.
+    storage_local_path: str = "./data/files"
+    # HMAC secret for short-lived blob-upload tokens (local backend). Falls back
+    # to clerk_secret_key when unset (see resolved_upload_secret).
+    storage_upload_secret: str = ""
+
+    # Anonymous (signed-out) uploads auto-expire after this window; a background
+    # sweeper reclaims expired blobs + rows on this interval.
+    anon_file_ttl_seconds: int = 24 * 3600
+    anon_sweep_interval_seconds: int = 900
+
     # GeoIP Configuration
     # "maxmind" uses local GeoLite2-City.mmdb file (recommended for production)
     # "ipapi" uses ip-api.com free API (fallback, rate-limited at 45 req/min)
@@ -110,13 +127,25 @@ class Settings(BaseSettings):
         return bool(self.cloudflare_api_token and self.cloudflare_zone_id)
 
     @property
+    def storage_backend_normalized(self) -> str:
+        return (self.storage_backend or "local").strip().lower()
+
+    @property
     def storage_configured(self) -> bool:
+        # The local backend is always "ready" — the directory is created on
+        # demand. S3 still requires all four credentials before /files works.
+        if self.storage_backend_normalized == "local":
+            return True
         return bool(
             self.supabase_storage_endpoint
             and self.supabase_storage_access_key_id
             and self.supabase_storage_secret_access_key
             and self.supabase_storage_bucket
         )
+
+    @property
+    def resolved_upload_secret(self) -> str:
+        return self.storage_upload_secret or self.clerk_secret_key
 
     @property
     def postgres_url(self) -> str:

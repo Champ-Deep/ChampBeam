@@ -61,6 +61,9 @@ coverage/
 *.sqlite
 *.sqlite3
 
+# Local file-storage backend (uploaded blobs for STORAGE_BACKEND=local)
+backend/data/files/
+
 # Logs
 *.log
 logs/

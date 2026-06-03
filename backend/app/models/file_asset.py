@@ -46,7 +46,10 @@ class FileAsset(Base):
     __tablename__ = "file_assets"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # NULL = anonymous (signed-out) upload. Guest assets carry an expiry and an
+    # owner_token_hash so the uploader can poll "have they opened it?" without
+    # an account.
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     # NULL = platform-default host. Uniqueness of short_code is enforced
     # per-domain via the partial indexes in migration 009.
@@ -67,6 +70,11 @@ class FileAsset(Base):
     view_count = Column(Integer, nullable=False, default=0)
     last_viewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Anonymous uploads auto-expire; NULL = never expires (authenticated users).
+    expires_at = Column(DateTime, nullable=True, index=True)
+    # sha256 of the raw owner token handed to an anonymous uploader (once).
+    owner_token_hash = Column(String(64), nullable=True)
 
     user = relationship("User", backref="file_assets")
     click_events = relationship(

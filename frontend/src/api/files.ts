@@ -23,6 +23,7 @@ export interface FileAsset {
   created_at: string;
   serve_url: string;
   domain_id: string | null;
+  expires_at?: string | null;
 }
 
 export interface FileInitRequest {
@@ -35,9 +36,24 @@ export interface FileInitRequest {
 export interface FileInitResponse {
   file_id: string;
   short_code: string;
+  // S3: a presigned PUT URL. Local backend: the relative API path of the blob
+  // endpoint (with a signed token). The field name is kept for back-compat.
   presigned_put_url: string;
   headers: Record<string, string>;
   serve_mode: FileServeMode;
+  // Anonymous (guest) uploads only — returned once.
+  owner_token?: string | null;
+  expires_at?: string | null;
+  // True when the browser uploads to our own backend (local) rather than S3.
+  upload_via_backend?: boolean;
+}
+
+export interface FileStatusResponse {
+  view_count: number;
+  last_viewed_at: string | null;
+  expires_at: string | null;
+  status: string;
+  seen: boolean;
 }
 
 // ============================================================
@@ -46,6 +62,19 @@ export interface FileInitResponse {
 
 function _arr<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : [];
+}
+
+/** Resolve a backend-relative upload path against the API origin.
+ *  api.defaults.baseURL already ends in /api/v1, so we take only its origin
+ *  to avoid doubling the prefix (the blob path already includes /api/v1). */
+function _resolveBackendUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  try {
+    const origin = new URL(api.defaults.baseURL || window.location.origin).origin;
+    return `${origin}${path}`;
+  } catch {
+    return path;
+  }
 }
 
 // ============================================================
@@ -64,19 +93,22 @@ export const filesApi = {
   },
 
   /**
-   * Upload bytes directly to the presigned URL.
+   * Upload bytes to the target returned by initUpload.
    *
-   * IMPORTANT: This uses a bare axios instance (not our `api` client) because
-   * the presigned URL self-authenticates and we must NOT send the Clerk
-   * Authorization header to Supabase Storage.
+   * Always uses a bare axios instance (not our `api` client) so the Clerk
+   * Authorization header is NEVER sent to the upload target — for S3 the
+   * presigned URL self-authenticates; for the local backend the upload is
+   * authorized by the signed token in the URL.
    */
   async uploadBytes(
-    presignedUrl: string,
+    uploadUrl: string,
     file: File,
     headers: Record<string, string>,
+    viaBackend?: boolean,
     onProgress?: (pct: number) => void,
   ): Promise<void> {
-    await axios.put(presignedUrl, file, {
+    const target = viaBackend ? _resolveBackendUrl(uploadUrl) : uploadUrl;
+    await axios.put(target, file, {
       headers,
       onUploadProgress: (e) => {
         if (onProgress && e.total) {
@@ -86,8 +118,19 @@ export const filesApi = {
     });
   },
 
-  async finalize(fileId: string): Promise<FileAsset> {
-    const response = await api.post<FileAsset>(`/files/${fileId}/finalize`);
+  async finalize(fileId: string, ownerToken?: string | null): Promise<FileAsset> {
+    const response = await api.post<FileAsset>(
+      `/files/${fileId}/finalize`,
+      ownerToken ? { owner_token: ownerToken } : {},
+    );
+    return response.data;
+  },
+
+  /** Poll a file's view status. Pass ownerToken for anonymous (guest) files. */
+  async getStatus(fileId: string, ownerToken?: string | null): Promise<FileStatusResponse> {
+    const response = await api.get<FileStatusResponse>(`/files/${fileId}/status`, {
+      params: ownerToken ? { owner_token: ownerToken } : undefined,
+    });
     return response.data;
   },
 

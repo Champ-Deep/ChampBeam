@@ -28,6 +28,7 @@ from app.api.v1 import auth, health, projects, utm, short_links, domains
 from app.api.v1 import files as files_v1
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
+from app.services.file_expiry import expiry_sweeper_loop
 
 
 @asynccontextmanager
@@ -50,11 +51,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("PostgreSQL initialization failed: %s", e)
 
+    # Background sweeper that reclaims expired anonymous file uploads.
+    sweeper_task = asyncio.create_task(expiry_sweeper_loop())
+
     logger.info("Ready in %.1fs", time.time() - startup_start)
 
     yield
 
     # Shutdown
+    sweeper_task.cancel()
+    try:
+        await sweeper_task
+    except asyncio.CancelledError:
+        pass
     await redis_client.close()
     await close_db()
     logger.info("Shutdown complete")

@@ -34,6 +34,7 @@ _moto.start()
 _port = _moto._server.socket.getsockname()[1]
 S3_ENDPOINT = f"http://127.0.0.1:{_port}"
 
+os.environ["STORAGE_BACKEND"] = "s3"  # exercise the S3 path explicitly
 os.environ["SUPABASE_STORAGE_ENDPOINT"] = S3_ENDPOINT
 os.environ["SUPABASE_STORAGE_REGION"] = "us-east-1"
 os.environ["SUPABASE_STORAGE_ACCESS_KEY_ID"] = "testkey"
@@ -60,7 +61,7 @@ sys.path.insert(0, ".")
 
 from sqlalchemy import select, delete  # noqa: E402
 from app.main import app  # noqa: E402
-from app.core.security import TokenData, require_auth  # noqa: E402
+from app.core.security import TokenData, get_current_user, require_auth  # noqa: E402
 from app.db.postgres import async_session_maker  # noqa: E402
 from app.models import User, FileAsset, ClickEvent, Domain  # noqa: E402
 from app.models.domain import STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE  # noqa: E402
@@ -125,7 +126,10 @@ async def run() -> int:
     print(f"\nTest user: {_TEST_USER_ID}")
 
     await _cleanup()
+    # init/finalize/status use optional auth (get_current_user); list/delete use
+    # require_auth. Override both so this suite drives the authenticated path.
     app.dependency_overrides[require_auth] = _make_token
+    app.dependency_overrides[get_current_user] = _make_token
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://platform.test") as client:
@@ -347,6 +351,7 @@ async def run() -> int:
     # === Cleanup ===
     await _cleanup()
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(get_current_user, None)
 
     print("\n" + "=" * 60)
     if _failures:

@@ -84,6 +84,7 @@ export function FilesPage() {
         intent.presigned_put_url,
         file,
         intent.headers,
+        intent.upload_via_backend,
         (pct) => setProgress(pct),
       );
 

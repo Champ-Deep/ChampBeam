@@ -9,6 +9,7 @@ short-code namespace to look in.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
@@ -26,6 +27,7 @@ from app.models.file_asset import (
     STATUS_ACTIVE,
 )
 from app.services import storage
+from app.services.file_expiry import expire_asset
 from app.services.utm_service import utm_service
 
 logger = logging.getLogger(__name__)
@@ -115,6 +117,12 @@ async def serve_file(
     if asset is None:
         return Response(status_code=404, content="File not found.")
 
+    # Anonymous assets auto-expire — treat an expired file as gone (and reclaim
+    # it in the background) rather than serving stale bytes.
+    if asset.expires_at is not None and asset.expires_at < datetime.utcnow():
+        background_tasks.add_task(expire_asset, asset.id)
+        return Response(status_code=410, content="This file has expired.")
+
     # Extract visitor info — same pattern as /r/{code}.
     ip_address = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
     if not ip_address:
@@ -136,7 +144,9 @@ async def serve_file(
             utm_service.resolve_geo_for_event, event.id, ip_address,
         )
 
-    if asset.serve_mode == SERVE_REDIRECT:
+    # Redirect-serve (large videos) only applies to S3; the local backend has
+    # no presigned GET, so it always streams from disk.
+    if asset.serve_mode == SERVE_REDIRECT and storage.backend_is_s3():
         try:
             url = storage.generate_presigned_get(
                 asset.storage_key, filename=asset.filename, expires=300
