@@ -11,6 +11,8 @@ import { LinkAnalyticsPage } from './pages/LinkAnalyticsPage';
 import { CampaignsPage } from './pages/CampaignsPage';
 import { CampaignDetailPage } from './pages/CampaignDetailPage';
 import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { FilesPage } from './pages/FilesPage';
 import { setTokenGetter } from './api/client';
 
 function ClerkTokenSync() {
@@ -51,6 +53,8 @@ export default function App() {
                 <Route path="/campaigns" element={<ProtectedRoute><CampaignsPage /></ProtectedRoute>} />
                 <Route path="/campaigns/compare" element={<ProtectedRoute><CampaignComparisonPage /></ProtectedRoute>} />
                 <Route path="/campaigns/:campaignName" element={<ProtectedRoute><CampaignDetailPage /></ProtectedRoute>} />
+                <Route path="/files" element={<ProtectedRoute><FilesPage /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               </Routes>
             </main>
           </>

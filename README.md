@@ -120,6 +120,47 @@ FRONTEND_URL=https://app.yourdomain.com
 
 # How long a password reset link stays valid (minutes).
 PASSWORD_RESET_TOKEN_TTL_MINUTES=30
+
+# Base URL used when generating short links (e.g., https://champ-utm.vercel.app).
+# Defaults to http://localhost:8000.
+REDIRECT_BASE_URL=https://champ-utm.vercel.app
+
+# Bring-Your-Own-Domain (BYOD) — see "Custom Domains" below.
+# CLOUDFLARE_API_TOKEN=
+# CLOUDFLARE_ZONE_ID=
+# CLOUDFLARE_CNAME_TARGET=cname.yourdomain.com
+```
+
+### Custom Domains (Bring-Your-Own-Domain)
+
+Each user can attach their own hostname (e.g. `track.acme.com`) for branded
+short links. The platform routes incoming requests by ``Host`` header into
+the right per-account namespace. ``LinkClick.short_code`` is unique per
+domain (enforced via partial indexes in migration 008), so two accounts can
+safely reuse the same short code on their own domains.
+
+**Production setup (Cloudflare for SaaS):**
+
+1. Add the zone you'll use as the CNAME target (e.g. `champutm.com`) to
+   Cloudflare and enable **Cloudflare for SaaS**.
+2. Set the **Fallback Origin** to the Railway backend hostname.
+3. Create a public DNS record: `cname.champutm.com` CNAME → fallback origin.
+4. Generate an API token with `Zone.SSL and Certificates:Edit` +
+   `Zone.Zone Settings:Edit` for that zone, store as
+   `CLOUDFLARE_API_TOKEN` on Railway.
+5. Capture the zone id as `CLOUDFLARE_ZONE_ID` and the customer-facing
+   CNAME target as `CLOUDFLARE_CNAME_TARGET`.
+
+When all three vars are set, `POST /api/v1/domains` provisions a Custom
+Hostname via the CF API; status flips from `pending_cname` → `pending_ssl`
+→ `active` as DNS resolves and the cert issues.
+
+**Local development:** Leave the `CLOUDFLARE_*` vars empty. New domains are
+created in `active` status without a real cert so the full happy path is
+testable via curl with a spoofed Host header:
+
+```bash
+curl -i -H "Host: track.example.com" http://localhost:8000/r/<short_code>
 ```
 
 ### Password reset flow

@@ -24,8 +24,10 @@ from app.db.redis import redis_client
 from app.middleware.rate_limit import setup_rate_limiting
 
 # Import routers
-from app.api.v1 import auth, health, projects, utm, short_links
+from app.api.v1 import auth, health, projects, utm, short_links, domains
+from app.api.v1 import files as files_v1
 from app.api.redirect import router as redirect_router
+from app.api.files import router as files_serve_router
 
 
 @asynccontextmanager
@@ -141,9 +143,12 @@ async def root():
 # Include routers
 app.include_router(health.router)
 app.include_router(redirect_router)  # /r/{short_code} — top-level, no prefix
+app.include_router(files_serve_router)  # /f/{short_code} — top-level, no prefix
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(utm.router, prefix=settings.api_v1_prefix)
 app.include_router(projects.router, prefix=settings.api_v1_prefix)
+app.include_router(domains.router, prefix=settings.api_v1_prefix)
+app.include_router(files_v1.router, prefix=settings.api_v1_prefix)
 app.include_router(short_links.router)
 
 

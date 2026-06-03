@@ -38,6 +38,25 @@ export interface GenerateLinkRequest {
   project_name?: string;
   project_id?: string;
   preset_id?: string;
+  domain_id?: string;
+}
+
+// --- Domains (BYOD) ---
+
+export type DomainStatus = 'pending_cname' | 'pending_ssl' | 'active' | 'failed';
+
+export interface Domain {
+  id: string;
+  hostname: string;
+  status: DomainStatus;
+  ssl_status: string | null;
+  verification_errors: Record<string, unknown> | null;
+  is_primary: boolean;
+  created_at: string;
+  verified_at: string | null;
+  last_checked_at: string | null;
+  cname_target: string | null;
+  cloudflare_managed: boolean;
 }
 
 export interface GenerateLinkResponse {
@@ -566,6 +585,35 @@ export const utmApi = {
       _appendQuery('/utm/analytics/clicks/recent', params)
     );
     return _arr<RecentClick>(response.data);
+  },
+
+  // ============================================================
+  // Custom Domains (BYOD)
+  // ============================================================
+
+  async listDomains(): Promise<Domain[]> {
+    const response = await api.get<Domain[]>('/domains');
+    return _arr<Domain>(response.data);
+  },
+
+  async createDomain(hostname: string): Promise<Domain> {
+    const response = await api.post<Domain>('/domains', { hostname });
+    return response.data;
+  },
+
+  async refreshDomain(id: string): Promise<Domain> {
+    const response = await api.post<Domain>(`/domains/${id}/refresh`);
+    return response.data;
+  },
+
+  async setPrimaryDomain(id: string): Promise<Domain> {
+    const response = await api.post<Domain>(`/domains/${id}/set-primary`);
+    return response.data;
+  },
+
+  async deleteDomain(id: string, force = false): Promise<void> {
+    const params = force ? '?force=true' : '';
+    await api.delete(`/domains/${id}${params}`);
   },
 };
 

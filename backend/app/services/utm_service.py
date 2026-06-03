@@ -118,6 +118,7 @@ class UTMService:
         utm_params: Dict[str, str],
         project_name: Optional[str] = None,
         project_id: Optional[UUID] = None,
+        domain_id: Optional[UUID] = None,
         session: Optional[AsyncSession] = None,
     ) -> LinkClick:
         """Record a generated link for click tracking.
@@ -160,6 +161,7 @@ class UTMService:
                 LinkClick.utm_campaign == cam if cam else LinkClick.utm_campaign.is_(None),
                 LinkClick.utm_content == con if con else LinkClick.utm_content.is_(None),
                 LinkClick.utm_term == trm if trm else LinkClick.utm_term.is_(None),
+                LinkClick.domain_id == domain_id if domain_id else LinkClick.domain_id.is_(None),
             )
             result = await s.execute(stmt)
             return result.scalar_one_or_none()
@@ -188,6 +190,7 @@ class UTMService:
             short_code=s_code,
             project_id=project_id,
             project_name=project_name,
+            domain_id=domain_id,
             original_url=original_url,
             tracked_url=tracked_url,
             utm_source=src,
@@ -217,6 +220,7 @@ class UTMService:
         user_agent_str: Optional[str],
         referrer: Optional[str],
         session: AsyncSession,
+        domain_id: Optional[UUID] = None,
     ) -> ClickEvent:
         """Record an individual click event with parsed UA info.
 
@@ -239,6 +243,7 @@ class UTMService:
         event = ClickEvent(
             id=uuid4(),
             link_id=link.id,
+            domain_id=domain_id if domain_id is not None else link.domain_id,
             ip_address=ip_address,
             user_agent=user_agent_str,
             referrer=referrer,
@@ -344,6 +349,46 @@ class UTMService:
             session.add(event)
             await session.commit()
         return event_id
+    async def record_file_view_event(
+        self,
+        file,
+        ip_address: Optional[str],
+        user_agent_str: Optional[str],
+        referrer: Optional[str],
+        session: AsyncSession,
+        domain_id: Optional[UUID] = None,
+    ) -> ClickEvent:
+        """Record a view against a FileAsset, mirroring ``record_click_event``.
+
+        Imported lazily to keep models.utm decoupled from models.file_asset.
+        """
+        from app.models.file_asset import FileAsset
+
+        if not isinstance(file, FileAsset):
+            raise TypeError("file must be a FileAsset instance")
+
+        ua_info = parse_user_agent(user_agent_str or "")
+
+        event = ClickEvent(
+            id=uuid4(),
+            link_id=None,
+            file_id=file.id,
+            domain_id=domain_id if domain_id is not None else file.domain_id,
+            ip_address=ip_address,
+            user_agent=user_agent_str,
+            referrer=referrer,
+            device_type=ua_info["device_type"],
+            browser=ua_info["browser"],
+            os=ua_info["os"],
+        )
+        session.add(event)
+
+        now = datetime.utcnow()
+        file.view_count = (file.view_count or 0) + 1
+        file.last_viewed_at = now
+
+        await session.flush()
+        return event
 
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
         """Background task: resolve GeoIP + VPN/ASN detection and update click event."""
