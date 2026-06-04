@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, CheckCircle2, Copy, Globe, RefreshCw, Star, Trash2 } from 'lucide-react';
+import { AlertTriangle, BookmarkCheck, CheckCircle2, Copy, Globe, RefreshCw, Star, Trash2 } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainStatus } from '../api/utm';
+import { PresetsManager } from './PresetsManager';
+
+type SettingsTab = 'domains' | 'presets';
 
 const STATUS_LABEL: Record<DomainStatus, string> = {
   pending_cname: 'Waiting on CNAME',
@@ -22,7 +26,11 @@ const STATUS_VARIANT: Record<DomainStatus, 'default' | 'warning' | 'info' | 'suc
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [newHostname, setNewHostname] = useState('');
+  const [tab, setTab] = useState<SettingsTab>(
+    searchParams.get('tab') === 'presets' ? 'presets' : 'domains'
+  );
 
   const { data: domains = [], isLoading } = useQuery<Domain[]>({
     queryKey: ['domains'],
@@ -40,7 +48,7 @@ export function SettingsPage() {
   const createMutation = useMutation({
     mutationFn: (hostname: string) => utmApi.createDomain(hostname),
     onSuccess: () => {
-      toast.success('Domain added — follow the setup steps below.');
+      toast.success('Domain added. Follow the setup steps below.');
       setNewHostname('');
       queryClient.invalidateQueries({ queryKey: ['domains'] });
     },
@@ -118,61 +126,95 @@ export function SettingsPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900">Settings</h1>
         <p className="text-slate-600 mt-1">
-          Manage your custom domains for branded short links.
+          Manage your custom domains and saved UTM presets.
         </p>
       </div>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Add a custom domain
-          </CardTitle>
-        </CardHeader>
-        <form onSubmit={handleAdd} className="flex items-end gap-3">
-          <div className="flex-1">
-            <Input
-              label="Hostname"
-              placeholder="track.example.com"
-              value={newHostname}
-              onChange={(e) => setNewHostname(e.target.value)}
-              helperText="Use a subdomain you control (apex domains work too, but the CNAME must be delegated)."
-            />
-          </div>
-          <Button type="submit" disabled={createMutation.isPending}>
-            {createMutation.isPending ? 'Adding…' : 'Add domain'}
-          </Button>
-        </form>
-      </Card>
+      {/* Sub-tab bar */}
+      <div className="border-b border-slate-200 mb-6">
+        <div className="flex gap-6">
+          <button
+            onClick={() => setTab('domains')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'domains'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Globe className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Domains
+          </button>
+          <button
+            onClick={() => setTab('presets')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'presets'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <BookmarkCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Presets
+          </button>
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Your domains</CardTitle>
-        </CardHeader>
-        {isLoading ? (
-          <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
-        ) : domains.length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-500">
-            No custom domains yet. Add one above to start sharing branded short links.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100 -mx-6 -mb-6">
-            {domains.map((d) => (
-              <DomainRow
-                key={d.id}
-                domain={d}
-                onRefresh={() => refreshMutation.mutate(d.id)}
-                onSetPrimary={() => primaryMutation.mutate(d.id)}
-                onDelete={() => handleDelete(d)}
-                refreshing={refreshMutation.isPending && refreshMutation.variables === d.id}
-              />
-            ))}
-          </div>
-        )}
-      </Card>
+      {tab === 'domains' && (
+        <>
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                Add a custom domain
+              </CardTitle>
+            </CardHeader>
+            <form onSubmit={handleAdd} className="flex items-end gap-3">
+              <div className="flex-1">
+                <Input
+                  label="Hostname"
+                  placeholder="track.example.com"
+                  value={newHostname}
+                  onChange={(e) => setNewHostname(e.target.value)}
+                  helperText="Use a subdomain you control (apex domains work too, but the CNAME must be delegated)."
+                />
+              </div>
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? 'Adding…' : 'Add domain'}
+              </Button>
+            </form>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Your domains</CardTitle>
+            </CardHeader>
+            {isLoading ? (
+              <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
+            ) : domains.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-500">
+                No custom domains yet. Add one above to start sharing branded short links.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 -mx-6 -mb-6">
+                {domains.map((d) => (
+                  <DomainRow
+                    key={d.id}
+                    domain={d}
+                    onRefresh={() => refreshMutation.mutate(d.id)}
+                    onSetPrimary={() => primaryMutation.mutate(d.id)}
+                    onDelete={() => handleDelete(d)}
+                    refreshing={refreshMutation.isPending && refreshMutation.variables === d.id}
+                  />
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {tab === 'presets' && <PresetsManager />}
     </div>
   );
 }
@@ -267,7 +309,7 @@ function DomainRow({ domain, onRefresh, onSetPrimary, onDelete, refreshing }: Do
       {isActive && (
         <div className="mt-3 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800 flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4" />
-          Ready — pick this domain when generating a link.
+          Ready: pick this domain when generating a link.
         </div>
       )}
     </div>
