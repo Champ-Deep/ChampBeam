@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     # when unset.
     platform_redirect_host: str = ""
 
+    # Base zone for Netlify-style platform subdomains, e.g. "deependhq.com" so a
+    # tenant can claim acme.deependhq.com. Single-label subdomains under this
+    # base are served by the platform wildcard DNS + cert, so they need no
+    # per-host certificate. Empty disables subdomain mode.
+    platform_subdomain_base: str = ""
+
     # Cloudflare for SaaS Custom Hostnames integration. When both token and
     # zone_id are set, the /api/v1/domains endpoints provision certs via CF.
     # When either is empty, those endpoints return 503 with a setup hint.

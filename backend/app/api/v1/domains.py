@@ -90,6 +90,21 @@ def _validate_hostname(hostname: str) -> None:
         raise HTTPException(status_code=400, detail="Hostname must include a domain.")
 
 
+def _is_platform_subdomain(hostname: str) -> bool:
+    """True when hostname is a single-label subdomain of the platform's wildcard
+    base (for example acme.deependhq.com when the base is deependhq.com). Those
+    are covered by the platform wildcard DNS + cert, so they need no per-host
+    certificate provisioning (the Netlify-style path)."""
+    base = (settings.platform_subdomain_base or "").lower().strip().lstrip(".")
+    if not base:
+        return False
+    suffix = "." + base
+    if hostname == base or not hostname.endswith(suffix):
+        return False
+    label = hostname[: -len(suffix)]
+    return bool(label) and "." not in label
+
+
 def _to_response(domain: Domain) -> DomainResponse:
     return DomainResponse(
         id=str(domain.id),
@@ -165,6 +180,18 @@ async def list_domains(
     return [_to_response(d) for d in result.scalars().all()]
 
 
+@router.get("/config")
+async def domains_config(user: TokenData = Depends(require_auth)):
+    """Which custom-domain modes the deployment offers, for the Settings UI."""
+    base = (settings.platform_subdomain_base or "").strip().lstrip(".")
+    return {
+        "subdomain_enabled": bool(base),
+        "platform_subdomain_base": base or None,
+        "byod_enabled": settings.cloudflare_configured,
+        "cname_target": settings.cloudflare_cname_target or None,
+    }
+
+
 @router.post("", response_model=DomainResponse, status_code=201)
 async def create_domain(
     data: DomainCreate,
@@ -186,7 +213,13 @@ async def create_domain(
     status = STATUS_PENDING_CNAME
     ssl_status: str | None = None
 
-    if settings.cloudflare_configured:
+    if _is_platform_subdomain(hostname):
+        # Netlify-style: a subdomain of our own wildcard zone. The platform
+        # wildcard DNS + cert already cover it, so mark it active with no
+        # per-host provisioning.
+        status = STATUS_ACTIVE
+        ssl_status = "active"
+    elif settings.cloudflare_configured:
         try:
             result = await cloudflare.create_custom_hostname(hostname)
             cf_id = result.get("id")
