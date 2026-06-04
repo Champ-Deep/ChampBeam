@@ -4,13 +4,10 @@ import { toast } from 'sonner';
 import {
   BarChart3,
   Check,
-  Clock,
   Copy,
   ExternalLink,
   Eye,
   FileText,
-  Globe,
-  MousePointerClick,
   Sparkles,
   UserPlus,
 } from 'lucide-react';
@@ -184,7 +181,12 @@ function FileResultCard({ file }: { file: SharedFile }) {
   );
 }
 
-export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }) {
+/**
+ * File-share state lifted into a hook so the creator card and the recent-files
+ * list can live in separate columns of the home page while sharing one history,
+ * upload progress, and "most recently shared" result.
+ */
+export function useFileShareHistory() {
   const [history, setHistory] = useState<SharedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -222,9 +224,11 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
         expiresAt: intent.expires_at ?? finalized.expires_at ?? null,
         uploadedAt: new Date().toISOString(),
       };
-      const next = [item, ...history.filter((h) => h.fileId !== item.fileId)].slice(0, 10);
-      setHistory(next);
-      saveHistory(next);
+      setHistory((prev) => {
+        const next = [item, ...prev.filter((h) => h.fileId !== item.fileId)].slice(0, 10);
+        saveHistory(next);
+        return next;
+      });
       setLastShared(item);
       navigator.clipboard.writeText(finalized.serve_url).catch(() => undefined);
       toast.success('File is live. Link copied to clipboard.');
@@ -237,144 +241,171 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
     }
   }
 
+  return { history, lastShared, isUploading, progress, handleFile };
+}
+
+type FileShareState = ReturnType<typeof useFileShareHistory>;
+
+/**
+ * The "Share a file" creator: drop zone, inline result card once a file is
+ * finalized, and (for guests) the sign-up nudge. Designed to stack in the home
+ * page's main column directly beneath the link shortener.
+ */
+export function ShareFileCreator({
+  isAuthenticated,
+  share,
+}: {
+  isAuthenticated: boolean;
+  share: FileShareState;
+}) {
+  const { lastShared, isUploading, progress, handleFile } = share;
+
   const hint = isAuthenticated
     ? 'PDF ≤ 50 MB · image ≤ 10 MB · video ≤ 500 MB'
     : 'PDF/HTML/image ≤ 10 MB · video ≤ 50 MB · link expires in 24h';
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-2 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Share a file
-            </CardTitle>
-          </CardHeader>
-          <p className="text-sm text-slate-600 mb-4">
-            Drop a file to get a short, trackable link plus a QR code. You will see the moment it is
-            opened, no account needed to start.
-          </p>
-          <FileUploadZone
-            onFileSelected={handleFile}
-            isUploading={isUploading}
-            accept=".pdf,.html,.htm,.mp4,.webm,.png,.jpg,.jpeg,.webp"
-            label="Drop a PDF, video, HTML, or image here"
-            hint={hint}
-            uploadingLabel={progress !== null ? `Uploading… ${progress}%` : 'Uploading…'}
-          />
-          {progress !== null && (
-            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full bg-brand-purple transition-all" style={{ width: `${progress}%` }} />
-            </div>
-          )}
-        </Card>
-
-        {/* The result card is the centerpiece, shown once a file is finalized. */}
-        {lastShared ? (
-          <FileResultCard file={lastShared} />
-        ) : (
-          /* Fill the column consistently with what happens after a file is shared. */
-          <Card className="bg-slate-50">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">What happens after you share</h3>
-            <ul className="space-y-3">
-              {[
-                { icon: MousePointerClick, text: 'Anyone with the link opens your file straight in the browser, no download needed.' },
-                { icon: Eye, text: 'The result card flips to "Seen" the moment it is viewed, with a live open count.' },
-                { icon: Globe, text: 'Every open is logged with location and device so you know exactly who saw it.' },
-              ].map((item) => {
-                const Icon = item.icon;
-                return (
-                  <li key={item.text} className="flex items-start gap-3">
-                    <div className="h-6 w-6 rounded-md bg-brand-teal/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Icon className="h-3.5 w-3.5 text-brand-teal" />
-                    </div>
-                    <span className="text-sm text-slate-700">{item.text}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Share a file
+          </CardTitle>
+        </CardHeader>
+        <p className="text-sm text-slate-600 mb-4">
+          Drop a file to get a short, trackable link plus a QR code. You will see the moment it is
+          opened, no account needed to start.
+        </p>
+        <FileUploadZone
+          onFileSelected={handleFile}
+          isUploading={isUploading}
+          accept=".pdf,.html,.htm,.mp4,.webm,.png,.jpg,.jpeg,.webp"
+          label="Drop a PDF, video, HTML, or image here"
+          hint={hint}
+          uploadingLabel={progress !== null ? `Uploading… ${progress}%` : 'Uploading…'}
+        />
+        {progress !== null && (
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+            <div className="h-full bg-brand-purple transition-all" style={{ width: `${progress}%` }} />
+          </div>
         )}
+      </Card>
 
-        {!isAuthenticated && (
-          <Card className="bg-brand-purple/5 border-brand-purple/20">
-            <div className="flex items-center gap-4">
-              <div className="h-12 w-12 bg-brand-purple/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                <UserPlus className="h-6 w-6 text-brand-purple" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-slate-900">Keep your files &amp; full analytics</h3>
-                <p className="text-sm text-slate-600">
-                  Sign up free to drop the 24-hour expiry, host on your own domain, and see geo +
-                  device analytics on every open.
-                </p>
-              </div>
-              <Link to="/sign-up">
-                <Button size="sm">Sign Up Free</Button>
-              </Link>
-            </div>
-          </Card>
-        )}
-      </div>
+      {/* The result card appears inline directly beneath this creator. */}
+      {lastShared && <FileResultCard file={lastShared} />}
 
-      <div>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Recent Files
-            </CardTitle>
-          </CardHeader>
-          {history.length === 0 ? (
-            <div className="text-center text-sm text-slate-500 py-4">No files shared yet</div>
-          ) : (
-            <div className="divide-y divide-slate-100 -mx-6 -mb-6 max-h-[500px] overflow-y-auto">
-              {history.map((f) => (
-                <div key={f.fileId} className="px-6 py-3">
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <span className="text-sm font-medium text-slate-900 truncate" title={f.filename}>
-                      {f.filename}
-                    </span>
-                    <FileSeenBadge file={f} />
-                  </div>
-                  <p
-                    className="text-xs text-brand-purple font-mono break-all line-clamp-1 mb-2"
-                    title={f.serveUrl}
-                  >
-                    {f.serveUrl}
-                  </p>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-slate-400">
-                      {expiresLabel(f.expiresAt) ?? 'Saved'}
-                    </span>
-                    <div className="flex items-center gap-0.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2"
-                        onClick={() => {
-                          navigator.clipboard.writeText(f.serveUrl);
-                          toast.success('Copied');
-                        }}
-                        title="Copy link"
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                      </Button>
-                      <QrButton value={f.serveUrl} filename={`${f.shortCode}.svg`} />
-                      <a href={f.serveUrl} target="_blank" rel="noreferrer" title="Open file">
-                        <Button variant="ghost" size="sm" className="h-7 px-2">
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              ))}
+      {!isAuthenticated && (
+        <Card className="bg-brand-purple/5 border-brand-purple/20">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 bg-brand-purple/10 rounded-lg flex items-center justify-center flex-shrink-0">
+              <UserPlus className="h-6 w-6 text-brand-purple" />
             </div>
-          )}
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-slate-900">Keep your files &amp; full analytics</h3>
+              <p className="text-sm text-slate-600">
+                Sign up free to drop the 24-hour expiry, host on your own domain, and see geo +
+                device analytics on every open.
+              </p>
+            </div>
+            <Link to="/sign-up">
+              <Button size="sm">Sign Up Free</Button>
+            </Link>
+          </div>
         </Card>
-      </div>
+      )}
     </div>
+  );
+}
+
+/** The "Your files" list for the home page sidebar, driven by shared history. */
+export function RecentFilesCard({
+  share,
+  isAuthenticated = false,
+}: {
+  share: FileShareState;
+  isAuthenticated?: boolean;
+}) {
+  const { history } = share;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileText className="h-4 w-4" />
+          Your files
+        </CardTitle>
+      </CardHeader>
+      {history.length === 0 ? (
+        <div className="text-center text-sm text-slate-500 py-4">
+          No files shared yet
+          {isAuthenticated && (
+            <>
+              {'. '}
+              <Link to="/files" className="text-brand-purple hover:underline">
+                Manage all files
+              </Link>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-100 -mx-6 -mb-6">
+          {history.map((f) => (
+            <div key={f.fileId} className="px-6 py-3">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-sm font-medium text-slate-900 truncate" title={f.filename}>
+                  {f.filename}
+                </span>
+                <FileSeenBadge file={f} />
+              </div>
+              <p
+                className="text-xs text-brand-purple font-mono break-all line-clamp-1 mb-2"
+                title={f.serveUrl}
+              >
+                {f.serveUrl}
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400">
+                  {expiresLabel(f.expiresAt) ?? 'Saved'}
+                </span>
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => {
+                      navigator.clipboard.writeText(f.serveUrl);
+                      toast.success('Copied');
+                    }}
+                    title="Copy link"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                  <QrButton value={f.serveUrl} filename={`${f.shortCode}.svg`} />
+                  <Link to={`/files/${f.fileId}/analytics`} title="View analytics">
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-brand-purple">
+                      <BarChart3 className="h-3.5 w-3.5" />
+                    </Button>
+                  </Link>
+                  <a href={f.serveUrl} target="_blank" rel="noreferrer" title="Open file">
+                    <Button variant="ghost" size="sm" className="h-7 px-2">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+          {isAuthenticated && (
+            <Link
+              to="/files"
+              className="block px-6 py-3 text-sm text-brand-purple hover:underline"
+            >
+              Manage all files
+            </Link>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }

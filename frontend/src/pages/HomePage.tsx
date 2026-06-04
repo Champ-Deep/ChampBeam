@@ -16,6 +16,8 @@ import {
   ShieldCheck,
   Upload,
   MousePointerClick,
+  MapPin,
+  QrCode as QrCodeIcon,
   Zap,
   ChevronDown,
   Check,
@@ -35,11 +37,9 @@ import {
   QrDownloadButton,
 } from '../components/ui';
 import { FileUploadZone } from '../components/ui/FileUploadZone';
-import { ShareFilePanel } from '../components/ShareFilePanel';
+import { ShareFileCreator, RecentFilesCard, useFileShareHistory } from '../components/ShareFilePanel';
 import { utmApi } from '../api/utm';
 import type { UTMPreset, Project, GenerateLinkResponse, Domain } from '../api/utm';
-import { filesApi } from '../api/files';
-import type { FileAsset } from '../api/files';
 
 type GeneratorMode = 'single' | 'bulk';
 
@@ -403,7 +403,6 @@ export function HomePage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<GeneratorMode>('single');
-  const [primaryMode, setPrimaryMode] = useState<'link' | 'file'>('link');
   const [showUtm, setShowUtm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -442,12 +441,9 @@ export function HomePage() {
   });
   const activeDomains = domains.filter((d) => d.status === 'active');
 
-  // Recent files for the signed-in dashboard's "Your Files" card.
-  const { data: recentFiles = [] } = useQuery<FileAsset[]>({
-    queryKey: ['files'],
-    queryFn: () => filesApi.list(),
-    enabled: isAuthenticated,
-  });
+  // Shared file-share state: drives the "Share a file" creator (inline result)
+  // and the "Your files" sidebar list from one history + upload progress.
+  const fileShare = useFileShareHistory();
 
   // Default the selector to the primary domain on first load.
   useEffect(() => {
@@ -613,52 +609,20 @@ export function HomePage() {
       {/* Marketing hero + value props for signed-out visitors, above the live generator. */}
       {!isAuthenticated && <GuestMarketing />}
 
-      <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">
-            {primaryMode === 'file'
-              ? 'Share & track files'
-              : mode === 'bulk'
-                ? 'Bulk import links'
-                : 'Shorten & track a link'}
-          </h1>
+      {/* Header: signed-in visitors get a concise page title (guests get the
+          marketing hero above instead). */}
+      {isAuthenticated && mode === 'single' && (
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">Share &amp; track anything</h1>
           <p className="text-slate-600 mt-1">
-            {primaryMode === 'file'
-              ? 'Drop a file and see the moment it is opened, no account needed.'
-              : mode === 'bulk'
-                ? 'Upload a CSV to generate many tracked short links at once.'
-                : 'Paste a link to get a short, trackable URL plus a QR code, then see if it was opened.'}
+            Paste a link or drop a file to get a short, trackable URL plus a QR code, then see the
+            moment it is opened.
           </p>
         </div>
-        {/* Primary control: a clean two-option Link / File toggle. */}
-        <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-          <button
-            onClick={() => { setPrimaryMode('link'); setMode('single'); }}
-            className={`flex items-center gap-1.5 px-5 py-2 text-sm font-medium transition-colors ${
-              primaryMode === 'link'
-                ? 'bg-brand-purple text-white'
-                : 'bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <Link2 className="h-4 w-4" />
-            Link
-          </button>
-          <button
-            onClick={() => setPrimaryMode('file')}
-            className={`flex items-center gap-1.5 px-5 py-2 text-sm font-medium border-l border-slate-200 transition-colors ${
-              primaryMode === 'file'
-                ? 'bg-brand-purple text-white'
-                : 'bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <FileText className="h-4 w-4" />
-            File
-          </button>
-        </div>
-      </div>
+      )}
 
-      {/* Bulk CSV mode: same container + two-column layout as the Link tab. */}
-      {primaryMode === 'link' && mode === 'bulk' && isAuthenticated && (
+      {/* Bulk CSV mode: same container + two-column layout as the single view. */}
+      {mode === 'bulk' && isAuthenticated && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -733,12 +697,20 @@ export function HomePage() {
         </div>
       )}
 
-      {/* Single URL mode */}
-      {primaryMode === 'link' && mode === 'single' && (
+      {/* Default view: both creators stacked in the main column, with a compact
+          "what happens" card and the recents in a scrollable sidebar. */}
+      {mode === 'single' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main form */}
+        {/* Main column: the link shortener, then the file creator, each with its
+            own inline result card. */}
         <div className="lg:col-span-2 space-y-6">
           <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Link2 className="h-5 w-5" />
+                Paste the link
+              </CardTitle>
+            </CardHeader>
             <div className="space-y-5">
               {/* One prominent URL input + primary action. */}
               <div>
@@ -918,169 +890,119 @@ export function HomePage() {
             </div>
           </Card>
 
-          {/* The result card is the centerpiece, shown once a link is generated. */}
+          {/* The link result card appears inline directly beneath the shortener. */}
           {lastGenerateResponse && (
             <LinkResultCard response={lastGenerateResponse} utmUrl={lastUtmUrl} />
           )}
 
-          {/* CTA for unauthenticated users */}
-          {!isAuthenticated && (
-            <Card className="bg-brand-purple/5 border-brand-purple/20">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="h-12 w-12 bg-brand-purple/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <BarChart3 className="h-6 w-6 text-brand-purple" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-slate-900">Unlock Advanced Features</h3>
-                  <p className="text-sm text-slate-600">
-                    Sign up free to save presets, track clicks, view analytics, and process bulk URLs.
-                  </p>
-                </div>
-                <SignUpButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
-                  <Button size="sm" className="flex-shrink-0">Sign Up Free</Button>
-                </SignUpButton>
-              </div>
-            </Card>
-          )}
+          {/* Directly below the link shortener: the "Share a file" creator, which
+              renders its own inline result card once a file is finalized. */}
+          <ShareFileCreator isAuthenticated={isAuthenticated} share={fileShare} />
         </div>
 
-        {/* Recent links sidebar */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                Recent Links
-              </CardTitle>
-            </CardHeader>
-            {history.length === 0 ? (
-              <div className="text-center text-sm text-slate-500 py-4">
-                No links generated yet
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto -mx-6 -mb-6">
-                {history.map((item, i) => {
-                  const shareUrl = item.redirectUrl || item.url;
-                  return (
-                    <div key={i} className="px-6 py-3 hover:bg-slate-50 transition-colors">
-                      <p
-                        className="text-xs text-brand-purple font-mono break-all line-clamp-1 mb-2"
-                        title={shareUrl}
-                      >
-                        {shareUrl}
-                      </p>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-slate-400 flex-shrink-0">
-                          {new Date(item.generatedAt).toLocaleDateString()}
-                        </span>
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={() => {
-                              navigator.clipboard.writeText(shareUrl);
-                              toast.success('Copied');
-                            }}
-                            title="Copy link"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                          <QrButton value={shareUrl} />
-                          {item.linkId && (
-                            <Link to={`/analytics/link/${item.linkId}`} title="View analytics">
-                              <Button variant="ghost" size="sm" className="h-7 px-2 text-brand-purple">
-                                <BarChart3 className="h-3.5 w-3.5" />
-                              </Button>
-                            </Link>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+        {/* Right sidebar: what-happens explainer, then the recents in a single
+            scrollable container so the page fits a normal screen. */}
+        <div className="space-y-6">
+          <Card className="bg-gradient-to-br from-brand-purple/5 to-brand-teal/5 border-brand-purple/20">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">
+              What happens after you share
+            </h3>
+            <ul className="space-y-3">
+              {[
+                {
+                  icon: QrCodeIcon,
+                  text: 'You get a short link plus a QR code, ready to share anywhere.',
+                },
+                {
+                  icon: MapPin,
+                  text: 'Every open is tracked with device, browser, and location.',
+                },
+                {
+                  icon: Eye,
+                  text: 'You see the moment it is opened (a live read receipt).',
+                },
+              ].map((point) => {
+                const Icon = point.icon;
+                return (
+                  <li key={point.text} className="flex items-start gap-3">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-purple/10 flex-shrink-0">
+                      <Icon className="h-4 w-4 text-brand-purple" />
+                    </span>
+                    <span className="text-sm text-slate-700">{point.text}</span>
+                  </li>
+                );
+              })}
+            </ul>
           </Card>
 
-          {isAuthenticated && (
-            <Card className="mt-6">
+          {/* Recents: a sensible max-height with overflow so the whole page fits
+              a normal screen without growing too tall. */}
+          <div className="max-h-[560px] overflow-y-auto space-y-6 pr-0.5">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Your Files
+                  <Clock className="h-4 w-4" />
+                  Recent links
                 </CardTitle>
               </CardHeader>
-              {recentFiles.length === 0 ? (
+              {history.length === 0 ? (
                 <div className="text-center text-sm text-slate-500 py-4">
-                  No files yet.{' '}
-                  <button
-                    onClick={() => setPrimaryMode('file')}
-                    className="text-brand-purple hover:underline"
-                  >
-                    Share one
-                  </button>
+                  No links generated yet
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 -mx-6 -mb-6">
-                  {recentFiles.slice(0, 4).map((f) => (
-                    <div key={f.id} className="px-6 py-3">
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="text-sm text-slate-700 truncate" title={f.filename}>
-                          {f.filename}
-                        </span>
-                        <span className="text-xs text-slate-500 flex items-center gap-1 flex-shrink-0">
-                          <Eye className="h-3 w-3" />
-                          {f.view_count}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
+                  {history.map((item, i) => {
+                    const shareUrl = item.redirectUrl || item.url;
+                    return (
+                      <div key={i} className="px-6 py-3 hover:bg-slate-50 transition-colors">
                         <p
-                          className="text-[11px] text-brand-purple font-mono break-all line-clamp-1"
-                          title={f.serve_url}
+                          className="text-xs text-brand-purple font-mono break-all line-clamp-1 mb-2"
+                          title={shareUrl}
                         >
-                          {f.serve_url}
+                          {shareUrl}
                         </p>
-                        <div className="flex items-center gap-0.5 flex-shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={() => {
-                              navigator.clipboard.writeText(f.serve_url);
-                              toast.success('Copied');
-                            }}
-                            title="Copy link"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                          <QrButton value={f.serve_url} filename={`${f.short_code}.svg`} />
-                          <Link to={`/files/${f.id}/analytics`} title="View analytics">
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-brand-purple">
-                              <BarChart3 className="h-3.5 w-3.5" />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-slate-400 flex-shrink-0">
+                            {new Date(item.generatedAt).toLocaleDateString()}
+                          </span>
+                          <div className="flex items-center gap-0.5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={() => {
+                                navigator.clipboard.writeText(shareUrl);
+                                toast.success('Copied');
+                              }}
+                              title="Copy link"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
                             </Button>
-                          </Link>
+                            <QrButton value={shareUrl} />
+                            {item.linkId && (
+                              <Link to={`/analytics/link/${item.linkId}`} title="View analytics">
+                                <Button variant="ghost" size="sm" className="h-7 px-2 text-brand-purple">
+                                  <BarChart3 className="h-3.5 w-3.5" />
+                                </Button>
+                              </Link>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  <Link
-                    to="/files"
-                    className="block px-6 py-3 text-sm text-brand-purple hover:underline"
-                  >
-                    Manage all files
-                  </Link>
+                    );
+                  })}
                 </div>
               )}
             </Card>
-          )}
+
+            {/* "Your files" list, driven by the shared file-share history. */}
+            <RecentFilesCard share={fileShare} isAuthenticated={isAuthenticated} />
+          </div>
         </div>
       </div>
       )}
 
-      {primaryMode === 'file' && <ShareFilePanel isAuthenticated={isAuthenticated} />}
-
-      {/* Marketing detail + closing CTA for signed-out visitors, below the generator. */}
+      {/* Marketing detail + closing CTA for signed-out visitors, below the creators. */}
       {!isAuthenticated && <GuestDetails />}
     </div>
   );
