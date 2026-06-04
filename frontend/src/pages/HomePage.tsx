@@ -1,9 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, Clock, UserPlus, Link2, FileSpreadsheet, FileText, Eye, Download, BarChart3 } from 'lucide-react';
+import {
+  Copy,
+  Clock,
+  Link2,
+  FileSpreadsheet,
+  FileText,
+  Eye,
+  Download,
+  BarChart3,
+  ArrowRight,
+  Send,
+  Globe,
+  ShieldCheck,
+  Upload,
+  MousePointerClick,
+  Zap,
+} from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useAuth } from '@clerk/react';
+import { SignInButton, SignUpButton, useAuth } from '@clerk/react';
 import { Card, CardHeader, CardTitle, Button, Input } from '../components/ui';
 import { FileUploadZone } from '../components/ui/FileUploadZone';
 import { ShareFilePanel } from '../components/ShareFilePanel';
@@ -21,6 +37,227 @@ interface HistoryItem {
   redirectUrl?: string;
   linkId?: string;
   generatedAt: string;
+}
+
+function loadHistory(): HistoryItem[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) return parsed as HistoryItem[];
+    localStorage.removeItem(STORAGE_KEY);
+    return [];
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    return [];
+  }
+}
+
+function persistHistory(items: HistoryItem[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // localStorage may be unavailable (private mode, quota). The in-memory
+    // history still renders this session, so swallow the error.
+  }
+}
+
+// Marketing content reused on the signed-out home page.
+const VALUE_PROPS = [
+  {
+    icon: Send,
+    title: 'Send anything',
+    body: 'Links and files (PDFs, video, images, HTML) become one clean, short link. No account needed to start.',
+  },
+  {
+    icon: Eye,
+    title: 'Know it landed',
+    body: 'Real-time read receipts. See the moment your link or file is opened, with live open and click counts.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Understand the audience',
+    body: 'Every open is enriched with location, device, browser, and UTM campaign attribution, automatically.',
+  },
+];
+
+const STEPS = [
+  { icon: Upload, title: 'Paste a URL or drop a file', body: 'Start from the generator below, no signup required.' },
+  { icon: Link2, title: 'Get a short, trackable link', body: 'One link to share anywhere: email, chat, or social.' },
+  { icon: MousePointerClick, title: 'Watch opens roll in', body: 'See who opened it, when, from where, and on what device.' },
+];
+
+const USE_CASES = [
+  'Sales collateral & proposals',
+  'Candidate & recruiter outreach',
+  'Investor updates',
+  'Newsletters & launches',
+  'Ad & social campaigns',
+  'Contracts & one-off file sends',
+];
+
+/** Marketing hero + value content shown above the generator for signed-out visitors. */
+function GuestMarketing() {
+  return (
+    <>
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-2xl border border-slate-200 mb-10">
+        <div className="absolute inset-0 bg-gradient-to-br from-brand-purple/10 via-white to-brand-teal/10" />
+        <div className="relative max-w-4xl mx-auto px-4 pt-14 pb-12 text-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-purple/10 px-3 py-1 text-sm font-medium text-brand-purple mb-6">
+            <Zap className="h-4 w-4" />
+            Links + files, with read receipts
+          </span>
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-slate-900">
+            Send it.{' '}
+            <span className="bg-gradient-to-r from-brand-purple to-brand-teal bg-clip-text text-transparent">
+              Know they saw it.
+            </span>
+          </h1>
+          <p className="mt-5 text-lg text-slate-600 max-w-2xl mx-auto">
+            ChampUTM turns any link or file into one short, trackable link with read
+            receipts. See exactly when, where, and on what device it was opened.
+          </p>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <SignUpButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
+              <Button size="lg" rightIcon={<ArrowRight className="h-4 w-4" />}>
+                Sign up free
+              </Button>
+            </SignUpButton>
+            <SignInButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
+              <Button size="lg" variant="outline">
+                Sign in
+              </Button>
+            </SignInButton>
+          </div>
+          <p className="mt-4 text-sm text-slate-500">
+            No credit card. Or just start generating links below, no account required.
+          </p>
+        </div>
+      </section>
+
+      {/* Value props */}
+      <section className="mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {VALUE_PROPS.map((p) => {
+            const Icon = p.icon;
+            return (
+              <Card key={p.title} className="h-full">
+                <div className="h-12 w-12 rounded-lg bg-brand-purple/10 flex items-center justify-center mb-4">
+                  <Icon className="h-6 w-6 text-brand-purple" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900">{p.title}</h3>
+                <p className="mt-2 text-sm text-slate-600">{p.body}</p>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+}
+
+/** Marketing detail + closing CTA shown below the generator for signed-out visitors. */
+function GuestDetails() {
+  return (
+    <>
+      {/* How it works */}
+      <section className="mt-16">
+        <div className="text-center mb-10">
+          <h2 className="text-3xl font-bold text-slate-900">How it works</h2>
+          <p className="mt-2 text-slate-600">From share to read receipt in three steps.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {STEPS.map((s, i) => {
+            const Icon = s.icon;
+            return (
+              <Card key={s.title} className="h-full">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-purple text-white text-sm font-bold">
+                    {i + 1}
+                  </span>
+                  <Icon className="h-5 w-5 text-brand-teal" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-900">{s.title}</h3>
+                <p className="mt-1 text-sm text-slate-600">{s.body}</p>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Files + read receipts highlight */}
+      <section className="mt-16">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <h2 className="text-3xl font-bold text-slate-900">
+              Stop wondering if it was opened
+            </h2>
+            <p className="mt-4 text-slate-600">
+              Email attachments disappear into inboxes. ChampUTM links do not. Share a
+              proposal, a deck, or a contract and get a live signal the second it is viewed,
+              then dig into the geography, device, and campaign behind every open.
+            </p>
+            <ul className="mt-6 space-y-3">
+              {[
+                { icon: FileText, text: 'Host PDFs, video, images, and HTML behind one link' },
+                { icon: Eye, text: 'Seen / Not opened yet read receipts in real time' },
+                { icon: Globe, text: 'Country, region, and city for every open' },
+                { icon: ShieldCheck, text: 'VPN detection and per-link, on-your-domain hosting' },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <li key={item.text} className="flex items-start gap-3">
+                    <div className="h-6 w-6 rounded-md bg-brand-teal/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Icon className="h-3.5 w-3.5 text-brand-teal" />
+                    </div>
+                    <span className="text-sm text-slate-700">{item.text}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <Card className="bg-gradient-to-br from-brand-purple/5 to-brand-teal/5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+              Built for
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {USE_CASES.map((u) => (
+                <span
+                  key={u}
+                  className="rounded-full bg-white border border-slate-200 px-3 py-1.5 text-sm text-slate-700"
+                >
+                  {u}
+                </span>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      {/* Closing CTA */}
+      <section className="mt-16 rounded-2xl bg-brand-navy">
+        <div className="max-w-3xl mx-auto px-4 py-14 text-center">
+          <h2 className="text-3xl font-bold text-white">Share something. See who opens it.</h2>
+          <p className="mt-3 text-white/70">
+            The free UTM generator you already trust, now for files too.
+          </p>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <SignUpButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
+              <Button size="lg" rightIcon={<ArrowRight className="h-4 w-4" />}>
+                Create an account
+              </Button>
+            </SignUpButton>
+            <SignInButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
+              <Button size="lg" variant="secondary">
+                Sign in
+              </Button>
+            </SignInButton>
+          </div>
+        </div>
+      </section>
+    </>
+  );
 }
 
 export function HomePage() {
@@ -79,20 +316,9 @@ export function HomePage() {
     if (primary) setSelectedDomainId(primary.id);
   }, [activeDomains, selectedDomainId]);
 
-  // Load history from localStorage
+  // Load history from localStorage once on mount.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        setHistory(parsed);
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    setHistory(loadHistory());
   }, []);
 
   // Fill form from preset
@@ -132,6 +358,17 @@ export function HomePage() {
 
   const finalUrl = generateUrl();
 
+  // Prepend the new entry, de-duplicate by URL, cap at 10, and persist.
+  // Uses a functional update so rapid successive generations cannot drop
+  // an earlier entry by reading a stale `history` closure.
+  const addHistoryEntry = (entry: HistoryItem) => {
+    setHistory((prev) => {
+      const next = [entry, ...prev.filter((h) => h.url !== entry.url)].slice(0, 10);
+      persistHistory(next);
+      return next;
+    });
+  };
+
   const handleCopy = async () => {
     if (!finalUrl) {
       toast.error('Please enter a valid base URL');
@@ -163,7 +400,7 @@ export function HomePage() {
         // rather than waiting for react-query's 5-minute staleTime.
         queryClient.invalidateQueries({ queryKey: ['projects'] });
       } catch {
-        // Non-blocking — fall back to copying the UTM URL
+        // Non-blocking: fall back to copying the UTM URL
       }
     }
 
@@ -172,13 +409,8 @@ export function HomePage() {
     navigator.clipboard.writeText(urlToCopy);
     toast.success(redirectUrl ? 'Short link generated and copied' : 'URL copied to clipboard');
 
-    // Save to localStorage history with redirect URL
-    const newHistory = [
-      { url: finalUrl, redirectUrl, linkId, generatedAt: new Date().toISOString() },
-      ...history.filter((h) => h.url !== finalUrl),
-    ].slice(0, 10);
-    setHistory(newHistory);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
+    // Save to localStorage history with redirect URL + link id (for analytics).
+    addHistoryEntry({ url: finalUrl, redirectUrl, linkId, generatedAt: new Date().toISOString() });
   };
 
   const handleDownloadTemplate = async () => {
@@ -216,6 +448,9 @@ export function HomePage() {
 
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
+      {/* Marketing hero + value props for signed-out visitors, above the live generator. */}
+      {!isAuthenticated && <GuestMarketing />}
+
       <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">
@@ -223,7 +458,7 @@ export function HomePage() {
           </h1>
           <p className="text-slate-600 mt-1">
             {primaryMode === 'file'
-              ? 'Send a file and see the moment it’s opened — no account needed.'
+              ? 'Send a file and see the moment it is opened, no account needed.'
               : 'Create trackable UTM-tagged URLs for your marketing campaigns.'}
           </p>
         </div>
@@ -269,64 +504,70 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* Bulk CSV mode */}
+      {/* Bulk CSV mode: same container + two-column layout as the Link tab. */}
       {primaryMode === 'link' && mode === 'bulk' && isAuthenticated && (
-        <div className="max-w-4xl space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuration</CardTitle>
-            </CardHeader>
-            <div className="space-y-4">
-              {presets.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Apply Preset (optional)
-                  </label>
-                  <select
-                    className="w-full max-w-md h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
-                    value={selectedPresetId}
-                    onChange={(e) => setSelectedPresetId(e.target.value)}
-                  >
-                    <option value="">-- No preset (use CSV columns) --</option>
-                    {presets.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {p.is_default ? '(default)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Preset values are used as defaults. Per-row UTM columns in the CSV override them.
-                  </p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Configuration</CardTitle>
+              </CardHeader>
+              <div className="space-y-4">
+                {presets.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Apply Preset (optional)
+                    </label>
+                    <select
+                      className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
+                      value={selectedPresetId}
+                      onChange={(e) => setSelectedPresetId(e.target.value)}
+                    >
+                      <option value="">No preset (use CSV columns)</option>
+                      {presets.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.is_default ? '(default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Preset values are used as defaults. Per-row UTM columns in the CSV override them.
+                    </p>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="outline" size="sm" onClick={handleDownloadTemplate} leftIcon={<Download className="h-4 w-4" />}>
+                    Download CSV Template
+                  </Button>
+                  <span className="text-xs text-slate-500">
+                    Template includes: url, utm_source, utm_medium, utm_campaign, utm_content, utm_term
+                  </span>
                 </div>
-              )}
-              <div className="flex items-center gap-3">
-                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} leftIcon={<Download className="h-4 w-4" />}>
-                  Download CSV Template
-                </Button>
-                <span className="text-xs text-slate-500">
-                  Template includes: url, utm_source, utm_medium, utm_campaign, utm_content, utm_term
-                </span>
               </div>
-            </div>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5" />
-                Upload CSV
-              </CardTitle>
-            </CardHeader>
-            <FileUploadZone onFileSelected={handleBulkFileSelected} isUploading={isProcessing} />
-          </Card>
-          <Card className="bg-slate-50">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">How it works</h3>
-            <ol className="text-sm text-slate-600 space-y-2 list-decimal list-inside">
-              <li>Download the CSV template or prepare your own CSV with a <code className="bg-white px-1 py-0.5 rounded text-brand-purple">url</code> column.</li>
-              <li>Optionally include <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_source</code>, <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_medium</code>, etc. columns for per-row overrides.</li>
-              <li>Select a preset if you want default UTM values applied to all rows.</li>
-              <li>Upload the CSV — a processed file with <code className="bg-white px-1 py-0.5 rounded text-brand-purple">tracked_url</code> and <code className="bg-white px-1 py-0.5 rounded text-brand-purple">short_link</code> columns will download automatically. Every short link is tracked, so opens by region and device show up on the Analytics page.</li>
-            </ol>
-          </Card>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5" />
+                  Upload CSV
+                </CardTitle>
+              </CardHeader>
+              <FileUploadZone onFileSelected={handleBulkFileSelected} isUploading={isProcessing} />
+            </Card>
+          </div>
+
+          {/* Sidebar: how it works, matching the Link tab's two-column rhythm. */}
+          <div>
+            <Card className="bg-slate-50">
+              <h3 className="text-sm font-semibold text-slate-900 mb-3">How it works</h3>
+              <ol className="text-sm text-slate-600 space-y-2 list-decimal list-inside">
+                <li>Download the CSV template or prepare your own CSV with a <code className="bg-white px-1 py-0.5 rounded text-brand-purple">url</code> column.</li>
+                <li>Optionally include <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_source</code>, <code className="bg-white px-1 py-0.5 rounded text-brand-purple">utm_medium</code>, etc. columns for per-row overrides.</li>
+                <li>Select a preset if you want default UTM values applied to all rows.</li>
+                <li>Upload the CSV. A processed file with <code className="bg-white px-1 py-0.5 rounded text-brand-purple">tracked_url</code> and <code className="bg-white px-1 py-0.5 rounded text-brand-purple">short_link</code> columns will download automatically. Every short link is tracked, so opens by region and device show up on the Analytics page.</li>
+              </ol>
+            </Card>
+          </div>
         </div>
       )}
 
@@ -434,14 +675,14 @@ export function HomePage() {
                     <Input
                       label="Campaign Term (utm_term)"
                       placeholder="e.g. running+shoes"
-                      helperText="Optional — identify paid keywords"
+                      helperText="Optional: identify paid keywords"
                       value={utmTerm}
                       onChange={(e) => setUtmTerm(e.target.value)}
                     />
                     <Input
                       label="Campaign Content (utm_content)"
                       placeholder="e.g. logo_link, text_link"
-                      helperText="Optional — differentiate ads/links"
+                      helperText="Optional: differentiate ads/links"
                       value={utmContent}
                       onChange={(e) => setUtmContent(e.target.value)}
                     />
@@ -512,9 +753,9 @@ export function HomePage() {
           {/* CTA for unauthenticated users */}
           {!isAuthenticated && (
             <Card className="bg-brand-purple/5 border-brand-purple/20">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                 <div className="h-12 w-12 bg-brand-purple/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <UserPlus className="h-6 w-6 text-brand-purple" />
+                  <BarChart3 className="h-6 w-6 text-brand-purple" />
                 </div>
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-slate-900">Unlock Advanced Features</h3>
@@ -522,9 +763,9 @@ export function HomePage() {
                     Sign up free to save presets, track clicks, view analytics, and process bulk URLs.
                   </p>
                 </div>
-                <Link to="/sign-up">
-                  <Button size="sm">Sign Up Free</Button>
-                </Link>
+                <SignUpButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
+                  <Button size="sm" className="flex-shrink-0">Sign Up Free</Button>
+                </SignUpButton>
               </div>
             </Card>
           )}
@@ -566,24 +807,25 @@ export function HomePage() {
                       <span className="text-xs text-slate-400 flex-shrink-0">
                         {new Date(item.generatedAt).toLocaleString()}
                       </span>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1">
                         {item.linkId && (
-                          <Link to={`/analytics/link/${item.linkId}`}>
-                            <Button variant="ghost" size="sm" className="h-6 px-2">
-                              Stats
+                          <Link to={`/analytics/link/${item.linkId}`} title="View analytics">
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-brand-purple">
+                              <BarChart3 className="h-3.5 w-3.5 mr-1" />
+                              Analytics
                             </Button>
                           </Link>
                         )}
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2"
+                          className="h-7 px-2"
                           onClick={() => {
                             navigator.clipboard.writeText(item.redirectUrl || item.url);
                             toast.success('Copied');
                           }}
                         >
-                          <Copy className="h-3 w-3 mr-1" />
+                          <Copy className="h-3.5 w-3.5 mr-1" />
                           Copy
                         </Button>
                       </div>
@@ -629,7 +871,7 @@ export function HomePage() {
                     to="/files"
                     className="block px-6 py-3 text-sm text-brand-purple hover:underline"
                   >
-                    Manage all files →
+                    Manage all files
                   </Link>
                 </div>
               )}
@@ -640,6 +882,9 @@ export function HomePage() {
       )}
 
       {primaryMode === 'file' && <ShareFilePanel isAuthenticated={isAuthenticated} />}
+
+      {/* Marketing detail + closing CTA for signed-out visitors, below the generator. */}
+      {!isAuthenticated && <GuestDetails />}
     </div>
   );
 }

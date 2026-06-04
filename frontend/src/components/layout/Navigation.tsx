@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Menu, X, Settings, FileText, Sparkles } from 'lucide-react';
+import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Menu, X, Settings, FileText } from 'lucide-react';
 
 import { clsx } from 'clsx';
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
@@ -18,7 +18,6 @@ interface NavLink {
 
 const navLinks: NavLink[] = [
   { to: '/', label: 'Generator', icon: Link2 },
-  { to: '/welcome', label: 'Why ChampUTM', icon: Sparkles, publicOnly: true },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
   { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
   { to: '/presets', label: 'Presets', icon: BookmarkCheck, requiresAuth: true },

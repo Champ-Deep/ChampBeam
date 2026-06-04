@@ -14,7 +14,6 @@ import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { FilesPage } from './pages/FilesPage';
 import { FileAnalyticsPage } from './pages/FileAnalyticsPage';
-import { LandingPage } from './pages/LandingPage';
 import { setTokenGetter } from './api/client';
 
 function ClerkTokenSync() {
@@ -45,7 +44,9 @@ export default function App() {
             <main>
               <Routes>
                 <Route path="/" element={<HomePage />} />
-                <Route path="/welcome" element={<LandingPage />} />
+                {/* /welcome retired: the home page now serves both the marketing
+                    content (signed-out) and the full app (signed-in). */}
+                <Route path="/welcome" element={<Navigate to="/" replace />} />
                 <Route path="/presets" element={<ProtectedRoute><PresetsPage /></ProtectedRoute>} />
                 <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
                 <Route path="/performance" element={<Navigate to="/analytics" replace />} />

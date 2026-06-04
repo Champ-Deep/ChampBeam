@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Clock, Copy, ExternalLink, FileText, UserPlus } from 'lucide-react';
+import { Clock, Copy, ExternalLink, Eye, FileText, Globe, MousePointerClick, UserPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge, Button, Card, CardHeader, CardTitle } from './ui';
 import { FileUploadZone } from './ui/FileUploadZone';
@@ -45,7 +45,7 @@ function expiresLabel(expiresAt?: string | null): string | null {
   return `expires in ${Math.max(1, Math.round(ms / 60_000))}m`;
 }
 
-/** Live "has it been opened?" badge — polls the status endpoint. */
+/** Live "has it been opened?" badge that polls the status endpoint. */
 function FileSeenBadge({ file }: { file: SharedFile }) {
   const { data, isError } = useQuery({
     queryKey: ['file-status', file.fileId],
@@ -105,7 +105,7 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
       setHistory(next);
       saveHistory(next);
       navigator.clipboard.writeText(finalized.serve_url).catch(() => undefined);
-      toast.success('File is live — link copied to clipboard.');
+      toast.success('File is live. Link copied to clipboard.');
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       toast.error(detail ?? 'Upload failed.');
@@ -130,7 +130,7 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
             </CardTitle>
           </CardHeader>
           <p className="text-sm text-slate-600 mb-4">
-            Drop a file to get a short, trackable link. You’ll see the moment it’s opened —
+            Drop a file to get a short, trackable link. You will see the moment it is opened,
             no account needed to start.
           </p>
           <FileUploadZone
@@ -146,6 +146,28 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
               <div className="h-full bg-brand-purple transition-all" style={{ width: `${progress}%` }} />
             </div>
           )}
+        </Card>
+
+        {/* Fill the column consistently with what happens after a file is shared. */}
+        <Card className="bg-slate-50">
+          <h3 className="text-sm font-semibold text-slate-900 mb-3">What happens after you share</h3>
+          <ul className="space-y-3">
+            {[
+              { icon: MousePointerClick, text: 'Anyone with the link opens your file straight in the browser, no download needed.' },
+              { icon: Eye, text: 'The Recent Files panel flips to "Opened" the moment it is viewed, with a live open count.' },
+              { icon: Globe, text: 'Every open is logged with location and device so you know exactly who saw it.' },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <li key={item.text} className="flex items-start gap-3">
+                  <div className="h-6 w-6 rounded-md bg-brand-teal/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Icon className="h-3.5 w-3.5 text-brand-teal" />
+                  </div>
+                  <span className="text-sm text-slate-700">{item.text}</span>
+                </li>
+              );
+            })}
+          </ul>
         </Card>
 
         {!isAuthenticated && (
