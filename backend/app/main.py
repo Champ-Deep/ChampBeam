@@ -161,8 +161,8 @@ async def root():
 
 # Include routers
 app.include_router(health.router)
-app.include_router(redirect_router)  # /r/{short_code} — top-level, no prefix
-app.include_router(files_serve_router)  # /f/{short_code} — top-level, no prefix
+app.include_router(redirect_router)  # /r/{short_code}, top-level, no prefix
+app.include_router(files_serve_router)  # /f/{short_code}, top-level, no prefix
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(utm.router, prefix=settings.api_v1_prefix)
 app.include_router(projects.router, prefix=settings.api_v1_prefix)

@@ -1,4 +1,4 @@
-"""Authentication endpoints — Clerk-managed auth."""
+"""Authentication endpoints, Clerk-managed auth."""
 
 from __future__ import annotations
 

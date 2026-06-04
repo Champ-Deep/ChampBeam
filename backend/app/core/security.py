@@ -1,5 +1,5 @@
 """
-Security utilities — Clerk session-token verification.
+Security utilities, Clerk session-token verification.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ async def _fetch_clerk_jwks(force_refresh: bool = False) -> dict[str, Any]:
         return _jwks_cache
 
     async with _jwks_lock:
-        # Re-check after acquiring the lock — another coroutine may have refreshed.
+        # Re-check after acquiring the lock, another coroutine may have refreshed.
         now = time.time()
         if not force_refresh and _jwks_cache and (now - _jwks_fetched_at) < JWKS_CACHE_TTL:
             return _jwks_cache
@@ -68,7 +68,7 @@ async def _verify_clerk_token(token: str) -> str:
 
         key = next((k for k in jwks.get("keys", []) if k["kid"] == kid), None)
         if key is None:
-            # Key not found — refresh in case keys rotated.
+            # Key not found, refresh in case keys rotated.
             jwks = await _fetch_clerk_jwks(force_refresh=True)
             key = next((k for k in jwks.get("keys", []) if k["kid"] == kid), None)
             if key is None:
@@ -117,7 +117,7 @@ async def get_current_user(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Auth service temporarily unavailable",
         ) from exc
-    except Exception as exc:  # noqa: BLE001 — last-resort guard so 500s carry CORS headers
+    except Exception as exc:  # noqa: BLE001, last-resort guard so 500s carry CORS headers
         logger.exception("auth: unexpected error in get_current_user")
         raise HTTPException(status_code=500, detail="Internal authentication error") from exc
 

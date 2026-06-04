@@ -4,11 +4,11 @@ function normalizeApiUrl(raw: string | undefined): string {
   if (!raw || !raw.trim()) return 'http://localhost:8000/api/v1';
   let url = raw.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(url)) {
-    console.warn(`VITE_API_URL "${raw}" missing scheme — prepending https://`);
+    console.warn(`VITE_API_URL "${raw}" missing scheme, prepending https://`);
     url = `https://${url}`;
   }
   if (!/\/api\/v\d+$/i.test(url)) {
-    console.warn(`VITE_API_URL "${raw}" missing /api/v1 suffix — appending`);
+    console.warn(`VITE_API_URL "${raw}" missing /api/v1 suffix, appending`);
     url = `${url}/api/v1`;
   }
   return url;

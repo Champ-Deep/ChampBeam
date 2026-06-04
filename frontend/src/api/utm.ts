@@ -356,7 +356,7 @@ export const utmApi = {
     await api.delete(`/projects/${id}`);
   },
 
-  // Analytics — Overview
+  // Analytics, Overview
   async getOverview(projectId?: string): Promise<UTMOverview> {
     const params = new URLSearchParams();
     if (projectId) params.append('project_id', projectId);

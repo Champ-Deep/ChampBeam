@@ -19,7 +19,7 @@ from app.core.config import settings
 class RedisClient:
     """Async Redis client wrapper with connection pooling.
 
-    Gracefully degrades when Redis is unavailable — all operations
+    Gracefully degrades when Redis is unavailable, all operations
     return None / no-op instead of raising exceptions.
     """
 

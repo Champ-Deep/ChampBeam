@@ -272,7 +272,7 @@ def _preset_to_response(preset: UTMPreset) -> dict:
 
 
 # ============================================================================
-# Link Generation (public endpoint — auth optional)
+# Link Generation (public endpoint, auth optional)
 # ============================================================================
 
 
@@ -1987,7 +1987,7 @@ async def get_recent_clicks(
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            # Strip timezone info — DB uses naive timestamps (UTC assumed)
+            # Strip timezone info, DB uses naive timestamps (UTC assumed)
             since_dt = since_dt.replace(tzinfo=None)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid timestamp format")

@@ -268,12 +268,12 @@ async def run() -> int:
                   S3_ENDPOINT in (r.headers.get("location") or ""),
                   f"got: {r.headers.get('location')}")
 
-        # === T10: BYOD — unknown custom host returns 404, not platform fall-through ===
+        # === T10: BYOD, unknown custom host returns 404, not platform fall-through ===
         print("\n[T10] custom-domain isolation: unknown host returns 404")
         r = await client.get(f"/f/{pdf_short}", headers={"Host": "stranger.example.com"})
         check("returns 404", r.status_code == 404, f"got {r.status_code}")
 
-        # === T11: BYOD — file scoped to an active Domain row is reachable on that host ===
+        # === T11: BYOD, file scoped to an active Domain row is reachable on that host ===
         print("\n[T11] file uploaded against a custom Domain serves on that host")
         async with async_session_maker() as session:
             d = Domain(

@@ -2,7 +2,7 @@
 
 Drives the full guest flow (init -> PUT bytes to the backend blob endpoint ->
 finalize with owner_token -> serve -> "seen?" status), size-cap rejection,
-auto-expiry (lazy 410 + sweeper), and the authenticated path — with bytes
+auto-expiry (lazy 410 + sweeper), and the authenticated path, with bytes
 stored in GridFS instead of disk/S3. Exits non-zero on any failed assertion.
 
 Prereqs:

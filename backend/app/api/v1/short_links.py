@@ -1,6 +1,6 @@
 """Short links redirect endpoint for ChampUTM.
 
-This is the lighter sibling of ``/r/{short_code}`` — it only increments the
+This is the lighter sibling of ``/r/{short_code}``, it only increments the
 aggregate ``click_count`` on LinkClick rather than recording a full
 ``ClickEvent``. Kept primarily so the ``short_url`` field returned by the
 link-generate endpoint continues to resolve; the rich-analytics path lives at

@@ -32,7 +32,7 @@ class Domain(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Lowercased, no scheme, no port. Globally unique — a hostname can only be
+    # Lowercased, no scheme, no port. Globally unique, a hostname can only be
     # claimed by one account.
     hostname = Column(String(253), unique=True, nullable=False, index=True)
 

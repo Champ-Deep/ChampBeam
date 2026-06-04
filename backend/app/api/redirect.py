@@ -59,7 +59,7 @@ async def redirect_link(
     domain = await _resolve_domain(host, session)
 
     if host and domain is None and host != settings.resolved_platform_redirect_host:
-        # Custom hostname that isn't registered or isn't active — refuse rather
+        # Custom hostname that isn't registered or isn't active, refuse rather
         # than fall through to the platform-default bucket (which would leak
         # one tenant's link onto another tenant's domain).
         return RedirectResponse(url="/", status_code=302)

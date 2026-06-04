@@ -12,7 +12,7 @@ Two responsibilities, both safe to re-run on every boot:
     007_repair_legacy_schema does this via alembic; we additionally do
     it here so a stuck/borked ``alembic_version`` cannot leave the
     schema permanently incomplete. Every statement is ``IF NOT EXISTS``
-    or otherwise idempotent — running this against an already-current
+    or otherwise idempotent, running this against an already-current
     schema is a no-op.
 
 The safety net is what unblocks click_events inserts on production: if
@@ -78,7 +78,7 @@ SCHEMA_SAFETY_NET = [
 async def _apply_schema_safety_net(conn: AsyncConnection) -> None:
     """Run every idempotent schema statement, logging any unexpected failures.
 
-    Missing tables are tolerated — alembic will create them on the next
+    Missing tables are tolerated, alembic will create them on the next
     step. ``ALTER TABLE`` on a non-existent table raises
     ``UndefinedTableError``; we swallow that specific case and continue
     so the safety net doesn't block a fresh-install path.
@@ -89,7 +89,7 @@ async def _apply_schema_safety_net(conn: AsyncConnection) -> None:
         except Exception as exc:
             msg = str(exc).lower()
             if "does not exist" in msg and "table" in msg:
-                # Table not created yet — alembic will handle it.
+                # Table not created yet, alembic will handle it.
                 continue
             log.warning("safety-net statement failed (continuing): %s :: %s", stmt, exc)
 
@@ -105,7 +105,7 @@ async def main() -> int:
                 ")"
             ))
             if not users_exists:
-                log.info("fresh database (no users table) — letting alembic create the schema from scratch")
+                log.info("fresh database (no users table), letting alembic create the schema from scratch")
                 return 0
 
             version_table_exists = await conn.scalar(text(
@@ -119,7 +119,7 @@ async def main() -> int:
                 existing_count = await conn.scalar(text("SELECT COUNT(*) FROM alembic_version"))
                 if existing_count and existing_count > 0:
                     current = await conn.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
-                    log.info("alembic_version already populated at %s — no stamp needed", current)
+                    log.info("alembic_version already populated at %s, no stamp needed", current)
                     already_stamped = True
 
             if not already_stamped:
@@ -133,7 +133,7 @@ async def main() -> int:
                     text("INSERT INTO alembic_version (version_num) VALUES (:rev)"),
                     {"rev": STAMP_REVISION},
                 )
-                log.info("stamped legacy schema at %s — alembic upgrade head will apply newer migrations only", STAMP_REVISION)
+                log.info("stamped legacy schema at %s, alembic upgrade head will apply newer migrations only", STAMP_REVISION)
 
             # Always run the safety net. It's idempotent, fast, and the
             # only reliable way to recover from a schema that drifted from

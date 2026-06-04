@@ -1,4 +1,4 @@
-"""FileAsset model — uploaded files served via tracked short links.
+"""FileAsset model, uploaded files served via tracked short links.
 
 Mirrors the BYOD short-link pattern: a FileAsset belongs to a user and
 optionally to a custom Domain. ``short_code`` is unique within its

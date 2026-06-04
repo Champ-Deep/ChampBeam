@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # The CNAME target customers point their domain at. e.g. cname.champutm.com
     cloudflare_cname_target: str = ""
 
-    # Supabase Storage — used as a standalone S3-compatible blob store for the
+    # Supabase Storage, used as a standalone S3-compatible blob store for the
     # file-hosting feature. Supabase itself is not the database; only Storage
     # is in play. Configure all five in production. When any are unset, the
     # /api/v1/files endpoints return 503 with a setup hint (same pattern as
@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     anon_sweep_interval_seconds: int = 900
 
     # MongoDB GridFS storage backend (STORAGE_BACKEND=mongo). Stores file bytes
-    # in GridFS — handy on Railway (one-click Mongo plugin, no volume needed,
+    # in GridFS, handy on Railway (one-click Mongo plugin, no volume needed,
     # survives redeploys). The app's primary DB stays PostgreSQL; Mongo holds
     # blobs only. On Railway the Mongo plugin injects MONGO_URL.
     mongo_url: str = ""
@@ -146,7 +146,7 @@ class Settings(BaseSettings):
 
     @property
     def storage_configured(self) -> bool:
-        # The local backend is always "ready" — the directory is created on
+        # The local backend is always "ready", the directory is created on
         # demand. Mongo needs a URL; S3 needs all four credentials.
         backend = self.storage_backend_normalized
         if backend == "local":

@@ -14,7 +14,7 @@ interface FileUploadZoneProps {
   accept?: string;
   /** Short label under the icon. Defaults to "Drag and drop your CSV file here". */
   label?: string;
-  /** Hint shown at the bottom. Defaults to "Accepted: .csv — Required column: url". */
+  /** Hint shown at the bottom. Defaults to "Accepted: .csv, Required column: url". */
   hint?: string;
   /** Loading caption. Defaults to "Processing CSV...". */
   uploadingLabel?: string;
@@ -132,7 +132,7 @@ export function FileUploadZone({
             Browse Files
           </Button>
           <p className="text-xs text-slate-400 mt-4">
-            {hint ?? 'Accepted: .csv — Required column: url'}
+            {hint ?? 'Accepted: .csv, Required column: url'}
           </p>
         </div>
       )}

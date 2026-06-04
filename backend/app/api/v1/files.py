@@ -1,4 +1,4 @@
-"""File hosting endpoints — upload + manage assets served on /f/{code}."""
+"""File hosting endpoints, upload + manage assets served on /f/{code}."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ _KIND_CAP_BYTES = {
     KIND_OTHER: 50 * 1024 * 1024,
 }
 
-# Tighter caps for anonymous (signed-out) uploads — bounds abuse and disk use
+# Tighter caps for anonymous (signed-out) uploads, bounds abuse and disk use
 # on the shared platform-default namespace. Authed users keep _KIND_CAP_BYTES.
 _GUEST_KIND_CAP_BYTES = {
     KIND_PDF: 10 * 1024 * 1024,
@@ -109,7 +109,7 @@ class FileInitResponse(BaseModel):
     presigned_put_url: str
     headers: dict
     serve_mode: str
-    # Guest (anonymous) uploads only — returned once.
+    # Guest (anonymous) uploads only, returned once.
     owner_token: Optional[str] = None
     expires_at: Optional[str] = None
     # True when the browser uploads to our own backend (local) rather than S3.
@@ -540,7 +540,7 @@ async def upload_blob(
 ):
     """Receive raw bytes for the LOCAL storage backend (S3 uploads bypass this).
 
-    Authorized by the HMAC token from init_upload — passed in the query string,
+    Authorized by the HMAC token from init_upload, passed in the query string,
     not a header, so the cross-origin PUT doesn't trip CORS preflight. The body
     is streamed straight to disk and capped at the declared size.
     """

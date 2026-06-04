@@ -1,4 +1,4 @@
-"""Cloudflare for SaaS — Custom Hostnames API client.
+"""Cloudflare for SaaS, Custom Hostnames API client.
 
 Thin async wrapper around the three CF API calls we need:
 - create a custom hostname (sets up cert issuance + SNI routing)
@@ -30,7 +30,7 @@ class CloudflareError(Exception):
 
 
 class CloudflareNotConfigured(Exception):
-    """Raised when CF credentials are missing — caller should fall back."""
+    """Raised when CF credentials are missing, caller should fall back."""
 
 
 def _require_configured() -> tuple[str, str]:

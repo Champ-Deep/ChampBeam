@@ -1,10 +1,10 @@
-"""Object storage for the file-hosting feature — swappable backends.
+"""Object storage for the file-hosting feature, swappable backends.
 
 Two backends implement one interface:
 
 * ``LocalStorage`` (default) writes bytes to a filesystem root
   (``settings.storage_local_path``, ideally a Railway volume) and routes
-  uploads *through* the API via ``PUT /api/v1/files/{id}/blob`` — there are
+  uploads *through* the API via ``PUT /api/v1/files/{id}/blob``, there are
   no presigned URLs, so the browser uploads to our own backend.
 * ``S3Storage`` targets any S3-compatible endpoint (Supabase Storage, R2,
   S3, MinIO) via boto3 and keeps the presigned PUT/GET flow, so the browser
@@ -13,7 +13,7 @@ Two backends implement one interface:
 The backend is chosen by ``settings.storage_backend`` ("local" | "s3").
 Call sites import the module-level functions (``prepare_upload``,
 ``head_object``, ``delete_object``, ``stream_object``,
-``generate_presigned_get``, ``write_stream``) and never touch the classes —
+``generate_presigned_get``, ``write_stream``) and never touch the classes -
 so flipping backends is purely an env-var change.
 
 When the selected backend isn't usable the helpers raise
@@ -47,7 +47,7 @@ class StorageError(Exception):
 
 
 class StorageNotConfigured(Exception):
-    """Raised when the selected backend can't be used — caller should 503."""
+    """Raised when the selected backend can't be used, caller should 503."""
 
 
 class StorageFileTooLarge(StorageError):
@@ -270,7 +270,7 @@ class LocalStorage(StorageBackend):
     def prepare_upload(self, *, file_id, key, content_type, size_bytes):
         token = make_blob_token(file_id)
         # Absolute API path; the frontend prepends the origin of its API base
-        # URL (which already ends in /api/v1) — see frontend/src/api/files.ts.
+        # URL (which already ends in /api/v1), see frontend/src/api/files.ts.
         url = f"{settings.api_v1_prefix}/files/{file_id}/blob?token={token}"
         return {"url": url, "headers": {"Content-Type": content_type}, "via_backend": True}
 
@@ -352,7 +352,7 @@ def _mongo_bucket():
 
 class MongoStorage(StorageBackend):
     """Stores blobs in GridFS. Like the local backend, bytes route through the
-    API blob endpoint and serves stream back out — pymongo is sync so each call
+    API blob endpoint and serves stream back out, pymongo is sync so each call
     is bounced through anyio's thread pool to keep the event loop free."""
 
     name = "mongo"

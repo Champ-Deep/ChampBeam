@@ -11,7 +11,7 @@ reference, producing UndefinedColumnError 500s on /api/v1/projects,
 /api/v1/utm/analytics/clicks/recent, and others.
 
 This migration uses raw SQL with IF NOT EXISTS on every statement so it is
-safe to apply against any partial state — fresh installs, half-bootstrapped
+safe to apply against any partial state, fresh installs, half-bootstrapped
 Railway installs, or already-correct installs. FK constraints on the
 back-filled columns are intentionally omitted to keep the statements
 unconditional; queries only need the columns to exist, not to be FK-enforced.

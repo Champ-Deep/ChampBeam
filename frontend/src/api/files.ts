@@ -43,7 +43,7 @@ export interface FileInitResponse {
   presigned_put_url: string;
   headers: Record<string, string>;
   serve_mode: FileServeMode;
-  // Anonymous (guest) uploads only — returned once.
+  // Anonymous (guest) uploads only, returned once.
   owner_token?: string | null;
   expires_at?: string | null;
   // True when the browser uploads to our own backend (local) rather than S3.
@@ -131,7 +131,7 @@ export const filesApi = {
    * Upload bytes to the target returned by initUpload.
    *
    * Always uses a bare axios instance (not our `api` client) so the Clerk
-   * Authorization header is NEVER sent to the upload target — for S3 the
+   * Authorization header is NEVER sent to the upload target, for S3 the
    * presigned URL self-authenticates; for the local backend the upload is
    * authorized by the signed token in the URL.
    */

@@ -3,7 +3,7 @@
 Relaxes ``file_assets.user_id`` to NULL (signed-out uploads have no user),
 and adds ``expires_at`` (auto-expiry for guest uploads) + ``owner_token_hash``
 (lets an anonymous uploader poll view status without an account). A partial
-index on ``expires_at`` keeps the expiry sweep cheap — authed rows are NULL.
+index on ``expires_at`` keeps the expiry sweep cheap, authed rows are NULL.
 
 Idempotent via IF NOT EXISTS / IF EXISTS guards in the same defensive style
 as migration 009.

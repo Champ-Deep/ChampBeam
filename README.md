@@ -10,7 +10,7 @@
 - Recent links saved locally
 
 ### 📤 File Sharing with Read Receipts
-- Share PDFs, video, images, and HTML as one trackable link — no signup needed
+- Share PDFs, video, images, and HTML as one trackable link, no signup needed
 - Real-time "Seen ✓ / Not opened yet" read receipts on every file
 - Geo + device analytics on each open; guest links auto-expire
 
@@ -109,7 +109,7 @@ deployment platform.
 
 ### Local development
 
-Backend (`backend/.env` — copy from `backend/.env.example`):
+Backend (`backend/.env`, copy from `backend/.env.example`):
 
 ```env
 # Postgres + Redis run on localhost by default. Leave DATABASE_URL unset
@@ -136,12 +136,12 @@ VITE_API_URL=http://localhost:8000
 ```
 
 Leave `REDIRECT_BASE_URL` and the `CLOUDFLARE_*` vars unset for local
-dev — `/r/{code}` will use whatever Host the client called and BYOD
+dev, `/r/{code}` will use whatever Host the client called and BYOD
 domains land in `active` status without a real cert. File hosting works
 out of the box: `STORAGE_BACKEND` defaults to `local`, writing uploads
 under `STORAGE_LOCAL_PATH` (`./data/files`).
 
-### Production — Railway (backend)
+### Production, Railway (backend)
 
 Add the **Postgres** and **Redis** plugins to your Railway project.
 Both auto-inject env vars the backend already knows how to consume:
@@ -160,12 +160,12 @@ FRONTEND_URL=https://<your-vercel-host>     # exact origin for CORS
 ENVIRONMENT=production
 DEBUG=false
 
-# Custom Domains (BYOD) — see the Custom Domains section below.
+# Custom Domains (BYOD), see the Custom Domains section below.
 CLOUDFLARE_API_TOKEN=...
 CLOUDFLARE_ZONE_ID=...
 CLOUDFLARE_CNAME_TARGET=cname.yourdomain.com
 
-# File hosting — pick a storage backend (see the File hosting section).
+# File hosting, pick a storage backend (see the File hosting section).
 #   local (default): mount a Railway VOLUME at STORAGE_LOCAL_PATH or uploads reset on redeploy
 #   mongo: add the Railway Mongo plugin, then set STORAGE_BACKEND=mongo + MONGO_URL
 #   s3:    any S3-compatible bucket (Supabase Storage, Cloudflare R2, ...)
@@ -178,7 +178,7 @@ STORAGE_UPLOAD_SECRET=<long-random-string>
 before booting uvicorn, so schema migrations apply automatically on
 every deploy.
 
-### Production — Vercel (frontend)
+### Production, Vercel (frontend)
 
 In **Project Settings → Environment Variables**:
 
@@ -186,7 +186,7 @@ In **Project Settings → Environment Variables**:
 VITE_API_URL=https://<your-app>.up.railway.app
 ```
 
-Short links — `https://<railway-host>/r/{short_code}` — resolve directly
+Short links, `https://<railway-host>/r/{short_code}`, resolve directly
 against the backend. `frontend/vercel.json` rewrites every path to
 `index.html` (the SPA fallback), so `/r/*` on the Vercel hostname just
 renders the SPA, not a redirect. To put short links on a branded URL,
@@ -230,7 +230,7 @@ curl -i -H "Host: track.example.com" http://localhost:8000/r/<short_code>
 
 ### File hosting
 
-Anyone can share a file at `POST /api/v1/files` — **no account
+Anyone can share a file at `POST /api/v1/files`, **no account
 required**. The file gets a `/f/{short_code}` URL that serves the bytes
 and records a tracked view per request, so the sender gets **read
 receipts** ("Seen ✓ / Not opened yet") via
@@ -238,7 +238,7 @@ receipts** ("Seen ✓ / Not opened yet") via
 size caps, a 24-hour auto-expiry (`ANON_FILE_TTL_SECONDS`), and an
 `owner_token` to poll status; a background sweeper reclaims expired
 blobs. Authenticated uploads never expire, count against a per-user
-quota (`MAX_BYTES_PER_USER`, 5 GiB), and inherit BYOD routing —
+quota (`MAX_BYTES_PER_USER`, 5 GiB), and inherit BYOD routing -
 uploading against a custom Domain lands the URL on that hostname.
 
 **Storage backends** are swappable via `STORAGE_BACKEND`
@@ -247,13 +247,13 @@ uploading against a custom Domain lands the URL on that hostname.
 | Backend | `STORAGE_BACKEND` | Stores bytes in | Best for |
 |---|---|---|---|
 | Local disk (default) | `local` | `STORAGE_LOCAL_PATH` (mount a Railway **Volume**) | Quick start, self-contained |
-| MongoDB GridFS | `mongo` | GridFS (`MONGO_URL`) | Railway testing — one-click plugin, no volume, survives redeploys |
+| MongoDB GridFS | `mongo` | GridFS (`MONGO_URL`) | Railway testing, one-click plugin, no volume, survives redeploys |
 | S3-compatible | `s3` | Supabase Storage / Cloudflare R2 / S3 / MinIO | Production scale |
 
 `local` and `mongo` route uploads through a token-gated
 `PUT /api/v1/files/{id}/blob` and stream serves back through the API;
 `s3` uses presigned PUT/GET so bytes never transit the API. Switching
-backends is an env-var change only — no code changes.
+backends is an env-var change only, no code changes.
 
 **Cloudflare R2 (S3-compatible), to scale up:** create a bucket and an
 R2 API token (S3 credentials) in the Cloudflare dashboard, then set:
@@ -267,7 +267,7 @@ SUPABASE_STORAGE_SECRET_ACCESS_KEY=<R2 secret access key>
 SUPABASE_STORAGE_BUCKET=<your bucket>
 ```
 
-(The `SUPABASE_STORAGE_*` names are historical — they carry any
+(The `SUPABASE_STORAGE_*` names are historical, they carry any
 S3-compatible endpoint, R2 included.)
 
 ## Deployment
@@ -281,10 +281,10 @@ S3-compatible endpoint, R2 included.)
 
 On every Railway deploy the boot sequence is:
 
-1. `bootstrap_db.py` — stamps `alembic_version` if the DB was originally
+1. `bootstrap_db.py`, stamps `alembic_version` if the DB was originally
    created via `Base.metadata.create_all()`, and idempotently backfills
    any missing columns. Safe to re-run.
-2. `alembic upgrade head` — applies any new migrations.
+2. `alembic upgrade head`, applies any new migrations.
 3. `uvicorn` binds `$PORT` and serves the API.
 
 Healthcheck path: `/health`. Railway rolls the deploy back if that

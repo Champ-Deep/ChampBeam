@@ -1,7 +1,7 @@
 """Public serve endpoint for hosted file assets.
 
 Routes ``GET /f/{code}`` and ``GET /f/{code}/{slug}`` (the slug is purely
-cosmetic — the short_code is what we look up). Mirrors the BYOD redirect
+cosmetic, the short_code is what we look up). Mirrors the BYOD redirect
 handler at ``app/api/redirect.py``: the Host header decides which
 short-code namespace to look in.
 """
@@ -92,14 +92,14 @@ async def serve_file(
     short_code: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    slug: Optional[str] = None,  # noqa: ARG001 — slug is cosmetic
+    slug: Optional[str] = None,  # noqa: ARG001, slug is cosmetic
     session: AsyncSession = Depends(get_db_session),
 ):
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
 
     if host and domain is None and host != settings.resolved_platform_redirect_host:
-        # Custom hostname that isn't registered or isn't active — refuse rather
+        # Custom hostname that isn't registered or isn't active, refuse rather
         # than fall through to the platform-default bucket.
         return Response(status_code=404, content="File not found.")
 
@@ -117,13 +117,13 @@ async def serve_file(
     if asset is None:
         return Response(status_code=404, content="File not found.")
 
-    # Anonymous assets auto-expire — treat an expired file as gone (and reclaim
+    # Anonymous assets auto-expire, treat an expired file as gone (and reclaim
     # it in the background) rather than serving stale bytes.
     if asset.expires_at is not None and asset.expires_at < datetime.utcnow():
         background_tasks.add_task(expire_asset, asset.id)
         return Response(status_code=410, content="This file has expired.")
 
-    # Extract visitor info — same pattern as /r/{code}.
+    # Extract visitor info, same pattern as /r/{code}.
     ip_address = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
     if not ip_address:
         ip_address = request.client.host if request.client else None
@@ -158,7 +158,7 @@ async def serve_file(
             return Response(status_code=502, content="Storage error.")
         return RedirectResponse(url=url, status_code=302)
 
-    # Stream mode — bytes proxied through Railway.
+    # Stream mode, bytes proxied through Railway.
     try:
         return StreamingResponse(
             storage.stream_object(asset.storage_key),

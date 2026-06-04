@@ -117,7 +117,7 @@ async def test_r_redirect_survives_click_tracking_failure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_r_redirect_bumps_counter_even_when_event_insert_fails(app_client, monkeypatch):
-    """The counter must increment even when the ClickEvent insert blows up —
+    """The counter must increment even when the ClickEvent insert blows up -
     that's the whole point of running them in independent sessions. Without
     this guarantee, analytics shows 0 on prod whenever the events table is
     broken."""
@@ -153,7 +153,7 @@ async def test_r_redirect_bumps_counter_even_when_event_insert_fails(app_client,
 
     monkeypatch.setattr(utm_service, "insert_click_event", _boom)
 
-    # 3) Hit the redirect — should still 302 AND increment the counter
+    # 3) Hit the redirect, should still 302 AND increment the counter
     resp = await app_client.get("/r/COUNT01", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["location"] == "https://example.com/landing?utm_source=test"
@@ -165,7 +165,7 @@ async def test_r_redirect_bumps_counter_even_when_event_insert_fails(app_client,
         )).scalar_one()
         assert row.click_count == 1, (
             f"expected click_count=1 after redirect, got {row.click_count} "
-            f"(this is the prod bug — counters get rolled back when "
+            f"(this is the prod bug, counters get rolled back when "
             f"click_events insert fails)"
         )
         assert row.unique_clicks == 1

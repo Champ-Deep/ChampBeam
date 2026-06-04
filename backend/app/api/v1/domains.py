@@ -1,4 +1,4 @@
-"""Domain management endpoints — Bring-Your-Own-Domain for short links."""
+"""Domain management endpoints, Bring-Your-Own-Domain for short links."""
 
 from __future__ import annotations
 
@@ -175,7 +175,7 @@ async def create_domain(
     hostname = _normalize_hostname(data.hostname)
     _validate_hostname(hostname)
 
-    # Global hostname uniqueness — a domain can only be owned by one account.
+    # Global hostname uniqueness, a domain can only be owned by one account.
     existing = await session.execute(
         select(Domain).where(Domain.hostname == hostname)
     )
@@ -338,7 +338,7 @@ async def delete_domain(
             pass
         except cloudflare.CloudflareError as exc:
             logger.warning("CF delete_custom_hostname failed for %s: %s", domain.hostname, exc)
-            # Continue with local delete — CF cleanup can be done manually.
+            # Continue with local delete, CF cleanup can be done manually.
 
     await session.delete(domain)
     await session.commit()
