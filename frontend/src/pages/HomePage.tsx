@@ -228,58 +228,44 @@ export function HomePage() {
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {/* Primary mode: links vs files — available to everyone */}
+          {/* One segmented control: Link / Bulk / File (Bulk = signed-in only) */}
           <div className="flex rounded-lg border border-slate-200 overflow-hidden">
             <button
-              onClick={() => setPrimaryMode('link')}
+              onClick={() => { setPrimaryMode('link'); setMode('single'); }}
               className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
-                primaryMode === 'link'
+                primaryMode === 'link' && mode === 'single'
                   ? 'bg-brand-purple text-white'
                   : 'bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Link2 className="h-4 w-4" />
-              Create Link
+              Link
             </button>
+            {isAuthenticated && (
+              <button
+                onClick={() => { setPrimaryMode('link'); setMode('bulk'); }}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-l border-slate-200 transition-colors ${
+                  primaryMode === 'link' && mode === 'bulk'
+                    ? 'bg-brand-purple text-white'
+                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Bulk
+              </button>
+            )}
             <button
               onClick={() => setPrimaryMode('file')}
-              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-l border-slate-200 transition-colors ${
                 primaryMode === 'file'
                   ? 'bg-brand-purple text-white'
                   : 'bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
               <FileText className="h-4 w-4" />
-              Share File
+              File
             </button>
           </div>
-          {/* Link sub-mode: single vs bulk — authed only */}
-          {primaryMode === 'link' && isAuthenticated && (
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-              <button
-                onClick={() => setMode('single')}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
-                  mode === 'single'
-                    ? 'bg-brand-purple text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <Link2 className="h-4 w-4" />
-                Single URL
-              </button>
-              <button
-                onClick={() => setMode('bulk')}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
-                  mode === 'bulk'
-                    ? 'bg-brand-purple text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <FileSpreadsheet className="h-4 w-4" />
-                Bulk CSV
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
