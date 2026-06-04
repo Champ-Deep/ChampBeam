@@ -35,6 +35,7 @@ from app.models.file_asset import (
     STATUS_FAILED,
     STATUS_PENDING_UPLOAD,
 )
+from app.models.utm import ClickEvent
 from app.services import storage
 
 logger = logging.getLogger(__name__)
@@ -615,6 +616,200 @@ async def list_files(
     for a in rows:
         out.append(await _to_response(session, a))
     return out
+
+
+# ============================================================================
+# Per-file analytics (owner only). File opens are recorded as ClickEvent rows
+# with file_id set, so these mirror /utm/analytics/links/{id}/* — filtered by
+# file_id instead of link_id — to make every shared file individually trackable.
+# ============================================================================
+
+
+def _file_date_range(days: int, start_date: Optional[str], end_date: Optional[str]):
+    now = datetime.utcnow()
+    if start_date and end_date:
+        try:
+            start = datetime.fromisoformat(start_date)
+            end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO 8601 (YYYY-MM-DD).")
+        if start > end:
+            raise HTTPException(status_code=400, detail="start_date must be before end_date.")
+        return start, end
+    return now - timedelta(days=days), now
+
+
+async def _get_owned_file(file_id: str, user_id, session: AsyncSession) -> FileAsset:
+    """Fetch a non-deleted file owned by the user. 400 on bad id, 404 otherwise."""
+    try:
+        fid = _UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file_id.")
+    result = await session.execute(
+        select(FileAsset).where(
+            FileAsset.id == fid,
+            FileAsset.user_id == user_id,
+            FileAsset.status != STATUS_DELETED,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(status_code=404, detail="File not found.")
+    return asset
+
+
+@router.get("/{file_id}/summary")
+async def file_analytics_summary(
+    file_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Headline open stats for one file."""
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    range_start, range_end = _file_date_range(days, start_date, end_date)
+    totals = await session.execute(
+        select(
+            func.count(ClickEvent.id).label("opens"),
+            func.count(func.distinct(ClickEvent.ip_address)).label("unique_opens"),
+        ).where(
+            ClickEvent.file_id == asset.id,
+            ClickEvent.clicked_at >= range_start,
+            ClickEvent.clicked_at <= range_end,
+        )
+    )
+    row = totals.one()
+    return {
+        "file_id": str(asset.id),
+        "filename": asset.filename,
+        "short_code": asset.short_code,
+        "view_count": asset.view_count or 0,
+        "opens": row.opens or 0,
+        "unique_opens": row.unique_opens or 0,
+        "last_viewed_at": asset.last_viewed_at.isoformat() if asset.last_viewed_at else None,
+        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+    }
+
+
+@router.get("/{file_id}/events")
+async def file_view_events(
+    file_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Individual opens for one file (most recent 500)."""
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    range_start, range_end = _file_date_range(days, start_date, end_date)
+    events = await session.execute(
+        select(ClickEvent)
+        .where(
+            ClickEvent.file_id == asset.id,
+            ClickEvent.clicked_at >= range_start,
+            ClickEvent.clicked_at <= range_end,
+        )
+        .order_by(ClickEvent.clicked_at.desc())
+        .limit(500)
+    )
+    return [
+        {
+            "id": str(e.id),
+            "ip_address": e.ip_address,
+            "device_type": e.device_type,
+            "browser": e.browser,
+            "os": e.os,
+            "country": e.country,
+            "country_code": e.country_code,
+            "region": e.region,
+            "city": e.city,
+            "referrer": e.referrer,
+            "is_vpn": e.is_vpn or False,
+            "asn_org": e.asn_org,
+            "clicked_at": e.clicked_at.isoformat() if e.clicked_at else None,
+        }
+        for e in events.scalars().all()
+    ]
+
+
+@router.get("/{file_id}/geo")
+async def file_geo_breakdown(
+    file_id: str,
+    level: str = Query(default="country", description="country, region, or city"),
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Geographic breakdown of opens for one file."""
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    range_start, range_end = _file_date_range(days, start_date, end_date)
+    where = (
+        ClickEvent.file_id == asset.id,
+        ClickEvent.clicked_at >= range_start,
+        ClickEvent.clicked_at <= range_end,
+    )
+    if level == "region":
+        result = await session.execute(
+            select(ClickEvent.country, ClickEvent.country_code, ClickEvent.region,
+                   func.count(ClickEvent.id).label("clicks"))
+            .where(*where)
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [{"country": r.country, "country_code": r.country_code, "region": r.region, "clicks": r.clicks} for r in result.all()]
+    if level == "city":
+        result = await session.execute(
+            select(ClickEvent.country, ClickEvent.country_code, ClickEvent.region, ClickEvent.city,
+                   func.count(ClickEvent.id).label("clicks"))
+            .where(*where)
+            .group_by(ClickEvent.country, ClickEvent.country_code, ClickEvent.region, ClickEvent.city)
+            .order_by(func.count(ClickEvent.id).desc())
+        )
+        return [{"country": r.country, "country_code": r.country_code, "region": r.region, "city": r.city, "clicks": r.clicks} for r in result.all()]
+    result = await session.execute(
+        select(ClickEvent.country, ClickEvent.country_code,
+               func.count(ClickEvent.id).label("clicks"))
+        .where(*where)
+        .group_by(ClickEvent.country, ClickEvent.country_code)
+        .order_by(func.count(ClickEvent.id).desc())
+    )
+    return [{"country": r.country, "country_code": r.country_code, "clicks": r.clicks} for r in result.all()]
+
+
+@router.get("/{file_id}/devices")
+async def file_device_breakdown(
+    file_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Device + browser breakdown of opens for one file."""
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    range_start, range_end = _file_date_range(days, start_date, end_date)
+    where = (
+        ClickEvent.file_id == asset.id,
+        ClickEvent.clicked_at >= range_start,
+        ClickEvent.clicked_at <= range_end,
+    )
+    device_result = await session.execute(
+        select(ClickEvent.device_type, func.count(ClickEvent.id).label("clicks"))
+        .where(*where).group_by(ClickEvent.device_type).order_by(func.count(ClickEvent.id).desc())
+    )
+    browser_result = await session.execute(
+        select(ClickEvent.browser, func.count(ClickEvent.id).label("clicks"))
+        .where(*where).group_by(ClickEvent.browser).order_by(func.count(ClickEvent.id).desc())
+    )
+    return {
+        "devices": [{"device_type": r.device_type, "clicks": r.clicks} for r in device_result.all()],
+        "browsers": [{"browser": r.browser, "clicks": r.clicks} for r in browser_result.all()],
+    }
 
 
 @router.delete("/{file_id}", status_code=204)

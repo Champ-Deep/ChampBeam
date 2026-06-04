@@ -13,13 +13,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, select, update
+from sqlalchemy import delete as sa_delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import TokenData, require_auth, get_current_user
 from app.db.postgres import get_db_session
 from app.models.domain import Domain, STATUS_ACTIVE
+from app.models.file_asset import FileAsset
 from app.models.utm import ClickEvent, LinkClick, UTMPreset
 from app.services.utm_service import utm_service
 
@@ -2001,14 +2002,24 @@ async def get_recent_clicks(
             ClickEvent.region,
             ClickEvent.device_type,
             ClickEvent.browser,
+            ClickEvent.link_id,
+            ClickEvent.file_id,
             LinkClick.original_url,
-            LinkClick.short_code,
+            LinkClick.short_code.label("link_short_code"),
             LinkClick.utm_campaign,
             LinkClick.utm_source,
+            FileAsset.filename,
+            FileAsset.short_code.label("file_short_code"),
         )
-        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        # Outer-join both attribution tables so file opens (file_id set,
+        # link_id null) appear in the feed alongside link clicks.
+        .outerjoin(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .outerjoin(FileAsset, ClickEvent.file_id == FileAsset.id)
         .where(
-            LinkClick.user_id == user.user_id,
+            or_(
+                LinkClick.user_id == user.user_id,
+                FileAsset.user_id == user.user_id,
+            ),
             ClickEvent.clicked_at > since_dt,
         )
         .order_by(ClickEvent.clicked_at.desc())
@@ -2018,15 +2029,22 @@ async def get_recent_clicks(
     return [
         {
             "id": str(r.id),
+            "type": "file" if r.file_id else "link",
             "clicked_at": r.clicked_at.isoformat() if r.clicked_at else None,
             "country": r.country,
             "region": r.region,
             "device_type": r.device_type,
             "browser": r.browser,
+            # Link fields (null for file opens)
             "original_url": r.original_url,
-            "short_code": r.short_code,
             "utm_campaign": r.utm_campaign,
             "utm_source": r.utm_source,
+            "link_id": str(r.link_id) if r.link_id else None,
+            # File fields (null for link clicks)
+            "filename": r.filename,
+            "file_id": str(r.file_id) if r.file_id else None,
+            # short_code resolves to whichever asset this event belongs to
+            "short_code": r.file_short_code if r.file_id else r.link_short_code,
         }
         for r in result.all()
     ]
