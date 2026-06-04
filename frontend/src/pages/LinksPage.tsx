@@ -6,7 +6,7 @@ import {
   Link2, Copy, BarChart3, Trash2, FolderOpen, Plus, Save, X,
   Pencil, MousePointerClick, ExternalLink, Inbox, GripVertical, CheckSquare,
 } from 'lucide-react';
-import { Card, Button, Input, Badge, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, Button, Input, Badge, LoadingSpinner, EmptyState, QrButton } from '../components/ui';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, Project, ProjectCreate } from '../api/utm';
 
@@ -609,6 +609,9 @@ export function LinksPage() {
                           {/* Actions */}
                           <td className="px-4 py-3 text-center">
                             <div className="flex items-center justify-center gap-1">
+                              {link.redirect_url && (
+                                <QrButton value={link.redirect_url} />
+                              )}
                               <button
                                 onClick={() => navigate(`/analytics/link/${link.link_id}`)}
                                 className="p-1.5 text-gray-400 hover:text-brand-purple hover:bg-brand-purple/10 rounded transition-colors"

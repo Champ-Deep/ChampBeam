@@ -1,9 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Clock, Copy, ExternalLink, Eye, FileText, Globe, MousePointerClick, UserPlus } from 'lucide-react';
+import {
+  BarChart3,
+  Check,
+  Clock,
+  Copy,
+  ExternalLink,
+  Eye,
+  FileText,
+  Globe,
+  MousePointerClick,
+  Sparkles,
+  UserPlus,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Badge, Button, Card, CardHeader, CardTitle } from './ui';
+import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloadButton } from './ui';
 import { FileUploadZone } from './ui/FileUploadZone';
 import { filesApi } from '../api/files';
 
@@ -65,10 +77,119 @@ function FileSeenBadge({ file }: { file: SharedFile }) {
   return <Badge variant="warning" size="sm">Not opened yet</Badge>;
 }
 
+/**
+ * The centerpiece result for a just-shared file: short URL large + monospaced
+ * with a Copy button, the QR code with Download, and a prominent read receipt
+ * that polls the file status endpoint ("Seen" vs "Not opened yet").
+ */
+function FileResultCard({ file }: { file: SharedFile }) {
+  const { data } = useQuery({
+    queryKey: ['file-status', file.fileId],
+    queryFn: () => filesApi.getStatus(file.fileId, file.ownerToken),
+    refetchInterval: 10_000,
+    retry: false,
+  });
+
+  const seen = !!data?.seen;
+  const viewCount = data?.view_count ?? 0;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(file.serveUrl);
+    toast.success('Link copied');
+  };
+
+  return (
+    <Card className="border-brand-purple/30 bg-gradient-to-br from-brand-purple/5 to-brand-teal/5">
+      <div className="flex items-center gap-2 mb-5">
+        <div className="h-9 w-9 rounded-lg bg-brand-purple/10 flex items-center justify-center">
+          <Sparkles className="h-5 w-5 text-brand-purple" />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-slate-900">Your file is live</h3>
+          <p className="text-xs text-slate-500 truncate" title={file.filename}>
+            {file.filename}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-start">
+        <div className="min-w-0 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+              Share link
+            </p>
+            <div className="flex items-stretch gap-2">
+              <div className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-4 py-3 font-mono text-base sm:text-lg font-semibold text-brand-purple break-all">
+                {file.serveUrl}
+              </div>
+              <Button onClick={handleCopy} leftIcon={<Copy className="h-4 w-4" />} className="flex-shrink-0">
+                Copy
+              </Button>
+            </div>
+          </div>
+
+          {/* Prominent read receipt. */}
+          <div
+            className={`flex items-center justify-between gap-3 rounded-lg border p-3 ${
+              seen ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-white'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {seen ? (
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100 flex-shrink-0">
+                  <Check className="h-4 w-4 text-green-600" />
+                </span>
+              ) : (
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 flex-shrink-0">
+                  <Eye className="h-4 w-4 text-slate-400" />
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className={`text-sm font-semibold ${seen ? 'text-green-700' : 'text-slate-700'}`}>
+                  {seen ? 'Seen' : 'Not opened yet'}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {seen
+                    ? `Opened ${viewCount.toLocaleString()} ${viewCount === 1 ? 'time' : 'times'}`
+                    : 'Live read receipt, updates the moment it is opened'}
+                </p>
+              </div>
+            </div>
+            <Link to={`/files/${file.fileId}/analytics`} className="flex-shrink-0">
+              <Button variant="outline" size="sm" leftIcon={<BarChart3 className="h-4 w-4" />}>
+                View analytics
+              </Button>
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <a href={file.serveUrl} target="_blank" rel="noreferrer">
+              <Button variant="ghost" size="sm" leftIcon={<ExternalLink className="h-4 w-4" />}>
+                Open file
+              </Button>
+            </a>
+            {expiresLabel(file.expiresAt) && (
+              <span className="text-xs text-slate-500">{expiresLabel(file.expiresAt)}</span>
+            )}
+          </div>
+        </div>
+
+        {/* QR code + download */}
+        <div className="flex flex-col items-center gap-2">
+          <QrCode value={file.serveUrl} size={150} />
+          <QrDownloadButton value={file.serveUrl} filename={`${file.shortCode}.svg`} />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }) {
   const [history, setHistory] = useState<SharedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
+  // The most recently shared file, surfaced as the centerpiece result card.
+  const [lastShared, setLastShared] = useState<SharedFile | null>(null);
 
   useEffect(() => {
     setHistory(loadHistory());
@@ -104,6 +225,7 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
       const next = [item, ...history.filter((h) => h.fileId !== item.fileId)].slice(0, 10);
       setHistory(next);
       saveHistory(next);
+      setLastShared(item);
       navigator.clipboard.writeText(finalized.serve_url).catch(() => undefined);
       toast.success('File is live. Link copied to clipboard.');
     } catch (err: unknown) {
@@ -130,8 +252,8 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
             </CardTitle>
           </CardHeader>
           <p className="text-sm text-slate-600 mb-4">
-            Drop a file to get a short, trackable link. You will see the moment it is opened,
-            no account needed to start.
+            Drop a file to get a short, trackable link plus a QR code. You will see the moment it is
+            opened, no account needed to start.
           </p>
           <FileUploadZone
             onFileSelected={handleFile}
@@ -148,27 +270,32 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
           )}
         </Card>
 
-        {/* Fill the column consistently with what happens after a file is shared. */}
-        <Card className="bg-slate-50">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">What happens after you share</h3>
-          <ul className="space-y-3">
-            {[
-              { icon: MousePointerClick, text: 'Anyone with the link opens your file straight in the browser, no download needed.' },
-              { icon: Eye, text: 'The Recent Files panel flips to "Opened" the moment it is viewed, with a live open count.' },
-              { icon: Globe, text: 'Every open is logged with location and device so you know exactly who saw it.' },
-            ].map((item) => {
-              const Icon = item.icon;
-              return (
-                <li key={item.text} className="flex items-start gap-3">
-                  <div className="h-6 w-6 rounded-md bg-brand-teal/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Icon className="h-3.5 w-3.5 text-brand-teal" />
-                  </div>
-                  <span className="text-sm text-slate-700">{item.text}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+        {/* The result card is the centerpiece, shown once a file is finalized. */}
+        {lastShared ? (
+          <FileResultCard file={lastShared} />
+        ) : (
+          /* Fill the column consistently with what happens after a file is shared. */
+          <Card className="bg-slate-50">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">What happens after you share</h3>
+            <ul className="space-y-3">
+              {[
+                { icon: MousePointerClick, text: 'Anyone with the link opens your file straight in the browser, no download needed.' },
+                { icon: Eye, text: 'The result card flips to "Seen" the moment it is viewed, with a live open count.' },
+                { icon: Globe, text: 'Every open is logged with location and device so you know exactly who saw it.' },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <li key={item.text} className="flex items-start gap-3">
+                    <div className="h-6 w-6 rounded-md bg-brand-teal/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Icon className="h-3.5 w-3.5 text-brand-teal" />
+                    </div>
+                    <span className="text-sm text-slate-700">{item.text}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        )}
 
         {!isAuthenticated && (
           <Card className="bg-brand-purple/5 border-brand-purple/20">
@@ -204,8 +331,8 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
           ) : (
             <div className="divide-y divide-slate-100 -mx-6 -mb-6 max-h-[500px] overflow-y-auto">
               {history.map((f) => (
-                <div key={f.fileId} className="px-6 py-4 group">
-                  <div className="flex items-center justify-between gap-2 mb-1">
+                <div key={f.fileId} className="px-6 py-3">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
                     <span className="text-sm font-medium text-slate-900 truncate" title={f.filename}>
                       {f.filename}
                     </span>
@@ -221,24 +348,25 @@ export function ShareFilePanel({ isAuthenticated }: { isAuthenticated: boolean }
                     <span className="text-[11px] text-slate-400">
                       {expiresLabel(f.expiresAt) ?? 'Saved'}
                     </span>
-                    <div className="flex items-center gap-1">
-                      <a href={f.serveUrl} target="_blank" rel="noreferrer">
-                        <Button variant="ghost" size="sm" className="h-6 px-2">
-                          <ExternalLink className="h-3 w-3" />
-                        </Button>
-                      </a>
+                    <div className="flex items-center gap-0.5">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2"
+                        className="h-7 px-2"
                         onClick={() => {
                           navigator.clipboard.writeText(f.serveUrl);
                           toast.success('Copied');
                         }}
+                        title="Copy link"
                       >
-                        <Copy className="h-3 w-3 mr-1" />
-                        Copy
+                        <Copy className="h-3.5 w-3.5" />
                       </Button>
+                      <QrButton value={f.serveUrl} filename={`${f.shortCode}.svg`} />
+                      <a href={f.serveUrl} target="_blank" rel="noreferrer" title="Open file">
+                        <Button variant="ghost" size="sm" className="h-7 px-2">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                      </a>
                     </div>
                   </div>
                 </div>

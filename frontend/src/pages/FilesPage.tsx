@@ -33,6 +33,7 @@ import {
   Input,
   LoadingSpinner,
   EmptyState,
+  QrButton,
 } from '../components/ui';
 import { filesApi } from '../api/files';
 import type { FileAsset, FileKind } from '../api/files';
@@ -942,6 +943,9 @@ function FileRow({
               >
                 <Copy className="h-3.5 w-3.5" />
               </button>
+              <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+                <QrButton value={file.serve_url} filename={`${file.short_code}.svg`} />
+              </span>
             </div>
           </div>
         </div>
