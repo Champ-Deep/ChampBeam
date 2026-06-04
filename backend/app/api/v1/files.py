@@ -35,7 +35,7 @@ from app.models.file_asset import (
     STATUS_FAILED,
     STATUS_PENDING_UPLOAD,
 )
-from app.models.utm import ClickEvent
+from app.models.utm import ClickEvent, Project
 from app.services import storage
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,12 @@ class FileResponse(BaseModel):
     serve_url: str
     domain_id: Optional[str] = None
     expires_at: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+class FileUpdateRequest(BaseModel):
+    # Assign/move the file to a project (folder); send null to unfile it.
+    project_id: Optional[str] = None
 
 
 class FileFinalizeRequest(BaseModel):
@@ -254,6 +260,7 @@ async def _to_response(session: AsyncSession, asset: FileAsset) -> FileResponse:
         serve_url=_build_serve_url(host, asset.short_code, asset.filename),
         domain_id=str(asset.domain_id) if asset.domain_id else None,
         expires_at=asset.expires_at.isoformat() if asset.expires_at else None,
+        project_id=str(asset.project_id) if asset.project_id else None,
     )
 
 
@@ -618,10 +625,40 @@ async def list_files(
     return out
 
 
+@router.patch("/{file_id}", response_model=FileResponse)
+async def update_file(
+    file_id: str,
+    data: FileUpdateRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Update a file's mutable fields. Currently: assign it to a project (folder)."""
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    if "project_id" in data.model_fields_set:
+        if data.project_id:
+            try:
+                pid = _UUID(data.project_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid project_id.")
+            owns = await session.execute(
+                select(Project.id).where(
+                    Project.id == pid, Project.user_id == user.user_id
+                )
+            )
+            if owns.scalar_one_or_none() is None:
+                raise HTTPException(status_code=404, detail="Project not found.")
+            asset.project_id = pid
+        else:
+            asset.project_id = None
+    await session.commit()
+    await session.refresh(asset)
+    return await _to_response(session, asset)
+
+
 # ============================================================================
 # Per-file analytics (owner only). File opens are recorded as ClickEvent rows
-# with file_id set, so these mirror /utm/analytics/links/{id}/* — filtered by
-# file_id instead of link_id — to make every shared file individually trackable.
+# with file_id set, so these mirror /utm/analytics/links/{id}/*, filtered by
+# file_id instead of link_id, to make every shared file individually trackable.
 # ============================================================================
 
 

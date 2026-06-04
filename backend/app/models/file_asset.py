@@ -76,6 +76,14 @@ class FileAsset(Base):
     # sha256 of the raw owner token handed to an anonymous uploader (once).
     owner_token_hash = Column(String(64), nullable=True)
 
+    # Optional organizational grouping (folders). Mirrors LinkClick.project_id.
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     user = relationship("User", backref="file_assets")
     click_events = relationship(
         "ClickEvent",
