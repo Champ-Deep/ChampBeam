@@ -24,6 +24,7 @@ export interface FileAsset {
   created_at: string;
   serve_url: string;
   domain_id: string | null;
+  project_id?: string | null;
   expires_at?: string | null;
 }
 
@@ -170,6 +171,12 @@ export const filesApi = {
 
   async delete(fileId: string): Promise<void> {
     await api.delete(`/files/${fileId}`);
+  },
+
+  /** Assign a file to a project (project_id) or unfile it (project_id null). */
+  async updateFile(fileId: string, data: { project_id: string | null }): Promise<FileAsset> {
+    const response = await api.patch<FileAsset>(`/files/${fileId}`, data);
+    return response.data;
   },
 
   // ============================================================
