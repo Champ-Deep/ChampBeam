@@ -13,7 +13,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, or_, select, update
+from sqlalchemy import delete as sa_delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -881,16 +881,20 @@ async def get_performance_over_time(
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
+    # The date_trunc unit must be a SQL literal, not a bound parameter, or
+    # Postgres treats the SELECT and GROUP BY occurrences as distinct
+    # expressions and raises a GroupingError. Build one expression and reuse it.
+    day_bucket = func.date_trunc(literal_column("'day'"), LinkClick.created_at)
     result = await session.execute(
         select(
-            func.date_trunc("day", LinkClick.created_at).label("date"),
+            day_bucket.label("date"),
             func.count(LinkClick.id).label("links_created"),
             func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
             func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
         )
         .where(*conditions)
-        .group_by(func.date_trunc("day", LinkClick.created_at))
-        .order_by(func.date_trunc("day", LinkClick.created_at))
+        .group_by(day_bucket)
+        .order_by(day_bucket)
     )
 
     data = []
@@ -1222,10 +1226,11 @@ async def compare_campaigns(
             .order_by(func.count(ClickEvent.id).desc())
         )
 
-        # Timeline
+        # Timeline (date_trunc unit must be a literal; see get_performance_over_time)
+        day_bucket = func.date_trunc(literal_column("'day'"), ClickEvent.clicked_at)
         timeline = await session.execute(
             select(
-                func.date_trunc("day", ClickEvent.clicked_at).label("date"),
+                day_bucket.label("date"),
                 func.count(ClickEvent.id).label("clicks"),
             )
             .join(LinkClick, ClickEvent.link_id == LinkClick.id)
@@ -1235,8 +1240,8 @@ async def compare_campaigns(
                 ClickEvent.clicked_at >= range_start,
                 ClickEvent.clicked_at <= range_end,
             )
-            .group_by(func.date_trunc("day", ClickEvent.clicked_at))
-            .order_by(func.date_trunc("day", ClickEvent.clicked_at))
+            .group_by(day_bucket)
+            .order_by(day_bucket)
         )
 
         total_links = row.total_links or 0
@@ -1534,9 +1539,10 @@ async def get_campaign_timeline(
     """Get daily click time series for a campaign."""
     range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
+    day_bucket = func.date_trunc(literal_column("'day'"), ClickEvent.clicked_at)
     result = await session.execute(
         select(
-            func.date_trunc("day", ClickEvent.clicked_at).label("date"),
+            day_bucket.label("date"),
             func.count(ClickEvent.id).label("clicks"),
             func.count(func.distinct(ClickEvent.ip_address)).label("unique_clicks"),
         )
@@ -1547,8 +1553,8 @@ async def get_campaign_timeline(
             ClickEvent.clicked_at >= range_start,
             ClickEvent.clicked_at <= range_end,
         )
-        .group_by(func.date_trunc("day", ClickEvent.clicked_at))
-        .order_by(func.date_trunc("day", ClickEvent.clicked_at))
+        .group_by(day_bucket)
+        .order_by(day_bucket)
     )
 
     return {
