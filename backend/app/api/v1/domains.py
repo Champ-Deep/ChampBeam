@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID as _UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
@@ -163,6 +164,53 @@ async def _apply_cf_status(domain: Domain) -> None:
         domain.verified_at = datetime.utcnow()
 
 
+async def _verify_reachable(hostname: str) -> bool:
+    """Best-effort live check that the hostname actually routes to this backend.
+
+    Fetches https://<hostname>/health and confirms our health signature. Used so
+    a domain is not marked live until DNS points here and a valid cert exists.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+            resp = await client.get(
+                f"https://{hostname}/health",
+                headers={"User-Agent": "ChampUTM-DomainVerify"},
+            )
+    except Exception:
+        return False
+    if resp.status_code != 200:
+        return False
+    try:
+        return (resp.json() or {}).get("status") == "healthy"
+    except Exception:
+        return False
+
+
+async def _apply_local_status(domain: Domain) -> None:
+    """Resolve status for non-Cloudflare domains. A platform subdomain is live
+    immediately (the wildcard DNS + cert cover it); any other custom domain is
+    only marked active once a live reachability check confirms it routes here."""
+    domain.last_checked_at = datetime.utcnow()
+    if _is_platform_subdomain(domain.hostname):
+        domain.status = STATUS_ACTIVE
+        domain.ssl_status = "active"
+        if domain.verified_at is None:
+            domain.verified_at = datetime.utcnow()
+        domain.verification_errors = None
+        return
+    if await _verify_reachable(domain.hostname):
+        domain.status = STATUS_ACTIVE
+        domain.ssl_status = "active"
+        if domain.verified_at is None:
+            domain.verified_at = datetime.utcnow()
+        domain.verification_errors = None
+    else:
+        domain.status = STATUS_PENDING_CNAME
+        domain.verification_errors = {
+            "message": "Not reachable yet. Add the CNAME record, wait for DNS and the certificate to finish, then refresh."
+        }
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -228,10 +276,11 @@ async def create_domain(
             logger.exception("CF create_custom_hostname failed for %s", hostname)
             raise HTTPException(status_code=502, detail=f"Cloudflare error: {exc}")
     else:
-        # Local / unconfigured mode: skip provisioning, mark active immediately
-        # so the full happy-path is testable without a CF account. Test with
-        # `curl -H "Host: <hostname>" http://localhost:8000/r/<code>`.
-        status = STATUS_ACTIVE
+        # External custom domain with no Cloudflare for SaaS configured. Do NOT
+        # mark it active: it is not reachable until DNS points here and a cert is
+        # issued. Keep it pending and let Refresh verify real reachability, so the
+        # UI never shows a domain as live when it would not actually connect.
+        status = STATUS_PENDING_CNAME
 
     # First domain becomes primary automatically.
     has_any = await session.execute(
@@ -265,7 +314,10 @@ async def refresh_domain(
 ):
     """Re-poll Cloudflare for the latest status of this domain."""
     domain = await _get_owned_domain(domain_id, user.user_id, session)
-    await _apply_cf_status(domain)
+    if domain.cf_custom_hostname_id:
+        await _apply_cf_status(domain)
+    else:
+        await _apply_local_status(domain)
     await session.commit()
     await session.refresh(domain)
     return _to_response(domain)
