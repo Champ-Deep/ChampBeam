@@ -2,10 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, BookmarkCheck, CheckCircle2, Copy, Globe, RefreshCw, Star, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  BookmarkCheck,
+  CheckCircle2,
+  Copy,
+  Globe,
+  Info,
+  Plus,
+  RefreshCw,
+  Star,
+  Trash2,
+  Zap,
+} from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
 import { utmApi } from '../api/utm';
-import type { Domain, DomainStatus } from '../api/utm';
+import type { Domain, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
 
 type SettingsTab = 'domains' | 'presets';
@@ -24,13 +36,31 @@ const STATUS_VARIANT: Record<DomainStatus, 'default' | 'warning' | 'info' | 'suc
   failed: 'danger',
 };
 
+// A single DNS label: lowercase a to z, 0 to 9 and hyphens, no leading or
+// trailing hyphen, 1 to 63 characters.
+const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function validateSlug(slug: string): string | null {
+  if (!slug) return null;
+  if (slug.length > 63) return 'Use 63 characters or fewer.';
+  if (!SLUG_PATTERN.test(slug)) {
+    return 'Use lowercase letters, numbers and hyphens. No leading or trailing hyphen.';
+  }
+  return null;
+}
+
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
-  const [newHostname, setNewHostname] = useState('');
   const [tab, setTab] = useState<SettingsTab>(
     searchParams.get('tab') === 'presets' ? 'presets' : 'domains'
   );
+
+  const { data: config } = useQuery<DomainsConfig>({
+    queryKey: ['domains-config'],
+    queryFn: () => utmApi.getDomainsConfig(),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const { data: domains = [], isLoading } = useQuery<Domain[]>({
     queryKey: ['domains'],
@@ -47,9 +77,12 @@ export function SettingsPage() {
 
   const createMutation = useMutation({
     mutationFn: (hostname: string) => utmApi.createDomain(hostname),
-    onSuccess: () => {
-      toast.success('Domain added. Follow the setup steps below.');
-      setNewHostname('');
+    onSuccess: (created) => {
+      if (created.status === 'active') {
+        toast.success(`${created.hostname} is ready to use.`);
+      } else {
+        toast.success('Domain added. Follow the setup steps below.');
+      }
       queryClient.invalidateQueries({ queryKey: ['domains'] });
     },
     onError: (err: unknown) => {
@@ -108,16 +141,6 @@ export function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    const h = newHostname.trim().toLowerCase();
-    if (!h) {
-      toast.error('Enter a hostname.');
-      return;
-    }
-    createMutation.mutate(h);
-  };
-
   const handleDelete = (d: Domain) => {
     const confirmMsg = `Remove ${d.hostname}? Links generated with this domain will stop resolving.`;
     if (!window.confirm(confirmMsg)) return;
@@ -163,38 +186,30 @@ export function SettingsPage() {
 
       {tab === 'domains' && (
         <>
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Globe className="h-5 w-5" />
-                Add a custom domain
-              </CardTitle>
-            </CardHeader>
-            <form onSubmit={handleAdd} className="flex items-end gap-3">
-              <div className="flex-1">
-                <Input
-                  label="Hostname"
-                  placeholder="track.example.com"
-                  value={newHostname}
-                  onChange={(e) => setNewHostname(e.target.value)}
-                  helperText="Use a subdomain you control (apex domains work too, but the CNAME must be delegated)."
-                />
-              </div>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? 'Adding…' : 'Add domain'}
-              </Button>
-            </form>
-          </Card>
+          {config?.subdomain_enabled && config.platform_subdomain_base && (
+            <ClaimSubdomainCard
+              base={config.platform_subdomain_base}
+              onClaim={(hostname) => createMutation.mutate(hostname)}
+              submitting={createMutation.isPending}
+            />
+          )}
+
+          <AddOwnDomainCard
+            config={config}
+            onAdd={(hostname) => createMutation.mutate(hostname)}
+            submitting={createMutation.isPending}
+          />
 
           <Card>
             <CardHeader>
               <CardTitle>Your domains</CardTitle>
             </CardHeader>
             {isLoading ? (
-              <div className="py-8 text-center text-sm text-slate-500">Loading…</div>
+              <div className="py-8 text-center text-sm text-slate-500">Loading.</div>
             ) : domains.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-500">
-                No custom domains yet. Add one above to start sharing branded short links.
+                No custom domains yet. Claim a subdomain or add your own above to start
+                sharing branded short links.
               </div>
             ) : (
               <div className="divide-y divide-slate-100 -mx-6 -mb-6">
@@ -202,6 +217,7 @@ export function SettingsPage() {
                   <DomainRow
                     key={d.id}
                     domain={d}
+                    config={config}
                     onRefresh={() => refreshMutation.mutate(d.id)}
                     onSetPrimary={() => primaryMutation.mutate(d.id)}
                     onDelete={() => handleDelete(d)}
@@ -219,16 +235,139 @@ export function SettingsPage() {
   );
 }
 
+interface ClaimSubdomainCardProps {
+  base: string;
+  onClaim: (hostname: string) => void;
+  submitting: boolean;
+}
+
+function ClaimSubdomainCard({ base, onClaim, submitting }: ClaimSubdomainCardProps) {
+  const [slug, setSlug] = useState('');
+  const normalized = slug.trim().toLowerCase();
+  const error = validateSlug(normalized);
+  const preview = normalized ? `${normalized}.${base}` : `your-brand.${base}`;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!normalized) {
+      toast.error('Pick a subdomain.');
+      return;
+    }
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    onClaim(`${normalized}.${base}`);
+    setSlug('');
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Zap className="h-5 w-5 text-brand-purple" />
+          Claim a subdomain
+        </CardTitle>
+      </CardHeader>
+      <form onSubmit={handleSubmit} className="flex items-start gap-3">
+        <div className="flex-1">
+          <Input
+            label="Subdomain"
+            placeholder="your-brand"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            error={normalized ? error ?? undefined : undefined}
+            helperText="This is instant and hosted on our domain."
+            aria-label="Subdomain slug"
+          />
+          <p className="mt-2 text-sm text-slate-500">
+            Preview:{' '}
+            <code className="font-mono text-slate-900 break-all">{preview}</code>
+          </p>
+        </div>
+        <Button
+          type="submit"
+          isLoading={submitting}
+          disabled={!normalized || !!error}
+          leftIcon={<Plus className="h-4 w-4" />}
+          className="mt-7"
+        >
+          Claim
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+interface AddOwnDomainCardProps {
+  config: DomainsConfig | undefined;
+  onAdd: (hostname: string) => void;
+  submitting: boolean;
+}
+
+function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) {
+  const [hostname, setHostname] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const h = hostname.trim().toLowerCase().replace(/\.$/, '');
+    if (!h) {
+      toast.error('Enter a domain.');
+      return;
+    }
+    if (!h.includes('.')) {
+      toast.error('Enter a full domain, for example track.acme.com.');
+      return;
+    }
+    onAdd(h);
+    setHostname('');
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Globe className="h-5 w-5" />
+          Add your own domain
+        </CardTitle>
+      </CardHeader>
+      <form onSubmit={handleSubmit} className="flex items-end gap-3">
+        <div className="flex-1">
+          <Input
+            label="Domain"
+            placeholder="track.acme.com"
+            value={hostname}
+            onChange={(e) => setHostname(e.target.value)}
+            helperText="Use a subdomain you control. You will add a CNAME record after this step."
+          />
+        </div>
+        <Button type="submit" isLoading={submitting} leftIcon={<Plus className="h-4 w-4" />}>
+          Add domain
+        </Button>
+      </form>
+      {config && !config.byod_enabled && (
+        <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
+          <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <span>
+            Custom certificate issuance is off on this environment, so your domain will
+            be marked active for testing without issuing a real certificate.
+          </span>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 interface DomainRowProps {
   domain: Domain;
+  config: DomainsConfig | undefined;
   onRefresh: () => void;
   onSetPrimary: () => void;
   onDelete: () => void;
   refreshing: boolean;
 }
 
-function DomainRow({ domain, onRefresh, onSetPrimary, onDelete, refreshing }: DomainRowProps) {
-  const isPending = domain.status === 'pending_cname' || domain.status === 'pending_ssl';
+function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshing }: DomainRowProps) {
   const isActive = domain.status === 'active';
   const isFailed = domain.status === 'failed';
 
@@ -258,17 +397,15 @@ function DomainRow({ domain, onRefresh, onSetPrimary, onDelete, refreshing }: Do
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isPending && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRefresh}
-              disabled={refreshing}
-              leftIcon={<RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />}
-            >
-              {refreshing ? 'Checking…' : 'Re-check'}
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+            leftIcon={<RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />}
+          >
+            {refreshing ? 'Checking' : 'Refresh'}
+          </Button>
           {isActive && !domain.is_primary && (
             <Button variant="outline" size="sm" onClick={onSetPrimary} leftIcon={<Star className="h-4 w-4" />}>
               Set primary
@@ -286,22 +423,16 @@ function DomainRow({ domain, onRefresh, onSetPrimary, onDelete, refreshing }: Do
         </div>
       </div>
 
-      {isPending && (
-        <SetupInstructions domain={domain} />
-      )}
+      {!isActive && <SetupInstructions domain={domain} config={config} />}
 
-      {isFailed && (
-        <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-start gap-2">
+      {isFailed && domain.verification_errors && (
+        <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-medium">Verification failed</p>
-            {domain.verification_errors ? (
-              <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">
-                {JSON.stringify(domain.verification_errors, null, 2)}
-              </pre>
-            ) : (
-              <p className="text-xs mt-1">Check the hostname and try again.</p>
-            )}
+            <pre className="text-xs mt-1 whitespace-pre-wrap font-mono">
+              {JSON.stringify(domain.verification_errors, null, 2)}
+            </pre>
           </div>
         </div>
       )}
@@ -316,14 +447,20 @@ function DomainRow({ domain, onRefresh, onSetPrimary, onDelete, refreshing }: Do
   );
 }
 
-function SetupInstructions({ domain }: { domain: Domain }) {
-  if (!domain.cloudflare_managed) {
+function SetupInstructions({
+  domain,
+  config,
+}: {
+  domain: Domain;
+  config: DomainsConfig | undefined;
+}) {
+  if (!domain.cloudflare_managed && !config?.byod_enabled) {
     return (
       <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
         <p className="font-medium mb-1">Local-development mode</p>
         <p>
-          Cloudflare isn't configured on this deployment, so the domain is active immediately
-          without a certificate. Test by curl with a spoofed Host header:
+          Cloudflare is not configured on this deployment, so the domain is active
+          immediately without a certificate. Test by curl with a spoofed Host header:
         </p>
         <pre className="text-xs mt-2 p-2 bg-white rounded font-mono whitespace-pre-wrap">
           {`curl -i -H "Host: ${domain.hostname}" http://localhost:8000/r/<short_code>`}
@@ -331,20 +468,24 @@ function SetupInstructions({ domain }: { domain: Domain }) {
       </div>
     );
   }
-  const cname = domain.cname_target || 'cname.champutm.com';
+  // Prefer the domain-level target, then the platform config target, then a
+  // generic instruction to point at the platform host.
+  const cname = domain.cname_target || config?.cname_target || 'your platform host';
   return (
     <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700">
       <p className="font-medium text-slate-900 mb-2">Setup steps</p>
       <ol className="list-decimal list-inside space-y-2">
         <li>
-          In your DNS provider, add a CNAME record:
+          In your DNS provider, add a CNAME record from{' '}
+          <code className="font-mono text-slate-900">{domain.hostname}</code> to{' '}
+          <code className="font-mono text-slate-900">{cname}</code>:
           <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <CopyableField label="Name" value={domain.hostname} />
             <CopyableField label="Value" value={cname} />
           </div>
         </li>
-        <li>Wait 1–5 minutes for DNS to propagate, then click "Re-check".</li>
-        <li>Cloudflare will issue a TLS certificate; status will flip to Active.</li>
+        <li>Wait 1 to 5 minutes for DNS to propagate, then click "Refresh".</li>
+        <li>We issue a TLS certificate; the status flips to Active automatically.</li>
       </ol>
     </div>
   );

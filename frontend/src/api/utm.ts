@@ -59,6 +59,17 @@ export interface Domain {
   cloudflare_managed: boolean;
 }
 
+export interface DomainsConfig {
+  // Whether instant subdomains on the platform base are offered.
+  subdomain_enabled: boolean;
+  // Base used for subdomain claims, e.g. "links.champutm.com". Null when disabled.
+  platform_subdomain_base: string | null;
+  // Whether bring-your-own external domains are accepted.
+  byod_enabled: boolean;
+  // CNAME value users point their domain at. Null falls back to the platform host.
+  cname_target: string | null;
+}
+
 export interface GenerateLinkResponse {
   original_url: string;
   tracked_url: string;
@@ -590,6 +601,11 @@ export const utmApi = {
   // ============================================================
   // Custom Domains (BYOD)
   // ============================================================
+
+  async getDomainsConfig(): Promise<DomainsConfig> {
+    const response = await api.get<DomainsConfig>('/domains/config');
+    return response.data;
+  },
 
   async listDomains(): Promise<Domain[]> {
     const response = await api.get<Domain[]>('/domains');
