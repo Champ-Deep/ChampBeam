@@ -80,9 +80,12 @@ app = FastAPI(
 )
 
 # CORS middleware
-# Exact production + local origins, plus a regex that admits any Vercel
-# preview deployment of this project (champ-utm.vercel.app for prod;
-# champ-utm-git-<branch>-... and champ-utm-<commit>-... for previews).
+# Exact production + local origins (plus any from CORS_ALLOW_ORIGINS), and a
+# regex that admits this project/team's Vercel deployments: prod
+# (champ-utm.vercel.app), branch/commit previews (champ-utm-*), and the
+# team-suffixed preview hosts (<deploy>-deep-5245s-projects.vercel.app).
+# Both the list and the regex are env-overridable so a new app origin never
+# needs a code change.
 allowed_origins = [
     "https://champ-utm.vercel.app",
     settings.frontend_url.rstrip("/"),
@@ -91,7 +94,14 @@ allowed_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
 ]
-allowed_origin_regex = r"^https://champ-utm(-[a-z0-9-]+)?\.vercel\.app$"
+allowed_origins += [
+    o.strip().rstrip("/") for o in settings.cors_allow_origins.split(",") if o.strip()
+]
+allowed_origins = list(dict.fromkeys(o for o in allowed_origins if o))  # dedup, drop empties
+allowed_origin_regex = (
+    settings.cors_allow_origin_regex
+    or r"^https://(champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\.vercel\.app$"
+)
 
 app.add_middleware(
     CORSMiddleware,

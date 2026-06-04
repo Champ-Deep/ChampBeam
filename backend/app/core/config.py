@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"
 
+    # Extra CORS origins (comma-separated, exact match) + an optional regex
+    # override, so new app origins (custom domains, Vercel preview URLs) can be
+    # allowed via env without a code change.
+    cors_allow_origins: str = ""
+    cors_allow_origin_regex: str = ""
+
     # Optional override for short-link base URL (e.g. behind a reverse proxy
     # that rewrites Host). When unset, _build_redirect_url falls back to
     # request.base_url so the URL always matches the host the client used.
