@@ -349,8 +349,9 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
         <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
           <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <span>
-            Custom certificate issuance is off on this environment, so your domain will
-            be marked active for testing without issuing a real certificate.
+            Custom certificate issuance is off on this environment. Add the CNAME shown
+            after you add the domain, then click Refresh. The domain is only marked Live
+            once it actually routes here, so it will not show Live until then.
           </span>
         </div>
       )}
@@ -457,10 +458,12 @@ function SetupInstructions({
   if (!domain.cloudflare_managed && !config?.byod_enabled) {
     return (
       <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
-        <p className="font-medium mb-1">Local-development mode</p>
+        <p className="font-medium mb-1">Pending verification</p>
         <p>
-          Cloudflare is not configured on this deployment, so the domain is active
-          immediately without a certificate. Test by curl with a spoofed Host header:
+          Certificate automation is off on this environment. Point this domain at the
+          backend (add a CNAME to this backend's host), then click "Refresh". It is only
+          marked Live once it actually routes here. For a quick local check, curl with a
+          spoofed Host header:
         </p>
         <pre className="text-xs mt-2 p-2 bg-white rounded font-mono whitespace-pre-wrap">
           {`curl -i -H "Host: ${domain.hostname}" http://localhost:8000/r/<short_code>`}
