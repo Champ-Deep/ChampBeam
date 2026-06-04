@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
+  BarChart3,
+  Clock,
   Copy,
   Eye,
   FileText,
@@ -41,6 +45,7 @@ function formatBytes(bytes: number): string {
 
 export function FilesPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [progress, setProgress] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedDomainId, setSelectedDomainId] = useState<string>('');
@@ -188,6 +193,7 @@ export function FilesPage() {
                 key={f.id}
                 file={f}
                 onCopy={() => copyUrl(f.serve_url)}
+                onAnalytics={() => navigate(`/files/${f.id}/analytics`)}
                 onDelete={() => {
                   if (!window.confirm(`Remove ${f.filename}? Existing links will stop working.`)) {
                     return;
@@ -206,11 +212,15 @@ export function FilesPage() {
 interface FileRowProps {
   file: FileAsset;
   onCopy: () => void;
+  onAnalytics: () => void;
   onDelete: () => void;
 }
 
-function FileRow({ file, onCopy, onDelete }: FileRowProps) {
+function FileRow({ file, onCopy, onAnalytics, onDelete }: FileRowProps) {
   const Icon = KIND_ICON[file.kind] ?? FileIcon;
+  const lastOpened = file.last_viewed_at
+    ? `Opened ${formatDistanceToNow(new Date(file.last_viewed_at), { addSuffix: true })}`
+    : 'Not opened yet';
   return (
     <div className="px-6 py-4">
       <div className="flex items-start justify-between gap-4">
@@ -236,6 +246,10 @@ function FileRow({ file, onCopy, onDelete }: FileRowProps) {
                 <Eye className="h-3 w-3" />
                 {file.view_count} {file.view_count === 1 ? 'view' : 'views'}
               </span>
+              <span className="flex items-center gap-1" title={lastOpened}>
+                <Clock className="h-3 w-3" />
+                {lastOpened}
+              </span>
               <span>
                 {file.serve_mode === 'redirect' ? 'Redirect serve' : 'Stream serve'}
               </span>
@@ -255,15 +269,27 @@ function FileRow({ file, onCopy, onDelete }: FileRowProps) {
             </div>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onDelete}
-          className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
-          leftIcon={<Trash2 className="h-4 w-4" />}
-        >
-          Remove
-        </Button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onAnalytics}
+            className="text-brand-purple hover:text-brand-purple hover:bg-brand-purple/10"
+            leftIcon={<BarChart3 className="h-4 w-4" />}
+            title="View analytics"
+          >
+            Analytics
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            leftIcon={<Trash2 className="h-4 w-4" />}
+          >
+            Remove
+          </Button>
+        </div>
       </div>
     </div>
   );

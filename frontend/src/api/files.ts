@@ -1,5 +1,6 @@
 import axios from 'axios';
 import api from './client';
+import type { ClickEvent, GeoBreakdownItem, DeviceBreakdown, DateRangeOpts } from './utm';
 
 // ============================================================
 // Types
@@ -56,12 +57,45 @@ export interface FileStatusResponse {
   seen: boolean;
 }
 
+export interface FileSummary {
+  file_id: string;
+  filename: string;
+  short_code: string;
+  view_count: number;
+  opens: number;
+  unique_opens: number;
+  last_viewed_at: string | null;
+  created_at: string | null;
+}
+
+// Per-file analytics deliberately mirror the per-link analytics shapes, so we
+// reuse the canonical types from the UTM API rather than redefining them.
+export type FileEvent = ClickEvent;
+export type FileGeoItem = GeoBreakdownItem;
+export type FileDeviceBreakdown = DeviceBreakdown;
+
 // ============================================================
 // Helpers
 // ============================================================
 
 function _arr<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : [];
+}
+
+function _dateParams(opts?: DateRangeOpts): URLSearchParams {
+  const params = new URLSearchParams();
+  if (opts?.startDate && opts?.endDate) {
+    params.append('start_date', opts.startDate);
+    params.append('end_date', opts.endDate);
+  } else if (opts?.days) {
+    params.append('days', opts.days.toString());
+  }
+  return params;
+}
+
+function _appendQuery(base: string, params: URLSearchParams): string {
+  const q = params.toString();
+  return q ? `${base}?${q}` : base;
 }
 
 /** Resolve a backend-relative upload path against the API origin.
@@ -136,6 +170,40 @@ export const filesApi = {
 
   async delete(fileId: string): Promise<void> {
     await api.delete(`/files/${fileId}`);
+  },
+
+  // ============================================================
+  // Per-file Analytics
+  // ============================================================
+
+  async getFileSummary(fileId: string): Promise<FileSummary> {
+    const response = await api.get<FileSummary>(`/files/${fileId}/summary`);
+    return response.data;
+  },
+
+  async getFileEvents(fileId: string, opts?: DateRangeOpts): Promise<FileEvent[]> {
+    const params = _dateParams(opts);
+    const response = await api.get<FileEvent[]>(
+      _appendQuery(`/files/${fileId}/events`, params)
+    );
+    return _arr<FileEvent>(response.data);
+  },
+
+  async getFileGeo(fileId: string, opts?: DateRangeOpts & { level?: string }): Promise<FileGeoItem[]> {
+    const params = _dateParams(opts);
+    if (opts?.level) params.append('level', opts.level);
+    const response = await api.get<FileGeoItem[]>(
+      _appendQuery(`/files/${fileId}/geo`, params)
+    );
+    return _arr<FileGeoItem>(response.data);
+  },
+
+  async getFileDevices(fileId: string, opts?: DateRangeOpts): Promise<FileDeviceBreakdown> {
+    const params = _dateParams(opts);
+    const response = await api.get<FileDeviceBreakdown>(
+      _appendQuery(`/files/${fileId}/devices`, params)
+    );
+    return response.data;
   },
 };
 

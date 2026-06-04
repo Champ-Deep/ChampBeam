@@ -13,6 +13,7 @@ import { CampaignDetailPage } from './pages/CampaignDetailPage';
 import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { FilesPage } from './pages/FilesPage';
+import { FileAnalyticsPage } from './pages/FileAnalyticsPage';
 import { LandingPage } from './pages/LandingPage';
 import { setTokenGetter } from './api/client';
 
@@ -56,6 +57,7 @@ export default function App() {
                 <Route path="/campaigns/compare" element={<ProtectedRoute><CampaignComparisonPage /></ProtectedRoute>} />
                 <Route path="/campaigns/:campaignName" element={<ProtectedRoute><CampaignDetailPage /></ProtectedRoute>} />
                 <Route path="/files" element={<ProtectedRoute><FilesPage /></ProtectedRoute>} />
+                <Route path="/files/:fileId/analytics" element={<ProtectedRoute><FileAnalyticsPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               </Routes>
             </main>
