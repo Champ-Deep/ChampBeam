@@ -135,11 +135,12 @@ Frontend (`frontend/.env`):
 VITE_API_URL=http://localhost:8000
 ```
 
-Leave `REDIRECT_BASE_URL` and the `CLOUDFLARE_*` vars unset for local
-dev, `/r/{code}` will use whatever Host the client called and BYOD
-domains land in `active` status without a real cert. File hosting works
-out of the box: `STORAGE_BACKEND` defaults to `local`, writing uploads
-under `STORAGE_LOCAL_PATH` (`./data/files`).
+Leave `REDIRECT_BASE_URL`, `PLATFORM_SUBDOMAIN_BASE`, and the
+`CLOUDFLARE_*` vars unset for local dev, `/r/{code}` will use whatever
+Host the client called, and you can spoof a custom Host header to test
+routing (see the Custom Domains section). File hosting works out of the
+box: `STORAGE_BACKEND` defaults to `local`, writing uploads under
+`STORAGE_LOCAL_PATH` (`./data/files`).
 
 ### Production, Railway (backend)
 
@@ -160,7 +161,11 @@ FRONTEND_URL=https://<your-vercel-host>     # exact origin for CORS
 ENVIRONMENT=production
 DEBUG=false
 
-# Custom Domains (BYOD), see the Custom Domains section below.
+# Custom Domains, see the Custom Domains section below.
+# Platform subdomains (default model): the base zone you own a wildcard for.
+# Set this only after *.<base> DNS + cert are live (see the section below).
+PLATFORM_SUBDOMAIN_BASE=share.lakeb2b.com
+# Bring-Your-Own-Domain (upgrade): all three turn the BYOD path on. Optional.
 CLOUDFLARE_API_TOKEN=...
 CLOUDFLARE_ZONE_ID=...
 CLOUDFLARE_CNAME_TARGET=cname.yourdomain.com
@@ -192,16 +197,42 @@ against the backend. `frontend/vercel.json` rewrites every path to
 renders the SPA, not a redirect. To put short links on a branded URL,
 use Custom Domains below.
 
-### Custom Domains (Bring-Your-Own-Domain)
+### Custom Domains
 
-Each user can attach their own hostname (e.g. `track.acme.com`) for
-branded short links and file URLs. The backend routes incoming
-requests by `Host` header into the right per-account namespace.
-`LinkClick.short_code` and `FileAsset.short_code` are unique per
-domain (partial indexes from migrations 008 + 009), so two accounts
-can safely reuse the same short code on their own domains.
+Each user can serve branded short links and file URLs on their own
+hostname. The backend routes incoming requests by `Host` header into
+the right per-account namespace. `LinkClick.short_code` and
+`FileAsset.short_code` are unique per domain (partial indexes from
+migrations 008 + 009), so two accounts can safely reuse the same short
+code on their own domains. There are two models, and they share all of
+this routing code:
 
-**One-time platform setup (Cloudflare for SaaS):**
+#### Model 1, platform subdomain (default, no Cloudflare for SaaS needed)
+
+A tenant claims a single-label subdomain of a base you own, e.g.
+`acme.share.lakeb2b.com`, and it goes live instantly. This rides the
+platform wildcard, so there is no per-host cert to wait on.
+
+One-time platform setup:
+
+1. **DNS:** create a wildcard CNAME `*.share.lakeb2b.com` →
+   `<railway-host>.up.railway.app`. If you proxy it through Cloudflare
+   (orange cloud), Cloudflare also issues the wildcard cert for free.
+2. **TLS:** confirm a wildcard cert for `*.share.lakeb2b.com` is
+   serving (Cloudflare Universal SSL covers one level out of the box;
+   on Railway, add the wildcard as a custom domain).
+3. **Then** set `PLATFORM_SUBDOMAIN_BASE=share.lakeb2b.com` on the
+   backend and redeploy. Claimed subdomains are marked active
+   immediately, so set this only after steps 1 and 2 actually resolve,
+   or a domain will show "Live" without connecting.
+
+The "Claim a subdomain" card in **Settings → Domains** appears only
+when `PLATFORM_SUBDOMAIN_BASE` is set.
+
+#### Model 2, bring-your-own-domain (upgrade, Cloudflare for SaaS)
+
+A customer points their own hostname (`track.acme.com`) at us and we
+issue/serve the cert for it. One-time platform setup:
 
 1. Add the zone you'll use as the CNAME target (e.g. `champutm.com`)
    to Cloudflare and enable **Cloudflare for SaaS**.
@@ -211,18 +242,23 @@ can safely reuse the same short code on their own domains.
 4. Mint an API token scoped to that zone with
    `Zone.SSL and Certificates:Edit` + `Zone.Zone Settings:Edit`.
 5. Set `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and
-   `CLOUDFLARE_CNAME_TARGET=cname.champutm.com` on Railway.
+   `CLOUDFLARE_CNAME_TARGET=cname.champutm.com` on Railway. **No backend
+   code changes are needed, just these three vars + a redeploy.**
 
-**Per-customer flow:** the customer adds
-`track.acme.com CNAME cname.champutm.com` in their DNS, then `POST
-/api/v1/domains` provisions a Custom Hostname via the CF API. Status
-flips `pending_cname` → `pending_ssl` → `active` as DNS resolves and
-the cert issues; `/api/v1/domains/health` returns a diagnostic
-snapshot for any stuck domain.
+Per-customer flow: the customer adds `track.acme.com CNAME
+cname.champutm.com` in their DNS, then `POST /api/v1/domains`
+provisions a Custom Hostname via the CF API. Status flips
+`pending_cname` → `pending_ssl` → `active` as DNS resolves and the cert
+issues; `/api/v1/domains/health` returns a diagnostic snapshot for any
+stuck domain.
 
-**Local development:** leave the `CLOUDFLARE_*` vars empty. New
-domains are created in `active` status without a real cert so the
-full happy path is testable via curl with a spoofed Host header:
+#### Local development
+
+Leave `PLATFORM_SUBDOMAIN_BASE` and the `CLOUDFLARE_*` vars empty. An
+external domain you add stays `pending_cname` (it is never shown as
+Live until it actually routes here), but you can still exercise the
+full host-based routing path by spoofing the `Host` header against a
+domain row you mark active directly:
 
 ```bash
 curl -i -H "Host: track.example.com" http://localhost:8000/r/<short_code>
