@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Copy, Globe, Monitor, Smartphone, Tablet,
-  MousePointer, Users, MapPin, Shield,
+  Eye, Users, Clock, FileText,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -11,10 +11,10 @@ import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
-import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
-import { utmApi } from '../api/utm';
-import type { LinkPerformanceItem, ClickEvent, GeoBreakdownItem, DeviceBreakdown, DateRangeOpts } from '../api/utm';
+import { filesApi } from '../api/files';
+import type { FileSummary, FileEvent, FileGeoItem, FileDeviceBreakdown } from '../api/files';
+import type { DateRangeOpts } from '../api/utm';
 
 const TOOLTIP_STYLE = {
   backgroundColor: 'white',
@@ -30,32 +30,31 @@ function DeviceIcon({ type, className }: { type: string | null; className?: stri
   return <Monitor className={className} />;
 }
 
-export function LinkAnalyticsPage() {
-  const { linkId } = useParams<{ linkId: string }>();
+export function FileAnalyticsPage() {
+  const { fileId } = useParams<{ fileId: string }>();
   const navigate = useNavigate();
 
-  const [linkInfo, setLinkInfo] = useState<LinkPerformanceItem | null>(null);
-  const [clickEvents, setClickEvents] = useState<ClickEvent[]>([]);
-  const [geoBreakdown, setGeoBreakdown] = useState<GeoBreakdownItem[]>([]);
+  const [summary, setSummary] = useState<FileSummary | null>(null);
+  const [fileEvents, setFileEvents] = useState<FileEvent[]>([]);
+  const [geoBreakdown, setGeoBreakdown] = useState<FileGeoItem[]>([]);
   const [geoLevel, setGeoLevel] = useState<'country' | 'region' | 'city'>('country');
-  const [deviceBreakdown, setDeviceBreakdown] = useState<DeviceBreakdown | null>(null);
+  const [deviceBreakdown, setDeviceBreakdown] = useState<FileDeviceBreakdown | null>(null);
   const [dateRange, setDateRange] = useState<DateRangeOpts>({ days: 30 });
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
-    if (!linkId) return;
+    if (!fileId) return;
     try {
       setLoading(true);
-      const [allLinks, events, geo, devices] = await Promise.all([
-        utmApi.getLinkPerformance(dateRange),
-        utmApi.getLinkClickEvents(linkId, dateRange),
-        utmApi.getLinkGeoBreakdown(linkId, { ...dateRange, level: geoLevel }),
-        utmApi.getLinkDeviceBreakdown(linkId, dateRange),
+      const [fileSummary, events, geo, devices] = await Promise.all([
+        filesApi.getFileSummary(fileId),
+        filesApi.getFileEvents(fileId, dateRange),
+        filesApi.getFileGeo(fileId, { ...dateRange, level: geoLevel }),
+        filesApi.getFileDevices(fileId, dateRange),
       ]);
 
-      const found = allLinks.find((l) => l.link_id === linkId) ?? null;
-      setLinkInfo(found);
-      setClickEvents(events);
+      setSummary(fileSummary);
+      setFileEvents(events);
       setGeoBreakdown(geo);
       setDeviceBreakdown(devices);
     } catch {
@@ -63,27 +62,29 @@ export function LinkAnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [linkId, dateRange, geoLevel]);
+  }, [fileId, dateRange, geoLevel]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleGeoLevelChange = async (level: 'country' | 'region' | 'city') => {
     setGeoLevel(level);
-    if (!linkId) return;
+    if (!fileId) return;
     try {
-      const geo = await utmApi.getLinkGeoBreakdown(linkId, { ...dateRange, level });
+      const geo = await filesApi.getFileGeo(fileId, { ...dateRange, level });
       setGeoBreakdown(geo);
     } catch {
       // graceful
     }
   };
 
-  const handleCopyRedirectUrl = async () => {
-    const url = linkInfo?.redirect_url || linkInfo?.tracked_url;
-    if (!url) return;
+  const serveUrl = summary?.short_code ? `/f/${summary.short_code}` : null;
+
+  const handleCopyServeUrl = async () => {
+    if (!serveUrl) return;
+    const fullUrl = `${window.location.origin}${serveUrl}`;
     try {
-      await navigator.clipboard.writeText(url);
-      toast.success('Redirect URL copied to clipboard');
+      await navigator.clipboard.writeText(fullUrl);
+      toast.success('Serve URL copied to clipboard');
     } catch {
       toast.error('Failed to copy URL');
     }
@@ -97,25 +98,25 @@ export function LinkAnalyticsPage() {
     );
   }
 
-  if (!linkInfo) {
+  if (!summary) {
     return (
       <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)} leftIcon={<ArrowLeft className="h-4 w-4" />}>
           Back
         </Button>
         <EmptyState
-          icon={Globe}
-          title="Link Not Found"
-          description="We couldn't find analytics for this link. It may have been deleted or you don't have access."
+          icon={FileText}
+          title="File Not Found"
+          description="We couldn't find analytics for this file. It may have been deleted or you don't have access."
         />
       </div>
     );
   }
 
-  const truncatedUrl =
-    linkInfo.original_url.length > 60
-      ? linkInfo.original_url.slice(0, 60) + '...'
-      : linkInfo.original_url;
+  const truncatedName =
+    summary.filename.length > 60
+      ? summary.filename.slice(0, 60) + '...'
+      : summary.filename;
 
   // Device chart
   const deviceChartData = (deviceBreakdown?.devices || [])
@@ -134,17 +135,6 @@ export function LinkAnalyticsPage() {
       clicks: item.clicks,
     }));
 
-  const topCountry = geoBreakdown.length > 0
-    ? geoBreakdown.sort((a, b) => b.clicks - a.clicks)[0]?.country
-    : null;
-
-  const topDevice = deviceBreakdown?.devices?.length
-    ? [...deviceBreakdown.devices].sort((a, b) => b.clicks - a.clicks)[0]?.device_type
-    : null;
-
-  // VPN count from click events
-  const vpnClicks = clickEvents.filter((e) => e.is_vpn).length;
-
   return (
     <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
       {/* Header */}
@@ -161,21 +151,30 @@ export function LinkAnalyticsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-900 truncate" title={linkInfo.original_url}>
-                {truncatedUrl}
+              <h1 className="text-2xl font-bold text-slate-900 truncate" title={summary.filename}>
+                {truncatedName}
               </h1>
-              {linkInfo.short_code && (
+              {summary.short_code && (
                 <Badge variant="info" size="sm">
-                  {linkInfo.short_code}
+                  {summary.short_code}
                 </Badge>
               )}
             </div>
-            {linkInfo.utm_source && (
-              <p className="text-sm text-slate-500 mt-1">
-                {[linkInfo.utm_source, linkInfo.utm_medium, linkInfo.utm_campaign]
-                  .filter(Boolean)
-                  .join(' / ')}
-              </p>
+            {serveUrl && (
+              <div className="mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1 w-fit max-w-full">
+                <code className="text-xs font-mono text-slate-900 break-all">
+                  {serveUrl}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopyServeUrl}
+                  className="text-slate-400 hover:text-slate-700 flex-shrink-0"
+                  aria-label="Copy serve URL"
+                  title="Copy serve URL"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
             )}
           </div>
 
@@ -183,13 +182,12 @@ export function LinkAnalyticsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleCopyRedirectUrl}
+              onClick={handleCopyServeUrl}
               leftIcon={<Copy className="h-4 w-4" />}
-              disabled={!linkInfo.redirect_url && !linkInfo.tracked_url}
+              disabled={!serveUrl}
             >
-              Copy Redirect URL
+              Copy Serve URL
             </Button>
-            <ExportButton onExport={() => utmApi.exportClickEvents(dateRange)} />
           </div>
         </div>
 
@@ -198,17 +196,17 @@ export function LinkAnalyticsPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-gradient-to-br from-green-50 to-green-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-green-600 font-medium">Total Clicks</p>
+              <p className="text-sm text-green-600 font-medium">Total Opens</p>
               <p className="text-2xl font-bold text-green-900">
-                {(linkInfo.click_count ?? 0).toLocaleString()}
+                {(summary.opens ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="w-12 h-12 bg-green-200 rounded-lg flex items-center justify-center">
-              <MousePointer className="w-6 h-6 text-green-600" />
+              <Eye className="w-6 h-6 text-green-600" />
             </div>
           </div>
         </Card>
@@ -216,9 +214,9 @@ export function LinkAnalyticsPage() {
         <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-purple-600 font-medium">Unique Clicks</p>
+              <p className="text-sm text-purple-600 font-medium">Unique Opens</p>
               <p className="text-2xl font-bold text-purple-900">
-                {(linkInfo.unique_clicks ?? 0).toLocaleString()}
+                {(summary.unique_opens ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-200 rounded-lg flex items-center justify-center">
@@ -230,13 +228,15 @@ export function LinkAnalyticsPage() {
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-blue-600 font-medium">Top Country</p>
+              <p className="text-sm text-blue-600 font-medium">Last Opened</p>
               <p className="text-2xl font-bold text-blue-900">
-                {topCountry || '\u2014'}
+                {summary.last_viewed_at
+                  ? formatDistanceToNow(new Date(summary.last_viewed_at), { addSuffix: true })
+                  : 'Never'}
               </p>
             </div>
             <div className="w-12 h-12 bg-blue-200 rounded-lg flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-blue-600" />
+              <Clock className="w-6 h-6 text-blue-600" />
             </div>
           </div>
         </Card>
@@ -244,30 +244,13 @@ export function LinkAnalyticsPage() {
         <Card className="bg-gradient-to-br from-amber-50 to-amber-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-amber-600 font-medium">Top Device</p>
+              <p className="text-sm text-amber-600 font-medium">Total Views</p>
               <p className="text-2xl font-bold text-amber-900">
-                {topDevice || '\u2014'}
+                {(summary.view_count ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="w-12 h-12 bg-amber-200 rounded-lg flex items-center justify-center">
-              <DeviceIcon type={topDevice} className="w-6 h-6 text-amber-600" />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-red-50 to-red-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-red-600 font-medium">VPN/Proxy</p>
-              <p className="text-2xl font-bold text-red-900">{vpnClicks}</p>
-              {clickEvents.length > 0 && (
-                <p className="text-xs text-red-500">
-                  {((vpnClicks / clickEvents.length) * 100).toFixed(1)}%
-                </p>
-              )}
-            </div>
-            <div className="w-12 h-12 bg-red-200 rounded-lg flex items-center justify-center">
-              <Shield className="w-6 h-6 text-red-600" />
+              <FileText className="w-6 h-6 text-amber-600" />
             </div>
           </div>
         </Card>
@@ -294,14 +277,14 @@ export function LinkAnalyticsPage() {
                   />
                   <Tooltip
                     contentStyle={TOOLTIP_STYLE}
-                    formatter={(value) => [Number(value).toLocaleString(), 'Clicks']}
+                    formatter={(value) => [Number(value).toLocaleString(), 'Opens']}
                     cursor={{ fill: 'rgba(16, 185, 129, 0.06)' }}
                   />
                   <Bar
                     dataKey="clicks"
                     fill="#10b981"
                     radius={[0, 6, 6, 0]}
-                    name="Clicks"
+                    name="Opens"
                     barSize={28}
                   />
                 </BarChart>
@@ -336,14 +319,14 @@ export function LinkAnalyticsPage() {
                   />
                   <Tooltip
                     contentStyle={TOOLTIP_STYLE}
-                    formatter={(value) => [Number(value).toLocaleString(), 'Clicks']}
+                    formatter={(value) => [Number(value).toLocaleString(), 'Opens']}
                     cursor={{ fill: 'rgba(139, 92, 246, 0.06)' }}
                   />
                   <Bar
                     dataKey="clicks"
                     fill="#8b5cf6"
                     radius={[0, 6, 6, 0]}
-                    name="Clicks"
+                    name="Opens"
                     barSize={28}
                   />
                 </BarChart>
@@ -377,20 +360,20 @@ export function LinkAnalyticsPage() {
         <GeoChart data={geoBreakdown} level={geoLevel} onLevelChange={handleGeoLevelChange} />
       </Card>
 
-      {/* Recent Click Events */}
+      {/* Recent Opens */}
       <Card padding="none">
         <div className="p-6 pb-0">
           <CardHeader>
-            <CardTitle>Recent Click Events</CardTitle>
-            {clickEvents.length > 0 && (
+            <CardTitle>Recent Opens</CardTitle>
+            {fileEvents.length > 0 && (
               <span className="text-sm text-slate-500">
-                {clickEvents.length} {clickEvents.length === 1 ? 'event' : 'events'}
+                {fileEvents.length} {fileEvents.length === 1 ? 'open' : 'opens'}
               </span>
             )}
           </CardHeader>
         </div>
 
-        {clickEvents.length > 0 ? (
+        {fileEvents.length > 0 ? (
           <div className="max-h-96 overflow-y-auto">
             <table className="w-full">
               <thead className="bg-gray-50 sticky top-0 z-10">
@@ -405,7 +388,7 @@ export function LinkAnalyticsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {clickEvents.map((event) => (
+                {fileEvents.map((event) => (
                   <tr key={event.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
                       {event.clicked_at
@@ -472,8 +455,8 @@ export function LinkAnalyticsPage() {
           <div className="px-6 pb-6">
             <div className="flex items-center justify-center h-32 text-gray-400">
               <div className="text-center">
-                <MousePointer className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p>No click events recorded yet</p>
+                <Eye className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <p>No opens recorded yet</p>
               </div>
             </div>
           </div>

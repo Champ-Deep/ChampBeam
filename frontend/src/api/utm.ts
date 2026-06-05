@@ -38,6 +38,36 @@ export interface GenerateLinkRequest {
   project_name?: string;
   project_id?: string;
   preset_id?: string;
+  domain_id?: string;
+}
+
+// --- Domains (BYOD) ---
+
+export type DomainStatus = 'pending_cname' | 'pending_ssl' | 'active' | 'failed';
+
+export interface Domain {
+  id: string;
+  hostname: string;
+  status: DomainStatus;
+  ssl_status: string | null;
+  verification_errors: Record<string, unknown> | null;
+  is_primary: boolean;
+  created_at: string;
+  verified_at: string | null;
+  last_checked_at: string | null;
+  cname_target: string | null;
+  cloudflare_managed: boolean;
+}
+
+export interface DomainsConfig {
+  // Whether instant subdomains on the platform base are offered.
+  subdomain_enabled: boolean;
+  // Base used for subdomain claims, e.g. "links.champutm.com". Null when disabled.
+  platform_subdomain_base: string | null;
+  // Whether bring-your-own external domains are accepted.
+  byod_enabled: boolean;
+  // CNAME value users point their domain at. Null falls back to the platform host.
+  cname_target: string | null;
 }
 
 export interface GenerateLinkResponse {
@@ -337,7 +367,7 @@ export const utmApi = {
     await api.delete(`/projects/${id}`);
   },
 
-  // Analytics — Overview
+  // Analytics, Overview
   async getOverview(projectId?: string): Promise<UTMOverview> {
     const params = new URLSearchParams();
     if (projectId) params.append('project_id', projectId);
@@ -566,6 +596,40 @@ export const utmApi = {
       _appendQuery('/utm/analytics/clicks/recent', params)
     );
     return _arr<RecentClick>(response.data);
+  },
+
+  // ============================================================
+  // Custom Domains (BYOD)
+  // ============================================================
+
+  async getDomainsConfig(): Promise<DomainsConfig> {
+    const response = await api.get<DomainsConfig>('/domains/config');
+    return response.data;
+  },
+
+  async listDomains(): Promise<Domain[]> {
+    const response = await api.get<Domain[]>('/domains');
+    return _arr<Domain>(response.data);
+  },
+
+  async createDomain(hostname: string): Promise<Domain> {
+    const response = await api.post<Domain>('/domains', { hostname });
+    return response.data;
+  },
+
+  async refreshDomain(id: string): Promise<Domain> {
+    const response = await api.post<Domain>(`/domains/${id}/refresh`);
+    return response.data;
+  },
+
+  async setPrimaryDomain(id: string): Promise<Domain> {
+    const response = await api.post<Domain>(`/domains/${id}/set-primary`);
+    return response.data;
+  },
+
+  async deleteDomain(id: string, force = false): Promise<void> {
+    const params = force ? '?force=true' : '';
+    await api.delete(`/domains/${id}${params}`);
   },
 };
 

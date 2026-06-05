@@ -9,8 +9,15 @@ so we only need to redirect the session maker and dependency.
 
 from __future__ import annotations
 
+import os
 import uuid as _uuid
 from typing import AsyncGenerator
+
+# httpx ASGITransport defaults the Host header to "test" via base_url. The
+# BYOD redirect handler refuses unknown hosts to enforce tenant isolation,
+# so we mark "test" as the platform-default host before any app.* module
+# imports and caches its Settings instance.
+os.environ.setdefault("PLATFORM_REDIRECT_HOST", "test")
 
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport

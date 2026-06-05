@@ -8,3 +8,4 @@ export { FileUploadZone } from './FileUploadZone';
 export { DateRangePicker } from './DateRangePicker';
 export { ExportButton } from './ExportButton';
 export { GeoChart } from './GeoChart';
+export { QrCode, QrButton, QrDownloadButton, qrUrlFor } from './QrCode';

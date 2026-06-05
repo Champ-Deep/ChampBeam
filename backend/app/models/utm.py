@@ -68,8 +68,15 @@ class LinkClick(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
-    # Short code for redirect-based tracking
-    short_code = Column(String(20), unique=True, nullable=True, index=True)
+    # Custom domain this short_code lives under. NULL = platform-default host.
+    # Uniqueness of short_code is enforced per-domain via partial indexes (see
+    # migration 008): one UNIQUE (short_code) WHERE domain_id IS NULL and one
+    # UNIQUE (domain_id, short_code) WHERE domain_id IS NOT NULL.
+    domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Short code for redirect-based tracking. Uniqueness is enforced by the
+    # partial indexes above rather than a column-level unique constraint.
+    short_code = Column(String(20), nullable=True, index=True)
 
     # Project grouping
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
@@ -100,17 +107,32 @@ class LinkClick(Base):
     # Relationships
     user = relationship("User", backref="link_clicks")
     project = relationship("Project", back_populates="links")
-    click_events = relationship("ClickEvent", back_populates="link", cascade="all, delete-orphan")
+    # cascade="all" (no delete-orphan): a ClickEvent may legitimately have a
+    # NULL link_id when it represents a file view, so it isn't "orphaned" just
+    # because no LinkClick parents it.
+    click_events = relationship("ClickEvent", back_populates="link", cascade="all")
     tags = relationship("LinkTag", secondary="link_tag_associations", back_populates="links")
 
 
 class ClickEvent(Base):
-    """Individual click event recorded when a redirect link is visited."""
+    """Individual click event recorded when a redirect link or file is visited.
+
+    Exactly one of ``link_id`` / ``file_id`` is set per row. The view-side
+    code derives "is this a link click or a file view" by inspecting which
+    FK is populated, so analytics that filter by ``link_id IS NOT NULL``
+    keep working unchanged.
+    """
 
     __tablename__ = "click_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    link_id = Column(UUID(as_uuid=True), ForeignKey("link_clicks.id", ondelete="CASCADE"), nullable=False, index=True)
+    link_id = Column(UUID(as_uuid=True), ForeignKey("link_clicks.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    # File-asset attribution. NULL for link clicks; non-NULL for /f/{code} views.
+    file_id = Column(UUID(as_uuid=True), ForeignKey("file_assets.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    # Custom domain that served this click. NULL = platform-default host.
+    domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Visitor information
     ip_address = Column(String(45), nullable=True)
@@ -139,6 +161,11 @@ class ClickEvent(Base):
 
     # Relationships
     link = relationship("LinkClick", back_populates="click_events")
+    file = relationship(
+        "FileAsset",
+        back_populates="click_events",
+        primaryjoin="ClickEvent.file_id == FileAsset.id",
+    )
 
 
 class LinkTag(Base):

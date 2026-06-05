@@ -22,7 +22,7 @@ depends_on = None
 def upgrade() -> None:
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_id VARCHAR(255)")
     op.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_clerk_id ON users (clerk_id)")
-    # DROP NOT NULL is naturally idempotent in Postgres — succeeds whether
+    # DROP NOT NULL is naturally idempotent in Postgres, succeeds whether
     # the column was previously NOT NULL or already nullable.
     op.execute("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL")
 

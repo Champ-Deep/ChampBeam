@@ -14,7 +14,13 @@ const EMPTY_FORM: UTMPresetCreate = {
   utm_term: '',
 };
 
-export function PresetsPage() {
+/**
+ * Preset CRUD management UI. Rendered as a section inside the Settings page.
+ * Self-contained: owns its own data loading, form, and mutations. The generator
+ * reads presets independently via utmApi.getPresets, so changes here flow through
+ * react-query invalidation / refetch on the generator the next time it mounts.
+ */
+export function PresetsManager() {
   const [presets, setPresets] = useState<UTMPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -101,15 +107,15 @@ export function PresetsPage() {
     setForm({ ...EMPTY_FORM });
   };
 
-  if (loading) return <div className="max-w-4xl mx-auto py-8 px-4"><LoadingSpinner /></div>;
+  if (loading) return <div className="py-8"><LoadingSpinner /></div>;
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      {/* Section header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">UTM Presets</h1>
-          <p className="text-slate-600 mt-1">Save and reuse UTM parameter templates.</p>
+          <h2 className="text-xl font-semibold text-slate-900">UTM Presets</h2>
+          <p className="text-slate-600 mt-1 text-sm">Save and reuse UTM parameter templates in the generator.</p>
         </div>
         {!showForm && (
           <Button

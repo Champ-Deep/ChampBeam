@@ -24,8 +24,11 @@ from app.db.redis import redis_client
 from app.middleware.rate_limit import setup_rate_limiting
 
 # Import routers
-from app.api.v1 import auth, health, projects, utm, short_links
+from app.api.v1 import auth, health, projects, utm, short_links, domains, qr
+from app.api.v1 import files as files_v1
 from app.api.redirect import router as redirect_router
+from app.api.files import router as files_serve_router
+from app.services.file_expiry import expiry_sweeper_loop
 
 
 @asynccontextmanager
@@ -48,11 +51,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("PostgreSQL initialization failed: %s", e)
 
+    # Background sweeper that reclaims expired anonymous file uploads.
+    sweeper_task = asyncio.create_task(expiry_sweeper_loop())
+
     logger.info("Ready in %.1fs", time.time() - startup_start)
 
     yield
 
     # Shutdown
+    sweeper_task.cancel()
+    try:
+        await sweeper_task
+    except asyncio.CancelledError:
+        pass
     await redis_client.close()
     await close_db()
     logger.info("Shutdown complete")
@@ -69,9 +80,12 @@ app = FastAPI(
 )
 
 # CORS middleware
-# Exact production + local origins, plus a regex that admits any Vercel
-# preview deployment of this project (champ-utm.vercel.app for prod;
-# champ-utm-git-<branch>-... and champ-utm-<commit>-... for previews).
+# Exact production + local origins (plus any from CORS_ALLOW_ORIGINS), and a
+# regex that admits this project/team's Vercel deployments: prod
+# (champ-utm.vercel.app), branch/commit previews (champ-utm-*), and the
+# team-suffixed preview hosts (<deploy>-deep-5245s-projects.vercel.app).
+# Both the list and the regex are env-overridable so a new app origin never
+# needs a code change.
 allowed_origins = [
     "https://champ-utm.vercel.app",
     settings.frontend_url.rstrip("/"),
@@ -80,7 +94,14 @@ allowed_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
 ]
-allowed_origin_regex = r"^https://champ-utm(-[a-z0-9-]+)?\.vercel\.app$"
+allowed_origins += [
+    o.strip().rstrip("/") for o in settings.cors_allow_origins.split(",") if o.strip()
+]
+allowed_origins = list(dict.fromkeys(o for o in allowed_origins if o))  # dedup, drop empties
+allowed_origin_regex = (
+    settings.cors_allow_origin_regex
+    or r"^https://(champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\.vercel\.app$"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -140,10 +161,14 @@ async def root():
 
 # Include routers
 app.include_router(health.router)
-app.include_router(redirect_router)  # /r/{short_code} — top-level, no prefix
+app.include_router(redirect_router)  # /r/{short_code}, top-level, no prefix
+app.include_router(files_serve_router)  # /f/{short_code}, top-level, no prefix
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(utm.router, prefix=settings.api_v1_prefix)
 app.include_router(projects.router, prefix=settings.api_v1_prefix)
+app.include_router(domains.router, prefix=settings.api_v1_prefix)
+app.include_router(files_v1.router, prefix=settings.api_v1_prefix)
+app.include_router(qr.router, prefix=settings.api_v1_prefix)
 app.include_router(short_links.router)
 
 

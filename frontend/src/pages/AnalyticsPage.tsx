@@ -1,13 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Link2, MousePointer, ExternalLink, BarChart3, FolderOpen,
+  Link2, MousePointer, ExternalLink, BarChart3, FolderOpen, Megaphone,
+  TrendingUp, GitCompare,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line,
 } from 'recharts';
-import { Card, CardHeader, CardTitle, Badge, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, CardHeader, CardTitle, Badge, Button, LoadingSpinner, EmptyState } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
@@ -15,15 +16,34 @@ import { utmApi } from '../api/utm';
 import type {
   UTMOverview, UTMBreakdownItem, PerformanceOverTime,
   Project, GeoBreakdownItem, DateRangeOpts, LinkPerformanceItem,
+  CampaignSummary,
 } from '../api/utm';
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
-type Tab = 'dashboard' | 'projects' | 'links';
+type Tab = 'dashboard' | 'projects' | 'links' | 'campaigns';
+
+const TABS: Tab[] = ['dashboard', 'projects', 'links', 'campaigns'];
 
 export function AnalyticsPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Tab state is driven by the URL (?tab=) so deep-links and the campaign
+  // detail "back" button can land on a specific tab.
+  const tabParam = searchParams.get('tab') as Tab | null;
+  const activeTab: Tab = tabParam && TABS.includes(tabParam) ? tabParam : 'dashboard';
+  const setActiveTab = useCallback((tab: Tab) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (tab === 'dashboard') next.delete('tab');
+        else next.set('tab', tab);
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
   // Shared filters
   const [dateRange, setDateRange] = useState<DateRangeOpts>({ days: 30 });
@@ -38,26 +58,41 @@ export function AnalyticsPage() {
   const [geoData, setGeoData] = useState<GeoBreakdownItem[]>([]);
   const [geoLevel, setGeoLevel] = useState<'country' | 'region' | 'city'>('country');
   const [dashLoading, setDashLoading] = useState(true);
+  const [dashError, setDashError] = useState(false);
 
   // Projects tab data
   const [projectOverviews, setProjectOverviews] = useState<Map<string, UTMOverview>>(new Map());
   const [projectsTabLoaded, setProjectsTabLoaded] = useState(false);
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
   // Links tab data
   const [linksList, setLinksList] = useState<LinkPerformanceItem[]>([]);
   const [linksLoading, setLinksLoading] = useState(false);
   const [linksSearch, setLinksSearch] = useState('');
 
+  // Campaigns tab data
+  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [campaignsSearch, setCampaignsSearch] = useState('');
+
   useEffect(() => {
     utmApi.getProjects().then(setProjects).catch(() => {});
   }, []);
+
+  // When the project list changes (e.g. it arrives after the Projects tab was
+  // first opened with an empty list), allow the per-project overviews to reload.
+  useEffect(() => {
+    setProjectsTabLoaded(false);
+  }, [projects]);
 
   // Load dashboard data
   const loadDashboard = useCallback(async () => {
     try {
       setDashLoading(true);
+      setDashError(false);
       const pid = projectId || undefined;
-      const [overviewData, sources, campaigns, perf, geo] = await Promise.all([
+      const [overviewData, sources, campaignItems, perf, geo] = await Promise.all([
         utmApi.getOverview(pid),
         utmApi.getBreakdown('source', { projectId: pid, ...dateRange }),
         utmApi.getBreakdown('campaign', { projectId: pid, ...dateRange }),
@@ -66,19 +101,27 @@ export function AnalyticsPage() {
       ]);
       setOverview(overviewData);
       setSourceBreakdown(sources);
-      setCampaignBreakdown(campaigns);
+      setCampaignBreakdown(campaignItems);
       setPerformanceData(perf);
       setGeoData(geo);
     } catch {
-      // Graceful failure
+      // The overview call is the gating request; if the whole batch rejects we
+      // surface an error state rather than a misleading "no data" empty state.
+      setDashError(true);
     } finally {
       setDashLoading(false);
     }
   }, [dateRange, projectId, geoLevel]);
 
-  // Load per-project overviews (lazy — only when Projects tab is shown)
+  // Load per-project overviews (lazy: only when Projects tab is shown).
+  // Re-fetches whenever the project list changes so newly created projects
+  // pick up their stats without a full reload.
   const loadProjectOverviews = useCallback(async () => {
-    if (projects.length === 0) return;
+    if (projects.length === 0) {
+      setProjectsTabLoaded(true);
+      return;
+    }
+    setProjectsLoading(true);
     const results = await Promise.allSettled(
       projects.map((p) => utmApi.getOverview(p.id))
     );
@@ -88,7 +131,22 @@ export function AnalyticsPage() {
     });
     setProjectOverviews(map);
     setProjectsTabLoaded(true);
+    setProjectsLoading(false);
   }, [projects]);
+
+  // Load campaigns (lazy: only when Campaigns tab is shown).
+  const loadCampaigns = useCallback(async () => {
+    try {
+      setCampaignsLoading(true);
+      const data = await utmApi.getCampaigns({ projectId: projectId || undefined, ...dateRange });
+      setCampaigns(data);
+      setCampaignsLoaded(true);
+    } catch {
+      // graceful
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }, [projectId, dateRange]);
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
@@ -116,6 +174,10 @@ export function AnalyticsPage() {
     if (activeTab === 'projects' && !projectsTabLoaded) loadProjectOverviews();
   }, [activeTab, projectsTabLoaded, loadProjectOverviews]);
 
+  useEffect(() => {
+    if (activeTab === 'campaigns') loadCampaigns();
+  }, [activeTab, loadCampaigns]);
+
   const handleGeoLevelChange = async (level: 'country' | 'region' | 'city') => {
     setGeoLevel(level);
     try {
@@ -126,7 +188,7 @@ export function AnalyticsPage() {
     }
   };
 
-  if (dashLoading && !overview) {
+  if (dashLoading && !overview && !dashError) {
     return <div className="max-w-6xl mx-auto py-8 px-4"><LoadingSpinner /></div>;
   }
 
@@ -169,11 +231,15 @@ export function AnalyticsPage() {
           </select>
           <DateRangePicker defaultDays={30} onRangeChange={setDateRange} />
           <ExportButton
-            onExport={() =>
-              activeTab === 'dashboard'
-                ? utmApi.exportClickEvents({ projectId: projectId || undefined, ...dateRange })
-                : utmApi.exportLinkPerformance({ projectId: projectId || undefined, ...dateRange })
-            }
+            onExport={() => {
+              if (activeTab === 'links' || activeTab === 'projects') {
+                return utmApi.exportLinkPerformance({ projectId: projectId || undefined, ...dateRange });
+              }
+              if (activeTab === 'campaigns') {
+                return utmApi.exportCampaignSummary(dateRange);
+              }
+              return utmApi.exportClickEvents({ projectId: projectId || undefined, ...dateRange });
+            }}
           />
         </div>
       </div>
@@ -219,17 +285,36 @@ export function AnalyticsPage() {
             <Link2 className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             Links
           </button>
+          <button
+            onClick={() => setActiveTab('campaigns')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'campaigns'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Megaphone className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Campaigns
+          </button>
         </div>
       </div>
 
       {/* Dashboard tab */}
       {activeTab === 'dashboard' && (
         <>
-          {!overview || overview.total_tracked_links === 0 ? (
+          {dashError && !overview ? (
+            <EmptyState
+              icon={BarChart3}
+              title="Couldn't Load Analytics"
+              description="Something went wrong while loading your analytics. Check your connection and try again."
+            >
+              <Button variant="outline" size="sm" onClick={loadDashboard}>Retry</Button>
+            </EmptyState>
+          ) : !overview || overview.total_tracked_links === 0 ? (
             <EmptyState
               icon={BarChart3}
               title="No Analytics Data Yet"
-              description="Generate some UTM links first — analytics will appear here once you have tracked links."
+              description="Generate some UTM links first. Analytics will appear here once you have tracked links."
             />
           ) : (
             <>
@@ -480,7 +565,9 @@ export function AnalyticsPage() {
       {/* Projects tab */}
       {activeTab === 'projects' && (
         <>
-          {projects.length === 0 ? (
+          {projectsLoading && projectOverviews.size === 0 ? (
+            <LoadingSpinner />
+          ) : projects.length === 0 ? (
             <EmptyState
               icon={FolderOpen}
               title="No Projects"
@@ -546,6 +633,106 @@ export function AnalyticsPage() {
               })}
             </div>
           )}
+        </>
+      )}
+
+      {/* Campaigns tab */}
+      {activeTab === 'campaigns' && (
+        <>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <input
+              type="text"
+              placeholder="Search campaigns..."
+              value={campaignsSearch}
+              onChange={(e) => setCampaignsSearch(e.target.value)}
+              className="flex-1 min-w-[240px] max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/campaigns/compare')}
+              leftIcon={<GitCompare className="h-4 w-4" />}
+            >
+              Compare
+            </Button>
+          </div>
+
+          {campaignsLoading && !campaignsLoaded ? (
+            <LoadingSpinner />
+          ) : (() => {
+            const q = campaignsSearch.trim().toLowerCase();
+            const filtered = q
+              ? campaigns.filter((c) => c.campaign.toLowerCase().includes(q))
+              : campaigns;
+
+            if (filtered.length === 0) {
+              return (
+                <EmptyState
+                  icon={Megaphone}
+                  title={campaigns.length === 0 ? 'No Campaigns Found' : 'No Matches'}
+                  description={
+                    campaigns.length === 0
+                      ? 'Generate UTM links with a utm_campaign parameter to see campaign analytics here.'
+                      : 'No campaigns match your search. Try a different query.'
+                  }
+                />
+              );
+            }
+
+            return (
+              <div className="grid gap-4">
+                {filtered.map((c) => (
+                  <Card
+                    key={c.campaign}
+                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => navigate(`/campaigns/${encodeURIComponent(c.campaign)}`)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-brand-purple/10 rounded-lg flex items-center justify-center">
+                          <Megaphone className="w-5 h-5 text-brand-purple" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-slate-900">{c.campaign}</h3>
+                          <p className="text-sm text-slate-500">
+                            {c.first_link_created
+                              ? `Since ${new Date(c.first_link_created).toLocaleDateString()}`
+                              : 'No activity yet'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-8 text-sm">
+                        <div className="text-center">
+                          <div className="flex items-center gap-1 text-slate-500">
+                            <Link2 className="h-3.5 w-3.5" /> Links
+                          </div>
+                          <p className="font-bold text-slate-900">{c.total_links}</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center gap-1 text-slate-500">
+                            <MousePointer className="h-3.5 w-3.5" /> Clicks
+                          </div>
+                          <p className="font-bold text-slate-900">{(c.total_clicks ?? 0).toLocaleString()}</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center gap-1 text-slate-500">
+                            <ExternalLink className="h-3.5 w-3.5" /> Unique
+                          </div>
+                          <p className="font-bold text-slate-900">{(c.unique_clicks ?? 0).toLocaleString()}</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center gap-1 text-slate-500">
+                            <TrendingUp className="h-3.5 w-3.5" /> Rate
+                          </div>
+                          <p className="font-bold text-slate-900">{(c.click_rate ?? 0).toFixed(1)}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

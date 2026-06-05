@@ -37,7 +37,7 @@ try:
         logger.info("MaxMind GeoLite2-City loaded from %s", settings.maxmind_db_path)
     except FileNotFoundError:
         logger.warning(
-            "MaxMind GeoLite2-City not found at %s — falling back to ip-api.com",
+            "MaxMind GeoLite2-City not found at %s, falling back to ip-api.com",
             settings.maxmind_db_path,
         )
 
@@ -48,11 +48,11 @@ try:
         logger.info("MaxMind GeoLite2-ASN loaded from %s", settings.maxmind_asn_db_path)
     except FileNotFoundError:
         logger.warning(
-            "MaxMind GeoLite2-ASN not found at %s — VPN detection will use ip-api.com fallback",
+            "MaxMind GeoLite2-ASN not found at %s, VPN detection will use ip-api.com fallback",
             settings.maxmind_asn_db_path,
         )
 except ImportError:
-    logger.warning("geoip2 package not installed — falling back to ip-api.com")
+    logger.warning("geoip2 package not installed, falling back to ip-api.com")
 
 
 # ---------------------------------------------------------------------------
@@ -203,10 +203,10 @@ async def lookup_ip(ip_address: str) -> Optional[dict]:
     if _maxmind_available:
         result = _lookup_maxmind(ip_address)
         if result:
-            # If ASN DB is missing, is_vpn will be None — fall through to ip-api
+            # If ASN DB is missing, is_vpn will be None, fall through to ip-api
             if result.get("is_vpn") is not None:
                 return result
-            # ASN DB not available — try ip-api for VPN detection only
+            # ASN DB not available, try ip-api for VPN detection only
             vpn_result = await _lookup_ipapi(ip_address)
             if vpn_result:
                 result["is_vpn"] = vpn_result.get("is_vpn")

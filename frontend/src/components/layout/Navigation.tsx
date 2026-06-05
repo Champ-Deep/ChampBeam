@@ -1,19 +1,27 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { Link2, BookmarkCheck, BarChart3, FolderOpen, Megaphone, Bell, Menu, X } from 'lucide-react';
+import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText } from 'lucide-react';
 
 import { clsx } from 'clsx';
 import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
 import { Button } from '../ui/Button';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 
-const navLinks = [
+interface NavLink {
+  to: string;
+  label: string;
+  icon: typeof Link2;
+  requiresAuth?: boolean;
+  publicOnly?: boolean;
+}
+
+const navLinks: NavLink[] = [
   { to: '/', label: 'Generator', icon: Link2 },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
-  { to: '/presets', label: 'Presets', icon: BookmarkCheck, requiresAuth: true },
+  { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, requiresAuth: true },
-  { to: '/campaigns', label: 'Campaign Analytics', icon: Megaphone, requiresAuth: true },
+  { to: '/settings', label: 'Settings', icon: Settings, requiresAuth: true },
 ];
 
 export function Navigation() {
@@ -38,7 +46,9 @@ export function Navigation() {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const visibleLinks = navLinks.filter((link) => !link.requiresAuth || isSignedIn);
+  const visibleLinks = navLinks.filter((link) =>
+    link.publicOnly ? !isSignedIn : !link.requiresAuth || isSignedIn,
+  );
 
   return (
     <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">

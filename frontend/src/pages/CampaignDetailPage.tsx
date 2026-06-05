@@ -39,7 +39,7 @@ export function CampaignDetailPage() {
       const d = await utmApi.getCampaignDetail(name, dateRange);
       setDetail(d);
 
-      // Load remaining data independently — don't let one failure kill the page
+      // Load remaining data independently so one failure does not kill the page
       const results = await Promise.allSettled([
         utmApi.getCampaignGeo(name, { ...dateRange, level: geoLevel }),
         utmApi.getCampaignDevices(name, dateRange),
@@ -51,7 +51,7 @@ export function CampaignDetailPage() {
       if (results[2].status === 'fulfilled') setTimeline(results[2].value.data);
       if (results[3].status === 'fulfilled') setLinks(results[3].value);
     } catch {
-      // Detail call failed — still show error state
+      // Detail call failed, still show the error state
     } finally {
       setLoading(false);
     }
@@ -63,7 +63,7 @@ export function CampaignDetailPage() {
   if (!detail) {
     return (
       <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
-        <Link to="/campaigns">
+        <Link to="/analytics?tab=campaigns">
           <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back to Campaigns</Button>
         </Link>
         <div className="text-center py-12">
@@ -93,7 +93,7 @@ export function CampaignDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3">
-          <Link to="/campaigns">
+          <Link to="/analytics?tab=campaigns">
             <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
           <div>

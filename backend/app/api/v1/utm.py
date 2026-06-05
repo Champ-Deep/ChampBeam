@@ -13,12 +13,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, select, update
+from sqlalchemy import delete as sa_delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import TokenData, require_auth, get_current_user
 from app.db.postgres import get_db_session
+from app.models.domain import Domain, STATUS_ACTIVE
+from app.models.file_asset import FileAsset
 from app.models.utm import ClickEvent, LinkClick, UTMPreset
 from app.services.utm_service import utm_service
 
@@ -79,6 +81,7 @@ class GenerateLinkRequest(BaseModel):
     project_name: Optional[str] = None
     project_id: Optional[str] = None
     preset_id: Optional[str] = None
+    domain_id: Optional[str] = None
 
 
 class GenerateLinkResponse(BaseModel):
@@ -134,16 +137,23 @@ class UTMOverviewResponse(BaseModel):
 # ============================================================================
 
 
-def _build_redirect_url(short_code: str | None, request: Request | None = None) -> str | None:
+def _build_redirect_url(
+    short_code: str | None,
+    domain: Domain | None = None,
+    request: Request | None = None,
+) -> str | None:
     """Build a full redirect URL from a short code.
 
-    Prefers ``request.base_url`` so the URL always matches the host the
-    client used. Falls back to ``settings.redirect_base_url`` when an
-    explicit override is configured (useful behind a reverse proxy that
-    rewrites Host).
+    Host precedence: a custom ``domain`` (always HTTPS, BYOD) →
+    ``settings.redirect_base_url`` (explicit deploy-time override,
+    useful behind a proxy that rewrites Host) → ``request.base_url``
+    (the host the client actually used). Returning a relative
+    ``/r/{code}`` is the last resort.
     """
     if not short_code:
         return None
+    if domain is not None:
+        return f"https://{domain.hostname}/r/{short_code}"
     override = settings.redirect_base_url.rstrip("/") if settings.redirect_base_url else ""
     if override:
         base = override
@@ -152,6 +162,63 @@ def _build_redirect_url(short_code: str | None, request: Request | None = None) 
     else:
         base = ""
     return f"{base}/r/{short_code}"
+
+
+async def _resolve_link_domain(
+    user_id: str,
+    domain_id: str | None,
+    session: AsyncSession,
+) -> Domain | None:
+    """Return the Domain to use for a new link.
+
+    When ``domain_id`` is provided it must belong to the user and be active.
+    When omitted, the user's primary domain is used; falling back to the
+    platform default (None) when the user has no primary.
+    """
+    if domain_id:
+        uid = _to_uuid(domain_id)
+        if uid is None:
+            raise HTTPException(status_code=400, detail="Invalid domain_id.")
+        result = await session.execute(
+            select(Domain).where(
+                Domain.id == uid,
+                Domain.user_id == user_id,
+                Domain.status == STATUS_ACTIVE,
+            )
+        )
+        domain = result.scalar_one_or_none()
+        if domain is None:
+            raise HTTPException(status_code=404, detail="Active domain not found.")
+        return domain
+
+    result = await session.execute(
+        select(Domain).where(
+            Domain.user_id == user_id,
+            Domain.is_primary.is_(True),
+            Domain.status == STATUS_ACTIVE,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _domain_for_link(link: LinkClick, session: AsyncSession) -> Domain | None:
+    """Load the Domain row a LinkClick belongs to, if any."""
+    if not link.domain_id:
+        return None
+    result = await session.execute(select(Domain).where(Domain.id == link.domain_id))
+    return result.scalar_one_or_none()
+
+
+async def _domains_by_link(
+    links: list[LinkClick], session: AsyncSession
+) -> dict:
+    """Map link_id → Domain for a batch of LinkClicks (one query)."""
+    domain_ids = {link.domain_id for link in links if link.domain_id}
+    if not domain_ids:
+        return {}
+    result = await session.execute(select(Domain).where(Domain.id.in_(domain_ids)))
+    by_id = {d.id: d for d in result.scalars().all()}
+    return {link.id: by_id[link.domain_id] for link in links if link.domain_id in by_id}
 
 
 def _resolve_date_range(
@@ -205,7 +272,7 @@ def _preset_to_response(preset: UTMPreset) -> dict:
 
 
 # ============================================================================
-# Link Generation (public endpoint — auth optional)
+# Link Generation (public endpoint, auth optional)
 # ============================================================================
 
 
@@ -254,6 +321,7 @@ async def generate_utm_link(
     if user:
         from uuid import UUID as _UUID
         project_id = _UUID(data.project_id) if data.project_id else None
+        domain = await _resolve_link_domain(user.user_id, data.domain_id, session)
         link = await utm_service.record_link(
             user_id=user.user_id,
             original_url=data.base_url,
@@ -261,15 +329,19 @@ async def generate_utm_link(
             utm_params=utm_params,
             project_name=data.project_name,
             project_id=project_id,
+            domain_id=domain.id if domain else None,
             session=session,
         )
         link_id = str(link.id)
         short_code = link.short_code
-        redirect_url = _build_redirect_url(link.short_code, request)
+        redirect_url = _build_redirect_url(link.short_code, domain, request=request)
         if link.short_code:
-            # The short URL is handled by the backend routing directly (/s/{short_code})
-            # Use request.base_url to construct the absolute URL.
-            short_url = str(request.base_url) + f"s/{link.short_code}"
+            # Short URL mirrors the redirect URL's host when a custom domain is
+            # used; otherwise it falls back to the request's own base URL.
+            if domain is not None:
+                short_url = f"https://{domain.hostname}/s/{link.short_code}"
+            else:
+                short_url = str(request.base_url) + f"s/{link.short_code}"
 
     return GenerateLinkResponse(
         original_url=data.base_url,
@@ -402,7 +474,7 @@ async def generate_bulk_utm_links(
             default_params,
             user_id=user.user_id,
             session=session,
-            short_link_builder=lambda code: _build_redirect_url(code, request),
+            short_link_builder=lambda code: _build_redirect_url(code, request=request),
         )
         await session.commit()
     except ValueError as e:
@@ -757,13 +829,17 @@ async def get_link_performance(
         .limit(200)
     )
 
+    links = list(result.scalars().all())
+    link_to_domain = await _domains_by_link(links, session)
     items = []
-    for link in result.scalars().all():
+    for link in links:
         items.append(LinkPerformanceItem(
             link_id=str(link.id),
             original_url=link.original_url,
             tracked_url=link.tracked_url,
-            redirect_url=_build_redirect_url(link.short_code, request),
+            redirect_url=_build_redirect_url(
+                link.short_code, link_to_domain.get(link.id), request=request,
+            ),
             short_code=link.short_code,
             anchor_text=link.anchor_text,
             utm_source=link.utm_source,
@@ -805,16 +881,20 @@ async def get_performance_over_time(
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
+    # The date_trunc unit must be a SQL literal, not a bound parameter, or
+    # Postgres treats the SELECT and GROUP BY occurrences as distinct
+    # expressions and raises a GroupingError. Build one expression and reuse it.
+    day_bucket = func.date_trunc(literal_column("'day'"), LinkClick.created_at)
     result = await session.execute(
         select(
-            func.date_trunc("day", LinkClick.created_at).label("date"),
+            day_bucket.label("date"),
             func.count(LinkClick.id).label("links_created"),
             func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
             func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
         )
         .where(*conditions)
-        .group_by(func.date_trunc("day", LinkClick.created_at))
-        .order_by(func.date_trunc("day", LinkClick.created_at))
+        .group_by(day_bucket)
+        .order_by(day_bucket)
     )
 
     data = []
@@ -1146,10 +1226,11 @@ async def compare_campaigns(
             .order_by(func.count(ClickEvent.id).desc())
         )
 
-        # Timeline
+        # Timeline (date_trunc unit must be a literal; see get_performance_over_time)
+        day_bucket = func.date_trunc(literal_column("'day'"), ClickEvent.clicked_at)
         timeline = await session.execute(
             select(
-                func.date_trunc("day", ClickEvent.clicked_at).label("date"),
+                day_bucket.label("date"),
                 func.count(ClickEvent.id).label("clicks"),
             )
             .join(LinkClick, ClickEvent.link_id == LinkClick.id)
@@ -1159,8 +1240,8 @@ async def compare_campaigns(
                 ClickEvent.clicked_at >= range_start,
                 ClickEvent.clicked_at <= range_end,
             )
-            .group_by(func.date_trunc("day", ClickEvent.clicked_at))
-            .order_by(func.date_trunc("day", ClickEvent.clicked_at))
+            .group_by(day_bucket)
+            .order_by(day_bucket)
         )
 
         total_links = row.total_links or 0
@@ -1425,12 +1506,16 @@ async def get_campaign_links(
         .limit(100)
     )
 
+    links = list(result.scalars().all())
+    link_to_domain = await _domains_by_link(links, session)
     return [
         {
             "link_id": str(link.id),
             "original_url": link.original_url,
             "tracked_url": link.tracked_url,
-            "redirect_url": _build_redirect_url(link.short_code, request),
+            "redirect_url": _build_redirect_url(
+                link.short_code, link_to_domain.get(link.id), request=request,
+            ),
             "short_code": link.short_code,
             "utm_source": link.utm_source,
             "utm_medium": link.utm_medium,
@@ -1438,7 +1523,7 @@ async def get_campaign_links(
             "unique_clicks": link.unique_clicks or 0,
             "created_at": link.created_at.isoformat() if link.created_at else None,
         }
-        for link in result.scalars().all()
+        for link in links
     ]
 
 
@@ -1454,9 +1539,10 @@ async def get_campaign_timeline(
     """Get daily click time series for a campaign."""
     range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
+    day_bucket = func.date_trunc(literal_column("'day'"), ClickEvent.clicked_at)
     result = await session.execute(
         select(
-            func.date_trunc("day", ClickEvent.clicked_at).label("date"),
+            day_bucket.label("date"),
             func.count(ClickEvent.id).label("clicks"),
             func.count(func.distinct(ClickEvent.ip_address)).label("unique_clicks"),
         )
@@ -1467,8 +1553,8 @@ async def get_campaign_timeline(
             ClickEvent.clicked_at >= range_start,
             ClickEvent.clicked_at <= range_end,
         )
-        .group_by(func.date_trunc("day", ClickEvent.clicked_at))
-        .order_by(func.date_trunc("day", ClickEvent.clicked_at))
+        .group_by(day_bucket)
+        .order_by(day_bucket)
     )
 
     return {
@@ -1907,7 +1993,7 @@ async def get_recent_clicks(
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            # Strip timezone info — DB uses naive timestamps (UTC assumed)
+            # Strip timezone info, DB uses naive timestamps (UTC assumed)
             since_dt = since_dt.replace(tzinfo=None)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid timestamp format")
@@ -1922,14 +2008,24 @@ async def get_recent_clicks(
             ClickEvent.region,
             ClickEvent.device_type,
             ClickEvent.browser,
+            ClickEvent.link_id,
+            ClickEvent.file_id,
             LinkClick.original_url,
-            LinkClick.short_code,
+            LinkClick.short_code.label("link_short_code"),
             LinkClick.utm_campaign,
             LinkClick.utm_source,
+            FileAsset.filename,
+            FileAsset.short_code.label("file_short_code"),
         )
-        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        # Outer-join both attribution tables so file opens (file_id set,
+        # link_id null) appear in the feed alongside link clicks.
+        .outerjoin(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .outerjoin(FileAsset, ClickEvent.file_id == FileAsset.id)
         .where(
-            LinkClick.user_id == user.user_id,
+            or_(
+                LinkClick.user_id == user.user_id,
+                FileAsset.user_id == user.user_id,
+            ),
             ClickEvent.clicked_at > since_dt,
         )
         .order_by(ClickEvent.clicked_at.desc())
@@ -1939,15 +2035,22 @@ async def get_recent_clicks(
     return [
         {
             "id": str(r.id),
+            "type": "file" if r.file_id else "link",
             "clicked_at": r.clicked_at.isoformat() if r.clicked_at else None,
             "country": r.country,
             "region": r.region,
             "device_type": r.device_type,
             "browser": r.browser,
+            # Link fields (null for file opens)
             "original_url": r.original_url,
-            "short_code": r.short_code,
             "utm_campaign": r.utm_campaign,
             "utm_source": r.utm_source,
+            "link_id": str(r.link_id) if r.link_id else None,
+            # File fields (null for link clicks)
+            "filename": r.filename,
+            "file_id": str(r.file_id) if r.file_id else None,
+            # short_code resolves to whichever asset this event belongs to
+            "short_code": r.file_short_code if r.file_id else r.link_short_code,
         }
         for r in result.all()
     ]
