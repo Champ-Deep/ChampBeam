@@ -360,12 +360,11 @@ async def init_upload(
     _ensure_storage()
     is_guest = user is None
 
+    # Any content type is accepted. Known types (pdf, image, html, video) get
+    # their specific kind and inline serving; everything else (zip, documents,
+    # archives, arbitrary files) is classified KIND_OTHER and served as a safe
+    # download (Content-Disposition: attachment).
     kind = _classify(data.content_type)
-    if kind == KIND_OTHER and data.content_type.lower() not in _MIME_KIND:
-        raise HTTPException(
-            status_code=415,
-            detail=f"Unsupported content type: {data.content_type}",
-        )
 
     caps = _GUEST_KIND_CAP_BYTES if is_guest else _KIND_CAP_BYTES
     cap = caps[kind]

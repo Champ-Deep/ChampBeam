@@ -23,6 +23,7 @@ from app.models.domain import Domain, STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE
 from app.models.file_asset import (
     FileAsset,
     KIND_HTML,
+    KIND_OTHER,
     SERVE_REDIRECT,
     STATUS_ACTIVE,
 )
@@ -74,9 +75,13 @@ def _safe_filename(name: str) -> str:
 
 
 def _common_headers(asset: FileAsset) -> dict[str, str]:
+    # Arbitrary or unknown files (KIND_OTHER: zip, docs, archives) download
+    # rather than render inline, which is also the safe default for untrusted
+    # bytes served from our own origin.
+    disposition = "attachment" if asset.kind == KIND_OTHER else "inline"
     headers = {
         "Content-Type": asset.mime_type,
-        "Content-Disposition": f'inline; filename="{_safe_filename(asset.filename)}"',
+        "Content-Disposition": f'{disposition}; filename="{_safe_filename(asset.filename)}"',
         "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",

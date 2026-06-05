@@ -261,8 +261,8 @@ export function ShareFileCreator({
   const { lastShared, isUploading, progress, handleFile } = share;
 
   const hint = isAuthenticated
-    ? 'PDF ≤ 50 MB · image ≤ 10 MB · video ≤ 500 MB'
-    : 'PDF/HTML/image ≤ 10 MB · video ≤ 50 MB · link expires in 24h';
+    ? 'Files (PDF, ZIP, docs) ≤ 50 MB · image ≤ 10 MB · video ≤ 500 MB'
+    : 'Files ≤ 10 MB · video ≤ 50 MB · link expires in 24h';
 
   return (
     <div className="space-y-6">
@@ -280,8 +280,8 @@ export function ShareFileCreator({
         <FileUploadZone
           onFileSelected={handleFile}
           isUploading={isUploading}
-          accept=".pdf,.html,.htm,.mp4,.webm,.png,.jpg,.jpeg,.webp"
-          label="Drop a PDF, video, HTML, or image here"
+          accept="*/*"
+          label="Drop any file: PDF, video, image, HTML, ZIP, docs, and more"
           hint={hint}
           uploadingLabel={progress !== null ? `Uploading… ${progress}%` : 'Uploading…'}
         />
