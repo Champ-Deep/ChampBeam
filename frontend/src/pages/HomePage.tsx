@@ -80,17 +80,17 @@ const VALUE_PROPS = [
   {
     icon: Send,
     title: 'Send anything',
-    body: 'Links and files (PDFs, video, images, HTML) become one clean, short link. No account needed to start.',
+    body: 'A link, a PDF, a deck, a video, a contract. Each becomes one clean short link and QR code.',
   },
   {
     icon: Eye,
     title: 'Know it landed',
-    body: 'Real-time read receipts. See the moment your link or file is opened, with live open and click counts.',
+    body: 'Read receipts, live. The instant it is opened you see it, with running open and click counts.',
   },
   {
     icon: BarChart3,
     title: 'Understand the audience',
-    body: 'Every open is enriched with location, device, browser, and UTM campaign attribution, automatically.',
+    body: 'Every open carries location, device, browser, and full UTM attribution, captured automatically.',
   },
 ];
 
@@ -128,8 +128,8 @@ function GuestMarketing() {
             </span>
           </h1>
           <p className="mt-5 text-lg text-slate-600 max-w-2xl mx-auto">
-            ChampUTM turns any link or file into one short, trackable link with a QR code and read
-            receipts. See exactly when, where, and on what device it was opened.
+            Turn any link or file into one short link and QR code that tells you the moment it is
+            opened, from where, and on what device. Start free, no account required.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <SignUpButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">
@@ -144,7 +144,7 @@ function GuestMarketing() {
             </SignInButton>
           </div>
           <p className="mt-4 text-sm text-slate-500">
-            No credit card. Or just start below, no account required.
+            No credit card, no setup. Or just start below, no account needed.
           </p>
         </div>
       </section>
@@ -253,7 +253,7 @@ function GuestDetails() {
         <div className="max-w-3xl mx-auto px-4 py-14 text-center">
           <h2 className="text-3xl font-bold text-white">Share something. See who opens it.</h2>
           <p className="mt-3 text-white/70">
-            The free UTM generator you already trust, now for files too.
+            A free UTM link generator, now with file sharing, QR codes, and read receipts.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <SignUpButton mode="modal" forceRedirectUrl="/" fallbackRedirectUrl="/">

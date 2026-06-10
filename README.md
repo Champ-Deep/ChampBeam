@@ -30,10 +30,8 @@
 - Download tracked URLs instantly
 
 ### 🔐 Account Security
-- Email + password authentication with JWT
-- "Forgot password?" 2-step reset flow with Resend
-- Authenticated "Change password" with old-session invalidation
-- Tokens stored bcrypt-hashed; reset links single-use and time-limited
+- Authentication, sessions, and password reset are managed by Clerk
+- The backend verifies Clerk session tokens (JWKS, RS256) on every protected endpoint
 
 ## Tech Stack
 
