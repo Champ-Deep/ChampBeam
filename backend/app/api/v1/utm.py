@@ -1,5 +1,5 @@
 """
-UTM API endpoints for ChampUTM.
+UTM API endpoints for Champbeam.
 
 Preset CRUD, link generation, bulk CSV processing, and analytics.
 """

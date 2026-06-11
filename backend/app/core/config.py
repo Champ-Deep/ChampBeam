@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "ChampUTM"
+    app_name: str = "Champbeam"
     app_version: str = "1.0.0"
     debug: bool = True
     environment: str = "development"
@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     # PostgreSQL
     postgres_host: str = "localhost"
     postgres_port: int = 5432
-    postgres_user: str = "champutm"
-    postgres_password: str = "champutm_dev"
-    postgres_db: str = "champutm"
+    postgres_user: str = "champbeam"
+    postgres_password: str = "champbeam_dev"
+    postgres_db: str = "champbeam"
     database_url: str = ""
 
     # Redis Cache
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # When either is empty, those endpoints return 503 with a setup hint.
     cloudflare_api_token: str = ""
     cloudflare_zone_id: str = ""
-    # The CNAME target customers point their domain at. e.g. cname.champutm.com
+    # The CNAME target customers point their domain at. e.g. cname.champbeam.com
     cloudflare_cname_target: str = ""
 
     # Supabase Storage, used as a standalone S3-compatible blob store for the
@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     # survives redeploys). The app's primary DB stays PostgreSQL; Mongo holds
     # blobs only. On Railway the Mongo plugin injects MONGO_URL.
     mongo_url: str = ""
-    mongo_db: str = "champutm_files"
+    mongo_db: str = "champbeam_files"
     mongo_bucket: str = "fs"
 
     # GeoIP Configuration

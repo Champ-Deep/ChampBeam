@@ -1,5 +1,5 @@
 """
-ChampUTM - FastAPI Backend
+Champbeam - FastAPI Backend
 
 Main application entry point.
 """
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="ChampUTM API - UTM link generator and analytics platform.",
+    description="Champbeam API - UTM link generator and analytics platform.",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -100,12 +100,14 @@ app = FastAPI(
 
 # CORS middleware
 # Exact production + local origins (plus any from CORS_ALLOW_ORIGINS), and a
-# regex that admits this project/team's Vercel deployments: prod
-# (champ-utm.vercel.app), branch/commit previews (champ-utm-*), and the
-# team-suffixed preview hosts (<deploy>-deep-5245s-projects.vercel.app).
-# Both the list and the regex are env-overridable so a new app origin never
-# needs a code change.
+# regex that admits this project/team's Vercel deployments: the Champbeam app
+# and its Vercel project (champbeam*.vercel.app, plus the legacy champ-utm*
+# project during the rename) and the team-suffixed preview hosts
+# (<deploy>-deep-5245s-projects.vercel.app). Both the list and the regex are
+# env-overridable so a new app origin never needs a code change.
 allowed_origins = [
+    "https://app.champbeam.com",
+    "https://champbeam.com",
     "https://champ-utm.vercel.app",
     settings.frontend_url.rstrip("/"),
     "http://localhost:3000",
@@ -119,7 +121,7 @@ allowed_origins += [
 allowed_origins = list(dict.fromkeys(o for o in allowed_origins if o))  # dedup, drop empties
 allowed_origin_regex = (
     settings.cors_allow_origin_regex
-    or r"^https://(champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\.vercel\.app$"
+    or r"^https://(champbeam(-[a-z0-9-]+)?|champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\.vercel\.app$"
 )
 
 app.add_middleware(

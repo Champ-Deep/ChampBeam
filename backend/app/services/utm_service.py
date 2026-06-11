@@ -1,5 +1,5 @@
 """
-UTM Service for ChampUTM.
+UTM Service for Champbeam.
 
 Handles URL generation, bulk CSV processing, click tracking, and redirect recording.
 """

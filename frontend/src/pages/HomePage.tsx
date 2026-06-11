@@ -43,7 +43,7 @@ import type { UTMPreset, Project, GenerateLinkResponse, Domain } from '../api/ut
 
 type GeneratorMode = 'single' | 'bulk';
 
-const STORAGE_KEY = 'champutm_link_history';
+const STORAGE_KEY = 'champbeam_link_history';
 
 interface HistoryItem {
   url: string;
@@ -207,7 +207,7 @@ function GuestDetails() {
               Stop wondering if it was opened
             </h2>
             <p className="mt-4 text-slate-600">
-              Email attachments disappear into inboxes. ChampUTM links do not. Share a
+              Email attachments disappear into inboxes. Champbeam links do not. Share a
               proposal, a deck, or a contract and get a live signal the second it is viewed,
               then dig into the geography, device, and campaign behind every open.
             </p>

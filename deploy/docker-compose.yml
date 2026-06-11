@@ -1,0 +1,62 @@
+# Champbeam single-droplet deployment: app + Postgres + Redis + Caddy (auto-TLS).
+#
+# Quick start (from this deploy/ directory on the droplet):
+#   cp .env.example .env      # then fill it in
+#   docker compose up -d --build
+#
+# Point champbeam.com's DNS A record at the droplet's public IP first; Caddy
+# provisions the HTTPS certificate automatically on the first request.
+
+services:
+  app:
+    build:
+      context: ../backend
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

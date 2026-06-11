@@ -1,0 +1,19 @@
+# Champbeam reverse proxy with automatic HTTPS (Let's Encrypt).
+# Point champbeam.com's DNS A record at this droplet first; Caddy provisions the
+# certificate on the first request. The app UI lives on Vercel (e.g.
+# app.champbeam.com via a CNAME to Vercel), so it is NOT proxied here, this host
+# serves the API, short links (/r/...), and files (/f/...).
+
+{
+	# Email for Let's Encrypt expiry notices. Change to a real address.
+	email admin@champbeam.com
+}
+
+champbeam.com {
+	reverse_proxy app:8000
+}
+
+# Optional: send www to the apex.
+www.champbeam.com {
+	redir https://champbeam.com{uri} permanent
+}
