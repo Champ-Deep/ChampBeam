@@ -51,6 +51,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("PostgreSQL initialization failed: %s", e)
 
+    # Storage backend visibility + a durability guardrail. The "local" backend
+    # writes file bytes to STORAGE_LOCAL_PATH on the host filesystem, which must
+    # be durable. On ephemeral container platforms (e.g. Railway) that path is
+    # wiped on every redeploy unless it is a mounted Volume; on a VPS a normal
+    # disk path is fine. Surface the active backend and flag local storage on a
+    # production boot so the risk is never silent.
+    storage_backend = settings.storage_backend_normalized
+    logger.info("Storage backend: %s (configured=%s)", storage_backend, settings.storage_configured)
+    if storage_backend == "local" and (
+        settings.environment.lower() == "production" or not settings.debug
+    ):
+        logger.warning(
+            "STORAGE_BACKEND=local in production: file uploads go to %s on the host filesystem. "
+            "Ensure that path is durable storage (a mounted Volume on container platforms like "
+            "Railway, a real disk on a VPS); on ephemeral containers it is wiped on every redeploy. "
+            "For storage decoupled from the host, use STORAGE_BACKEND=s3 (Cloudflare R2) or mongo.",
+            settings.storage_local_path,
+        )
+
     # Background sweeper that reclaims expired anonymous file uploads.
     sweeper_task = asyncio.create_task(expiry_sweeper_loop())
 

@@ -16,18 +16,38 @@ like `${{MongoDB.MONGO_URL}}` are easiest to set in the dashboard (the shell tri
 
 ---
 
-## A. MongoDB file storage (survives redeploys)
-The GridFS backend is already built and tested; this just turns it on.
+## A. Durable file storage (so uploads stop disappearing)
+File **bytes** live in whatever `STORAGE_BACKEND` points at. The default, `local`, writes to the
+Railway container filesystem, which is **ephemeral**: every redeploy wipes it unless
+`STORAGE_LOCAL_PATH` is a mounted Volume. That is the usual cause of "my files are gone when I come
+back". (Links, clicks, and analytics live in **PostgreSQL**, which is volume-backed and persistent, so
+this section is only about file bytes. If whole records vanish too, that is a separate Postgres issue,
+not storage.) Pick one durable option:
 
-- [ ] **Add the MongoDB plugin** (dashboard only, plugins cannot be added by token)
-  - Dashboard: backend project -> **New -> Database -> Add MongoDB**.
-- [ ] **Point storage at Mongo** (backend service -> Variables)
-  - `STORAGE_BACKEND=mongo`
-  - `MONGO_URL=${{MongoDB.MONGO_URL}}` (reference the plugin; prefer its private URL if shown)
-  - `STORAGE_UPLOAD_SECRET=<long random string>` (gates the blob-upload endpoint)
-  - optional: `MONGO_DB=champutm_files`, `MONGO_BUCKET=fs`
-  - CLI (literal URL variant): `railway variables --set STORAGE_BACKEND=mongo --set 'MONGO_URL=<paste connection string>' --set STORAGE_UPLOAD_SECRET=<random>`
-- [ ] **Redeploy** (dashboard: Deploy; CLI: `railway redeploy`)
+**Recommended: Cloudflare R2** (durable, S3-compatible, decoupled from Railway, no egress fees). The
+code already supports it; no code change.
+- [ ] Create an R2 bucket + an R2 API token (S3 credentials) in the Cloudflare dashboard.
+- [ ] Backend service -> Variables (CLI: `railway variables --set KEY=value ...`):
+  - `STORAGE_BACKEND=s3`
+  - `SUPABASE_STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com`
+  - `SUPABASE_STORAGE_REGION=auto`
+  - `SUPABASE_STORAGE_ACCESS_KEY_ID=<R2 access key id>`
+  - `SUPABASE_STORAGE_SECRET_ACCESS_KEY=<R2 secret>`
+  - `SUPABASE_STORAGE_BUCKET=<your bucket>`
+  - `STORAGE_UPLOAD_SECRET=<long random string>`
+  - (the vars are `SUPABASE_`-prefixed for historical reasons but accept any S3-compatible store, R2 included)
+- [ ] Redeploy, then verify (F1).
+
+**Alternative: Railway MongoDB GridFS** (also persistent; the Railway plugin attaches a Volume).
+Heavier than R2 and bytes proxy through the app, but fully self-contained on Railway.
+- [ ] Dashboard: backend project -> **New -> Database -> Add MongoDB** (attaches a Volume; plugins cannot be added by token).
+- [ ] Variables: `STORAGE_BACKEND=mongo`, `MONGO_URL=${{MongoDB.MONGO_URL}}` (reference the plugin),
+  `STORAGE_UPLOAD_SECRET=<long random>`, optional `MONGO_DB=champutm_files`, `MONGO_BUCKET=fs`. Redeploy.
+
+**Not for production:** `STORAGE_BACKEND=local` without a mounted Volume (files wiped on every
+redeploy). The backend now logs a startup WARNING if it boots in production on local storage, so this
+footgun is no longer silent.
+
 - [ ] **Verify** (see F1)
 
 ## B. Base domain `share.lakeb2b.com` (DO IN ORDER)
