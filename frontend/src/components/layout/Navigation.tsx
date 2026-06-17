@@ -57,7 +57,7 @@ export function Navigation() {
           <Link to="/" className="flex items-center gap-2">
             <Link2 className="h-7 w-7 text-brand-purple" />
             <span className="text-xl font-bold text-slate-900">
-              Champ<span className="text-brand-purple">UTM</span>
+              Champ<span className="text-brand-purple">beam</span>
             </span>
           </Link>
 
