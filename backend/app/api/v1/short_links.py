@@ -1,4 +1,4 @@
-"""Short links redirect endpoint for ChampUTM.
+"""Short links redirect endpoint for Champbeam.
 
 This is the lighter sibling of ``/r/{short_code}``, it only increments the
 aggregate ``click_count`` on LinkClick rather than recording a full

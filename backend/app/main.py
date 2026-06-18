@@ -1,5 +1,5 @@
 """
-ChampUTM - FastAPI Backend
+Champbeam - FastAPI Backend
 
 Main application entry point.
 """
@@ -51,6 +51,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("PostgreSQL initialization failed: %s", e)
 
+    # Storage backend visibility + a durability guardrail. The "local" backend
+    # writes file bytes to STORAGE_LOCAL_PATH on the host filesystem, which must
+    # be durable. On ephemeral container platforms (e.g. Railway) that path is
+    # wiped on every redeploy unless it is a mounted Volume; on a VPS a normal
+    # disk path is fine. Surface the active backend and flag local storage on a
+    # production boot so the risk is never silent.
+    storage_backend = settings.storage_backend_normalized
+    logger.info("Storage backend: %s (configured=%s)", storage_backend, settings.storage_configured)
+    if storage_backend == "local" and (
+        settings.environment.lower() == "production" or not settings.debug
+    ):
+        logger.warning(
+            "STORAGE_BACKEND=local in production: file uploads go to %s on the host filesystem. "
+            "Ensure that path is durable storage (a mounted Volume on container platforms like "
+            "Railway, a real disk on a VPS); on ephemeral containers it is wiped on every redeploy. "
+            "For storage decoupled from the host, use STORAGE_BACKEND=s3 (Cloudflare R2) or mongo.",
+            settings.storage_local_path,
+        )
+
     # Background sweeper that reclaims expired anonymous file uploads.
     sweeper_task = asyncio.create_task(expiry_sweeper_loop())
 
@@ -73,7 +92,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="ChampUTM API - UTM link generator and analytics platform.",
+    description="Champbeam API - UTM link generator and analytics platform.",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -81,12 +100,14 @@ app = FastAPI(
 
 # CORS middleware
 # Exact production + local origins (plus any from CORS_ALLOW_ORIGINS), and a
-# regex that admits this project/team's Vercel deployments: prod
-# (champ-utm.vercel.app), branch/commit previews (champ-utm-*), and the
-# team-suffixed preview hosts (<deploy>-deep-5245s-projects.vercel.app).
-# Both the list and the regex are env-overridable so a new app origin never
-# needs a code change.
+# regex that admits this project/team's Vercel deployments: the Champbeam app
+# and its Vercel project (champbeam*.vercel.app, plus the legacy champ-utm*
+# project during the rename) and the team-suffixed preview hosts
+# (<deploy>-deep-5245s-projects.vercel.app). Both the list and the regex are
+# env-overridable so a new app origin never needs a code change.
 allowed_origins = [
+    "https://app.champbeam.com",
+    "https://champbeam.com",
     "https://champ-utm.vercel.app",
     settings.frontend_url.rstrip("/"),
     "http://localhost:3000",
@@ -100,7 +121,7 @@ allowed_origins += [
 allowed_origins = list(dict.fromkeys(o for o in allowed_origins if o))  # dedup, drop empties
 allowed_origin_regex = (
     settings.cors_allow_origin_regex
-    or r"^https://(champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\.vercel\.app$"
+    or r"^https://(champbeam(-[a-z0-9-]+)?|champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\.vercel\.app$"
 )
 
 app.add_middleware(

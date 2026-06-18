@@ -25,7 +25,7 @@ from uuid import UUID, uuid4
 import httpx
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-MONGO_DB = "champutm_files_e2e"
+MONGO_DB = "champbeam_files_e2e"
 
 os.environ["STORAGE_BACKEND"] = "mongo"
 os.environ["MONGO_URL"] = MONGO_URL

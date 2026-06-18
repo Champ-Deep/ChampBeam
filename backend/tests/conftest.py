@@ -1,5 +1,5 @@
 """
-Shared pytest fixtures for the ChampUTM test suite.
+Shared pytest fixtures for the Champbeam test suite.
 
 Swaps in an in-process SQLite database so integration tests can exercise the
 full register/login/UTM/redirect/analytics flow without a running PostgreSQL.

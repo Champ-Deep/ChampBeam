@@ -16,7 +16,7 @@ import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloa
 import { FileUploadZone } from './ui/FileUploadZone';
 import { filesApi } from '../api/files';
 
-const FILE_HISTORY_KEY = 'champutm_file_history';
+const FILE_HISTORY_KEY = 'champbeam_file_history';
 
 interface SharedFile {
   fileId: string;

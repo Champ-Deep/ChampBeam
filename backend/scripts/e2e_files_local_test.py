@@ -29,7 +29,7 @@ import httpx
 
 # --- 1. Point storage at a throwaway dir + select the local backend ---
 
-_TMP = tempfile.mkdtemp(prefix="champutm-local-e2e-")
+_TMP = tempfile.mkdtemp(prefix="champbeam-local-e2e-")
 os.environ["STORAGE_BACKEND"] = "local"
 os.environ["STORAGE_LOCAL_PATH"] = _TMP
 os.environ["STORAGE_UPLOAD_SECRET"] = "e2e-upload-secret"

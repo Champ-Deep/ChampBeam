@@ -62,7 +62,7 @@ export interface Domain {
 export interface DomainsConfig {
   // Whether instant subdomains on the platform base are offered.
   subdomain_enabled: boolean;
-  // Base used for subdomain claims, e.g. "links.champutm.com". Null when disabled.
+  // Base used for subdomain claims, e.g. "links.champbeam.com". Null when disabled.
   platform_subdomain_base: string | null;
   // Whether bring-your-own external domains are accepted.
   byod_enabled: boolean;

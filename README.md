@@ -1,6 +1,6 @@
-# ChampUTM - Smart UTM Link Generator
+# Champbeam - Smart UTM Link Generator
 
-**ChampUTM** is a powerful, user-friendly UTM tracking and analytics platform that helps marketers create, manage, and analyze campaign links with ease.
+**Champbeam** is a powerful, user-friendly UTM tracking and analytics platform that helps marketers create, manage, and analyze campaign links with ease.
 
 ## Features
 
@@ -30,10 +30,8 @@
 - Download tracked URLs instantly
 
 ### 🔐 Account Security
-- Email + password authentication with JWT
-- "Forgot password?" 2-step reset flow with Resend
-- Authenticated "Change password" with old-session invalidation
-- Tokens stored bcrypt-hashed; reset links single-use and time-limited
+- Authentication, sessions, and password reset are managed by Clerk
+- The backend verifies Clerk session tokens (JWKS, RS256) on every protected endpoint
 
 ## Tech Stack
 
@@ -80,7 +78,7 @@ uvicorn app.main:app --reload
 ## Project Structure
 
 ```
-champutm/
+champbeam/
 ├── frontend/          # React application
 │   ├── src/
 │   │   ├── api/       # API client functions
@@ -117,9 +115,9 @@ Backend (`backend/.env`, copy from `backend/.env.example`):
 # only if you need to point at a non-local Postgres.
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_USER=champutm
-POSTGRES_PASSWORD=champutm_dev
-POSTGRES_DB=champutm
+POSTGRES_USER=champbeam
+POSTGRES_PASSWORD=champbeam_dev
+POSTGRES_DB=champbeam
 REDIS_URL=redis://localhost:6379/0
 
 # Clerk session-token verification (mint a key in your Clerk dashboard).
@@ -142,7 +140,67 @@ routing (see the Custom Domains section). File hosting works out of the
 box: `STORAGE_BACKEND` defaults to `local`, writing uploads under
 `STORAGE_LOCAL_PATH` (`./data/files`).
 
-### Production, Railway (backend)
+### Production, VPS (Docker Compose, recommended)
+
+The backend ships with a single-droplet Docker Compose stack in `deploy/`
+that runs the app, Postgres, Redis, and Caddy (automatic HTTPS). It serves
+the API, the short links (`/r/...`), and files (`/f/...`) on the
+`champbeam.com` root. The app UI stays on Vercel.
+
+1. **Provision a droplet** (DigitalOcean or any VPS) with Docker + the
+   Compose plugin installed, and open ports 80 and 443.
+2. **Point DNS:** create an `A` record `champbeam.com -> <droplet IP>`.
+   Put the app UI on its own host (e.g. `app.champbeam.com` as a CNAME to
+   Vercel).
+3. **Configure + launch:**
+   ```bash
+   git clone <this repo> && cd <repo>/deploy
+   cp .env.example .env          # then fill it in: Clerk, R2, a strong DB password
+   docker compose up -d --build
+   ```
+   On first boot the app container runs `bootstrap_db.py` + `alembic
+   upgrade head`, then serves on :8000 behind Caddy, which fetches the
+   Let's Encrypt certificate for `champbeam.com` automatically once DNS
+   resolves.
+4. **Point the frontend at it:** set `VITE_API_URL=https://champbeam.com`
+   in Vercel, and `FRONTEND_URL=https://app.champbeam.com` in `deploy/.env`
+   so CORS admits the UI origin.
+5. **Storage:** the template defaults to Cloudflare R2
+   (`STORAGE_BACKEND=s3`), which keeps file bytes off the droplet. Fill in
+   the `SUPABASE_STORAGE_*` (R2) values, or switch to `local`/`mongo`.
+
+**Migrating data off Railway** (one time, only if you have existing data):
+```bash
+# with both Postgres connection strings handy:
+pg_dump "<railway DATABASE_URL>" --no-owner --no-privileges -Fc -f champbeam.dump
+# copy the dump to the droplet, then restore into the compose Postgres:
+docker compose cp champbeam.dump postgres:/tmp/champbeam.dump
+docker compose exec postgres pg_restore -U champbeam -d champbeam --no-owner /tmp/champbeam.dump
+```
+Files in R2 are untouched by the move; only the Postgres data comes across.
+
+#### Error monitoring (Sentry)
+
+The droplet already runs a self-hosted Sentry. Wiring the backend to it is
+a small, separate task:
+
+1. Add `sentry-sdk[fastapi]` to `backend/requirements.txt`.
+2. Initialize it once, as early as possible in `backend/app/main.py`,
+   guarded by the env var so it stays off until a DSN is set:
+   ```python
+   import os, sentry_sdk
+   if os.getenv("SENTRY_DSN"):
+       sentry_sdk.init(
+           dsn=os.environ["SENTRY_DSN"],
+           traces_sample_rate=0.1,
+           environment=os.getenv("ENVIRONMENT", "production"),
+       )
+   ```
+3. Set `SENTRY_DSN=<your self-hosted project DSN>` in `deploy/.env` and
+   redeploy (`docker compose up -d --build`). An empty `SENTRY_DSN` keeps
+   Sentry disabled.
+
+### Production, Railway (backend, alternative)
 
 Add the **Postgres** and **Redis** plugins to your Railway project.
 Both auto-inject env vars the backend already knows how to consume:
@@ -188,10 +246,10 @@ every deploy.
 In **Project Settings → Environment Variables**:
 
 ```env
-VITE_API_URL=https://<your-app>.up.railway.app
+VITE_API_URL=https://champbeam.com
 ```
 
-Short links, `https://<railway-host>/r/{short_code}`, resolve directly
+Short links, `https://champbeam.com/r/{short_code}`, resolve directly
 against the backend. `frontend/vercel.json` rewrites every path to
 `index.html` (the SPA fallback), so `/r/*` on the Vercel hostname just
 renders the SPA, not a redirect. To put short links on a branded URL,
@@ -234,19 +292,19 @@ when `PLATFORM_SUBDOMAIN_BASE` is set.
 A customer points their own hostname (`track.acme.com`) at us and we
 issue/serve the cert for it. One-time platform setup:
 
-1. Add the zone you'll use as the CNAME target (e.g. `champutm.com`)
+1. Add the zone you'll use as the CNAME target (e.g. `champbeam.com`)
    to Cloudflare and enable **Cloudflare for SaaS**.
 2. Set the **Fallback Origin** to the Railway backend hostname (the
    `*.up.railway.app` host or your Railway custom domain).
-3. Create a public DNS record: `cname.champutm.com CNAME <railway-host>`.
+3. Create a public DNS record: `cname.champbeam.com CNAME <railway-host>`.
 4. Mint an API token scoped to that zone with
    `Zone.SSL and Certificates:Edit` + `Zone.Zone Settings:Edit`.
 5. Set `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and
-   `CLOUDFLARE_CNAME_TARGET=cname.champutm.com` on Railway. **No backend
+   `CLOUDFLARE_CNAME_TARGET=cname.champbeam.com` on Railway. **No backend
    code changes are needed, just these three vars + a redeploy.**
 
 Per-customer flow: the customer adds `track.acme.com CNAME
-cname.champutm.com` in their DNS, then `POST /api/v1/domains`
+cname.champbeam.com` in their DNS, then `POST /api/v1/domains`
 provisions a Custom Hostname via the CF API. Status flips
 `pending_cname` → `pending_ssl` → `active` as DNS resolves and the cert
 issues; `/api/v1/domains/health` returns a diagnostic snapshot for any
@@ -311,11 +369,11 @@ S3-compatible endpoint, R2 included.)
 | Layer | Platform | Notes |
 |---|---|---|
 | Frontend | Vercel | SPA via `frontend/vercel.json`. Build `npm run build`, output `dist/`. |
-| Backend  | Railway | `nixpacks` build per `railway.toml`. Postgres + Redis plugins. |
+| Backend  | DigitalOcean VPS (Docker Compose) | `deploy/` stack: app + Postgres + Redis + Caddy (auto-TLS). Railway also supported via `railway.toml`. |
 | Custom-hostname certs | Cloudflare for SaaS | One zone hosts the per-tenant CNAME target. |
 | File storage | Local disk / MongoDB GridFS / S3-compatible | `STORAGE_BACKEND` selects: `local` needs a Railway Volume, `mongo` the Mongo plugin, `s3` any bucket (Supabase / Cloudflare R2). |
 
-On every Railway deploy the boot sequence is:
+On every deploy (VPS container start, or Railway) the boot sequence is:
 
 1. `bootstrap_db.py`, stamps `alembic_version` if the DB was originally
    created via `Base.metadata.create_all()`, and idempotently backfills

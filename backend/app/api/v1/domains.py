@@ -174,7 +174,7 @@ async def _verify_reachable(hostname: str) -> bool:
         async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
             resp = await client.get(
                 f"https://{hostname}/health",
-                headers={"User-Agent": "ChampUTM-DomainVerify"},
+                headers={"User-Agent": "Champbeam-DomainVerify"},
             )
     except Exception:
         return False

@@ -1,3 +1,3 @@
-"""ChampUTM Backend Application."""
+"""Champbeam Backend Application."""
 
 __version__ = "0.1.0"
