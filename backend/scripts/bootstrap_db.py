@@ -61,6 +61,23 @@ SCHEMA_SAFETY_NET = [
     "ALTER TABLE click_events ADD COLUMN IF NOT EXISTS is_vpn BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE click_events ADD COLUMN IF NOT EXISTS asn_org VARCHAR(255)",
     "ALTER TABLE click_events ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMP NOT NULL DEFAULT now()",
+    # Legacy ChampUTM databases created click_events with a NOT NULL `utm_link_id`
+    # column (the predecessor of today's nullable `link_id`). The current ORM only
+    # writes `link_id` / `file_id`, so every file-view and link-click INSERT leaves
+    # utm_link_id NULL and trips a NotNullViolation -> 500 on /f/{code} and /r/{code}.
+    # Relax the constraint if the legacy column is still present; guarded so it is a
+    # no-op on schemas that never had it (fresh installs).
+    """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'click_events' AND column_name = 'utm_link_id'
+      ) THEN
+        EXECUTE 'ALTER TABLE click_events ALTER COLUMN utm_link_id DROP NOT NULL';
+      END IF;
+    END $$;
+    """,
     # --- link_clicks: counter / tracking columns the redirect updates ---
     "ALTER TABLE link_clicks ADD COLUMN IF NOT EXISTS short_code VARCHAR(20)",
     "ALTER TABLE link_clicks ADD COLUMN IF NOT EXISTS project_id UUID",
