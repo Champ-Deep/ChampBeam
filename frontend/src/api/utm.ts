@@ -57,6 +57,13 @@ export interface Domain {
   last_checked_at: string | null;
   cname_target: string | null;
   cloudflare_managed: boolean;
+  // Procurement metadata (null for bring-your-own-domain rows).
+  procured: boolean;
+  registrar: string | null;
+  registration_status: string | null;
+  auto_renew: boolean;
+  registration_price: string | null;
+  domain_expires_at: string | null;
 }
 
 export interface DomainsConfig {
@@ -68,6 +75,17 @@ export interface DomainsConfig {
   byod_enabled: boolean;
   // CNAME value users point their domain at. Null falls back to the platform host.
   cname_target: string | null;
+  // Whether in-app domain purchasing (Cloudflare Registrar) is available.
+  procurement_enabled: boolean;
+}
+
+export interface DomainSearchResult {
+  name: string;
+  available: boolean;
+  currency: string | null;
+  registration_cost: string | null;
+  renewal_cost: string | null;
+  reason: string | null;
 }
 
 export interface GenerateLinkResponse {
@@ -630,6 +648,35 @@ export const utmApi = {
   async deleteDomain(id: string, force = false): Promise<void> {
     const params = force ? '?force=true' : '';
     await api.delete(`/domains/${id}${params}`);
+  },
+
+  // ============================================================
+  // Domain procurement (Cloudflare Registrar)
+  // ============================================================
+
+  async searchDomains(q: string, limit = 20): Promise<DomainSearchResult[]> {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    const response = await api.get<DomainSearchResult[]>(
+      _appendQuery('/domains/search', params)
+    );
+    return _arr<DomainSearchResult>(response.data);
+  },
+
+  async checkDomains(domains: string[]): Promise<DomainSearchResult[]> {
+    const response = await api.post<DomainSearchResult[]>('/domains/check', { domains });
+    return _arr<DomainSearchResult>(response.data);
+  },
+
+  async purchaseDomain(
+    domain: string,
+    opts: { hostname?: string; auto_renew?: boolean } = {}
+  ): Promise<Domain> {
+    const response = await api.post<Domain>('/domains/purchase', {
+      domain,
+      hostname: opts.hostname,
+      auto_renew: opts.auto_renew ?? false,
+    });
+    return response.data;
   },
 };
 

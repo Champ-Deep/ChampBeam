@@ -12,6 +12,9 @@ import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { FilesPage } from './pages/FilesPage';
 import { FileAnalyticsPage } from './pages/FileAnalyticsPage';
+import { ContentLibraryPage } from './pages/ContentLibraryPage';
+import { TeamAnalyticsPage } from './pages/TeamAnalyticsPage';
+import { useOrgContext } from './hooks/useOrgContext';
 import { setTokenGetter } from './api/client';
 
 function ClerkTokenSync() {
@@ -29,6 +32,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       <Show when="signed-out"><Navigate to="/sign-in" replace /></Show>
     </>
   );
+}
+
+// Requires an active organization; admin-only when `admin` is set. The backend
+// enforces the real authorization — this just keeps the UI honest.
+function OrgRoute({ admin = false, children }: { admin?: boolean; children: React.ReactNode }) {
+  const { inOrg, isAdmin } = useOrgContext();
+  if (!inOrg) return <Navigate to="/" replace />;
+  if (admin && !isAdmin) return <Navigate to="/library" replace />;
+  return <>{children}</>;
 }
 
 export default function App() {
@@ -59,6 +71,8 @@ export default function App() {
                 <Route path="/campaigns/:campaignName" element={<ProtectedRoute><CampaignDetailPage /></ProtectedRoute>} />
                 <Route path="/files" element={<ProtectedRoute><FilesPage /></ProtectedRoute>} />
                 <Route path="/files/:fileId/analytics" element={<ProtectedRoute><FileAnalyticsPage /></ProtectedRoute>} />
+                <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
+                <Route path="/team" element={<ProtectedRoute><OrgRoute admin><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               </Routes>
             </main>
