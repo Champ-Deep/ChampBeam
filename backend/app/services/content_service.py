@@ -103,6 +103,14 @@ async def mint_share(
     domain_uuid = domain.id if domain else None
     hostname = domain.hostname if domain else _platform_host()
 
+    # Idempotent: one share per (content, member, domain). Re-sharing returns the
+    # member's existing link/file so they keep one stable URL per item.
+    existing = await _existing_share(session, content, member_user_id, domain_uuid)
+    if existing is not None:
+        link = await session.get(LinkClick, existing.link_id) if existing.link_id else None
+        file = await session.get(FileAsset, existing.file_id) if existing.file_id else None
+        return existing, build_share_url(link=link, file=file, hostname=hostname)
+
     if content.kind == CONTENT_KIND_LINK:
         if not content.canonical_url:
             raise HTTPException(status_code=400, detail="This content has no link to share.")
@@ -119,12 +127,6 @@ async def mint_share(
 
     if content.kind == CONTENT_KIND_FILE:
         master = await _load_master_file(session, content)
-        # Reuse an existing share's file for this member+content+domain.
-        existing = await _existing_file_share(session, content, member_user_id, domain_uuid)
-        if existing is not None:
-            file = await session.get(FileAsset, existing.file_id)
-            return existing, build_share_url(link=None, file=file, hostname=hostname)
-
         code = await _allocate_file_short_code(session, domain_uuid)
         copy = FileAsset(
             id=uuid4(),
@@ -158,13 +160,13 @@ async def _load_master_file(session: AsyncSession, content: Content) -> FileAsse
     return master
 
 
-async def _existing_file_share(
+async def _existing_share(
     session: AsyncSession, content: Content, member_user_id: str, domain_uuid: Optional[UUID]
 ) -> Optional[ContentShare]:
+    """The member's existing share of this content on this domain, if any."""
     stmt = select(ContentShare).where(
         ContentShare.content_id == content.id,
         ContentShare.shared_by_user_id == member_user_id,
-        ContentShare.file_id.isnot(None),
     )
     stmt = stmt.where(ContentShare.domain_id.is_(None)) if domain_uuid is None else stmt.where(
         ContentShare.domain_id == domain_uuid

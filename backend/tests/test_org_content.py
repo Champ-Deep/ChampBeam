@@ -172,6 +172,33 @@ async def test_content_share_and_consolidated_analytics(org_ctx):
 
 
 @pytest.mark.asyncio
+async def test_resharing_is_idempotent(org_ctx):
+    client, maker = org_ctx
+    admin_id, member_id = await _seed_org(maker)
+
+    _CURRENT["token"] = _token(admin_id, "admin")
+    content_id = (await client.post("/api/v1/content", json={
+        "title": "Deck", "kind": "link", "canonical_url": "https://example.com/deck",
+    })).json()["id"]
+
+    _CURRENT["token"] = _token(member_id, "member")
+    first = await client.post(f"/api/v1/content/{content_id}/share", json={})
+    second = await client.post(f"/api/v1/content/{content_id}/share", json={})
+    assert first.status_code == 201 and second.status_code == 201
+    # Same URL, and exactly one share row for this member+content.
+    assert first.json()["share_url"] == second.json()["share_url"]
+
+    async with maker() as s:
+        n = (await s.execute(
+            select(ContentShare).where(
+                ContentShare.content_id == _uuid.UUID(content_id),
+                ContentShare.shared_by_user_id == _uuid.UUID(member_id),
+            )
+        )).scalars().all()
+    assert len(n) == 1
+
+
+@pytest.mark.asyncio
 async def test_org_context_and_member_gating(org_ctx):
     client, maker = org_ctx
     admin_id, member_id = await _seed_org(maker)

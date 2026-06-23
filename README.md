@@ -29,9 +29,27 @@
 - Apply presets or custom UTM parameters
 - Download tracked URLs instantly
 
+### 👥 Teams & Shared Content Library (Organizations)
+- Built on Clerk Organizations: an **admin** (e.g. the marketing team) and
+  **members** (e.g. sales reps), with role-based access enforced on the backend
+- The admin curates a **content library** (links or files); each member shares an
+  item to mint their *own* tracked link/file — on their own domain if they have one
+- The admin's **Team Analytics** consolidates engagement by content item, so the
+  same content shared by different members via different links is recognized as
+  one piece and its stats are rolled up, with a per-member breakdown of who drove
+  the opens. See the "Teams / Organizations" section below.
+
+### 🌐 Custom Domains + In-App Domain Procurement
+- Bring your own domain (`track.acme.com`) via Cloudflare for SaaS, or claim an
+  instant platform subdomain
+- **Buy a domain in-app** (Cloudflare Registrar): search names, see live pricing,
+  one-click register, and we auto-wire it to serve links. See "Custom Domains".
+
 ### 🔐 Account Security
 - Authentication, sessions, and password reset are managed by Clerk
-- The backend verifies Clerk session tokens (JWKS, RS256) on every protected endpoint
+- The backend verifies Clerk session tokens (JWKS, RS256) on every protected
+  endpoint, and in production also enforces the issuer (`iss`) and authorized
+  party (`azp`) and keeps a local user/org mirror in sync via a signed webhook
 
 ## Tech Stack
 
@@ -310,6 +328,29 @@ provisions a Custom Hostname via the CF API. Status flips
 issues; `/api/v1/domains/health` returns a diagnostic snapshot for any
 stuck domain.
 
+#### Model 3, in-app domain procurement (Cloudflare Registrar, beta)
+
+Let a user **buy** a domain without leaving the app. One-time setup:
+
+1. Have the registering token carry **Registrar write** scope (the
+   `CLOUDFLARE_API_TOKEN` above can be reused if scoped accordingly).
+2. Set `CLOUDFLARE_ACCOUNT_ID` (and optionally
+   `CLOUDFLARE_REGISTRANT_EMAIL` as the default registrant contact). Make
+   sure the account has a default payment profile and registrant contact.
+
+Then **Settings → Domains** shows a "Get a new domain" card backed by:
+
+- `GET /api/v1/domains/search?q=` — name suggestions
+- `POST /api/v1/domains/check` — live availability + price for exact names
+- `POST /api/v1/domains/purchase` — register, then best-effort wire the link
+  hostname (a Custom Hostname cert when Cloudflare-for-SaaS is on, plus a CNAME
+  on the freshly created zone). Each wiring step degrades to a pending status
+  with instructions rather than failing the purchase.
+
+The Registrar API is in **beta**, supports a subset of TLDs, and registrations
+are billed immediately and are non-refundable — keep `CLOUDFLARE_ACCOUNT_ID`
+unset to hide the feature until you're ready.
+
 #### Local development
 
 Leave `PLATFORM_SUBDOMAIN_BASE` and the `CLOUDFLARE_*` vars empty. An
@@ -321,6 +362,39 @@ domain row you mark active directly:
 ```bash
 curl -i -H "Host: track.example.com" http://localhost:8000/r/<short_code>
 ```
+
+### Teams / Organizations
+
+The team edition is built on **Clerk Organizations** — enable Organizations in
+the Clerk Dashboard and the app reads `org_id` + role (`admin` / `member`) from
+the session token. The premier use case: the **marketing team is the admin** and
+**sales reps are members** who use the org as a shared repository of pitches and
+video content to send to clients.
+
+- **Shared content library** (`/library`): an admin adds canonical content —
+  a destination link or an uploaded file. Members browse it and click **Share**
+  to mint their *own* tracked link/file (their own short code, optionally on
+  their own custom domain). No file re-upload: file shares reuse the master
+  bytes under a fresh short code.
+- **Consolidated analytics** (`/team`, admin only): the same content shared by
+  different members via different links is recognized as **one content item**
+  (every share carries the canonical `content_id`). The admin sees per-content
+  totals, the best performers, and a **per-member breakdown** of who drove the
+  opens — so marketing knows which pitches land and who's using them.
+
+How it maps to the data model:
+
+```
+Content(id) ──< ContentShare(member, link/file) >── ClickEvent rows
+                 (one per member share)              (opens/views)
+```
+
+Backend authorization is enforced by `require_org_member` / `require_org_admin`
+(the frontend `OrgRoute` guards only mirror it). The local
+`organizations` / `organization_memberships` mirror is kept current by the Clerk
+webhook (`/api/v1/webhooks/clerk`, `CLERK_WEBHOOK_SECRET`) and, as a backstop,
+lazily from the session token on each authenticated request. See
+`PRODUCTION_CUTOVER.md` section **D2** for the dashboard + webhook setup.
 
 ### File hosting
 
