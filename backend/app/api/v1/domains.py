@@ -25,7 +25,7 @@ from app.models.domain import (
     STATUS_PENDING_SSL,
 )
 from app.models.utm import LinkClick
-from app.services import cloudflare
+from app.services import cloudflare, cloudflare_registrar
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,28 @@ router = APIRouter(prefix="/domains", tags=["Domains"])
 
 class DomainCreate(BaseModel):
     hostname: str = Field(..., min_length=3, max_length=253)
+
+
+class DomainCheckRequest(BaseModel):
+    domains: List[str] = Field(..., min_length=1, max_length=20)
+
+
+class DomainSearchResult(BaseModel):
+    name: str
+    available: bool
+    currency: Optional[str] = None
+    registration_cost: Optional[str] = None
+    renewal_cost: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class DomainPurchaseRequest(BaseModel):
+    # The domain to register, e.g. "acme.com".
+    domain: str = Field(..., min_length=3, max_length=253)
+    # The hostname to serve links from. Defaults to "track.<domain>". Must be the
+    # domain itself or a subdomain of it.
+    hostname: Optional[str] = None
+    auto_renew: bool = False
 
 
 class DomainResponse(BaseModel):
@@ -55,6 +77,13 @@ class DomainResponse(BaseModel):
     # for any domain still in pending_cname / pending_ssl.
     cname_target: Optional[str] = None
     cloudflare_managed: bool
+    # Procurement metadata (NULL for bring-your-own-domain rows).
+    procured: bool = False
+    registrar: Optional[str] = None
+    registration_status: Optional[str] = None
+    auto_renew: bool = False
+    registration_price: Optional[str] = None
+    domain_expires_at: Optional[str] = None
 
 
 # ============================================================================
@@ -119,6 +148,12 @@ def _to_response(domain: Domain) -> DomainResponse:
         last_checked_at=domain.last_checked_at.isoformat() if domain.last_checked_at else None,
         cname_target=settings.cloudflare_cname_target or None,
         cloudflare_managed=bool(domain.cf_custom_hostname_id),
+        procured=domain.procured,
+        registrar=domain.registrar,
+        registration_status=domain.registration_status,
+        auto_renew=bool(domain.auto_renew),
+        registration_price=domain.registration_price,
+        domain_expires_at=domain.domain_expires_at.isoformat() if domain.domain_expires_at else None,
     )
 
 
@@ -237,6 +272,7 @@ async def domains_config(user: TokenData = Depends(require_auth)):
         "platform_subdomain_base": base or None,
         "byod_enabled": settings.cloudflare_configured,
         "cname_target": settings.cloudflare_cname_target or None,
+        "procurement_enabled": settings.cloudflare_registrar_configured,
     }
 
 
@@ -427,3 +463,155 @@ async def delete_domain(
 
     await session.delete(domain)
     await session.commit()
+
+
+# ============================================================================
+# Domain procurement (Cloudflare Registrar) — search, check, one-click buy
+# ============================================================================
+
+
+def _normalize_search_item(item: dict) -> DomainSearchResult:
+    pricing = item.get("pricing") or {}
+    return DomainSearchResult(
+        name=item.get("name", ""),
+        available=bool(item.get("registrable")),
+        currency=pricing.get("currency"),
+        registration_cost=pricing.get("registration_cost"),
+        renewal_cost=pricing.get("renewal_cost"),
+        reason=item.get("reason"),
+    )
+
+
+def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+@router.get("/search", response_model=List[DomainSearchResult])
+async def search_domains(
+    q: str = Query(..., min_length=1, max_length=63, description="Keyword or name to search."),
+    limit: int = Query(20, ge=1, le=40),
+    user: TokenData = Depends(require_auth),
+):
+    """Suggest registrable domains for a keyword (Cloudflare Registrar)."""
+    try:
+        items = await cloudflare_registrar.search(q, limit)
+    except cloudflare_registrar.RegistrarNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except cloudflare_registrar.RegistrarError as exc:
+        raise HTTPException(status_code=502, detail=f"Registrar error: {exc}")
+    return [_normalize_search_item(i) for i in items]
+
+
+@router.post("/check", response_model=List[DomainSearchResult])
+async def check_domains(
+    data: DomainCheckRequest,
+    user: TokenData = Depends(require_auth),
+):
+    """Check exact availability + price for specific domains."""
+    names = [_normalize_hostname(d) for d in data.domains]
+    try:
+        items = await cloudflare_registrar.check(names)
+    except cloudflare_registrar.RegistrarNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except cloudflare_registrar.RegistrarError as exc:
+        raise HTTPException(status_code=502, detail=f"Registrar error: {exc}")
+    return [_normalize_search_item(i) for i in items]
+
+
+@router.post("/purchase", response_model=DomainResponse, status_code=201)
+async def purchase_domain(
+    data: DomainPurchaseRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Register a domain and wire it up to serve links — the one-click path.
+
+    Registers via Cloudflare Registrar, then best-effort provisions the link
+    hostname: a Custom Hostname (cert) when Cloudflare-for-SaaS is configured,
+    and a CNAME on the freshly created zone pointing at the platform target.
+    Each wiring step degrades gracefully to a pending status with instructions
+    rather than failing the purchase.
+    """
+    domain_name = _normalize_hostname(data.domain)
+    _validate_hostname(domain_name)
+    hostname = _normalize_hostname(data.hostname) if data.hostname else f"track.{domain_name}"
+    _validate_hostname(hostname)
+    if hostname != domain_name and not hostname.endswith("." + domain_name):
+        raise HTTPException(status_code=400, detail="hostname must be the domain or a subdomain of it.")
+
+    existing = await session.execute(select(Domain).where(Domain.hostname == hostname))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="This hostname is already registered.")
+
+    # 1) Register the domain (real money — only fires when configured).
+    contacts = None
+    if settings.cloudflare_registrant_email:
+        contacts = {"registrant": {"email": settings.cloudflare_registrant_email}}
+    try:
+        result = await cloudflare_registrar.register(
+            domain_name, auto_renew=data.auto_renew, contacts=contacts
+        )
+    except cloudflare_registrar.RegistrarNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except cloudflare_registrar.RegistrarError as exc:
+        logger.exception("registrar register failed for %s", domain_name)
+        raise HTTPException(status_code=502, detail=f"Registrar error: {exc}")
+
+    reg_state = cloudflare_registrar.derive_registration_state(result)
+    if reg_state in ("failed", "blocked"):
+        raise HTTPException(status_code=502, detail=f"Registration {reg_state}.")
+    reg_ctx = (result.get("context") or {}).get("registration") or {}
+
+    # 2) Wire the link hostname (best-effort).
+    cf_id: str | None = None
+    status = STATUS_PENDING_CNAME
+    ssl_status: str | None = None
+    if settings.cloudflare_configured:
+        try:
+            ch = await cloudflare.create_custom_hostname(hostname)
+            cf_id = ch.get("id")
+            status, ssl_status = cloudflare.derive_status(ch)
+        except cloudflare.CloudflareError:
+            logger.warning("CF custom hostname wiring failed for %s", hostname, exc_info=True)
+
+    if hostname != domain_name and settings.cloudflare_cname_target:
+        try:
+            zone_id = await cloudflare_registrar.find_zone_id(domain_name)
+            if zone_id:
+                await cloudflare_registrar.create_cname(
+                    zone_id, hostname, settings.cloudflare_cname_target
+                )
+        except cloudflare_registrar.RegistrarError:
+            logger.warning("CNAME auto-wire failed for %s", hostname, exc_info=True)
+
+    has_any = await session.execute(
+        select(func.count(Domain.id)).where(Domain.user_id == user.user_id)
+    )
+    is_first = (has_any.scalar() or 0) == 0
+
+    now = datetime.utcnow()
+    domain = Domain(
+        user_id=user.user_id,
+        hostname=hostname,
+        status=status,
+        ssl_status=ssl_status,
+        cf_custom_hostname_id=cf_id,
+        is_primary=is_first,
+        created_at=now,
+        verified_at=now if status == STATUS_ACTIVE else None,
+        last_checked_at=now if cf_id else None,
+        registrar="cloudflare_registrar",
+        registration_status=reg_ctx.get("status") or reg_state,
+        auto_renew=bool(reg_ctx.get("auto_renew", data.auto_renew)),
+        registration_price=str(reg_ctx.get("price")) if reg_ctx.get("price") is not None else None,
+        domain_expires_at=_parse_dt(reg_ctx.get("expires_at")),
+    )
+    session.add(domain)
+    await session.commit()
+    await session.refresh(domain)
+    return _to_response(domain)

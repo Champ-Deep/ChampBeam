@@ -36,10 +36,35 @@ Keeps file bytes off the droplet disk; the code already supports it (no code cha
 
 ## D. Clerk: development -> production
 - [ ] Create/promote the Clerk **production instance**; set the production domain.
+- [ ] **Rename the Clerk application `Champ UTM` -> `ChampBeam`** (Dashboard ->
+      application name / branding). This is what users see on the hosted sign-in
+      modal and component cards; it is a dashboard setting, not code.
 - [ ] Add Clerk's required DNS records (on the app UI domain) and wait for verification.
-- [ ] Backend (`deploy/.env`): `CLERK_SECRET_KEY=sk_live_...`
+- [ ] Backend (`deploy/.env`): `CLERK_SECRET_KEY=sk_live_...` and
+      `CLERK_PUBLISHABLE_KEY=pk_live_...` (the latter turns on **issuer
+      verification** — the backend derives the expected `iss` from it).
+- [ ] (Recommended) `CLERK_AUTHORIZED_PARTIES=https://app.champbeam.com` so only
+      tokens minted for the app origin are accepted (`azp` check). Defaults to
+      `FRONTEND_URL` when unset.
 - [ ] Frontend (Vercel): `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...`, redeploy.
 - [ ] Verify (P3).
+
+## D2. Clerk Organizations + webhook (for the team/admin edition)
+The org/admin features (shared content library + consolidated analytics) ride on
+**Clerk Organizations**; the backend reads `org_id` + role from the session token.
+- [ ] Enable **Organizations** in the Clerk Dashboard. Confirm the default roles
+      `admin` and `member` exist (the app treats the `admin` role as the
+      org admin).
+- [ ] Create the marketing org as admin; invite the sales seats as members.
+- [ ] Add a **webhook**: Dashboard -> Webhooks -> endpoint
+      `https://champbeam.com/api/v1/webhooks/clerk`, subscribe to `user.*`,
+      `organization.*`, and `organizationMembership.*`. Put its signing secret in
+      `deploy/.env` as `CLERK_WEBHOOK_SECRET=whsec_...`. (Without it, users/orgs
+      still sync lazily from the session token on each auth, but membership
+      removals won't propagate until the next sign-in.)
+- [ ] Verify: an admin sees Team + Library in the nav and `/api/v1/org/context`
+      returns `is_admin: true`; a member sees Library but is 403 on
+      `/api/v1/org/analytics/content`.
 
 ## E. Frontend + CORS
 - [ ] Vercel: `VITE_API_URL=https://champbeam.com`, `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...`.
@@ -77,3 +102,4 @@ No backend code references Resend, and `Settings(extra="ignore")` means removing
 ## Later / optional (already built, env-gated)
 - **Platform subdomains** (`acme.champbeam.com`): set `PLATFORM_SUBDOMAIN_BASE` after a wildcard DNS + cert is live. See README "Custom Domains".
 - **Bring-your-own-domain** (`track.customer.com`): set the `CLOUDFLARE_*` vars once Cloudflare for SaaS is enabled. No backend code changes.
+- **Domain procurement** (buy a domain in-app): set `CLOUDFLARE_ACCOUNT_ID` (+ a token with Registrar write scope, and optionally `CLOUDFLARE_REGISTRANT_EMAIL`). Turns on the search/check/buy flow in Settings -> Domains. The Cloudflare Registrar API is in **beta** and supports a subset of TLDs; registrations are billed to the account's default payment profile and are non-refundable, so keep this gated until you've confirmed the account is funded and a default registrant contact is set.

@@ -41,6 +41,23 @@ class Settings(BaseSettings):
 
     # Clerk
     clerk_secret_key: str = ""
+    # Clerk publishable key (pk_test_... / pk_live_...). The Frontend API host is
+    # base64url-encoded in the key body, so setting this is enough to DERIVE the
+    # token issuer and turn on `iss` verification in production.
+    clerk_publishable_key: str = ""
+    # Explicit issuer override, e.g. https://clerk.champbeam.com. Takes precedence
+    # over the value derived from the publishable key. Empty => issuer check off
+    # (and we cannot derive one) so verification falls back to signature + expiry.
+    clerk_issuer: str = ""
+    # Comma-separated authorized parties (the `azp` claim, i.e. the exact origins
+    # the SPA is served from). Falls back to frontend_url + cors_allow_origins
+    # when unset. Empty list disables azp enforcement.
+    clerk_authorized_parties: str = ""
+    # Svix signing secret (whsec_...) for POST /api/v1/webhooks/clerk. When unset
+    # the webhook endpoint returns 503 (events are then synced lazily on auth).
+    clerk_webhook_secret: str = ""
+    # Clerk Backend API base; override only for tests.
+    clerk_api_url: str = "https://api.clerk.com"
 
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"
@@ -76,6 +93,17 @@ class Settings(BaseSettings):
     cloudflare_zone_id: str = ""
     # The CNAME target customers point their domain at. e.g. cname.champbeam.com
     cloudflare_cname_target: str = ""
+
+    # Cloudflare account id, required for the (account-scoped) Registrar API that
+    # powers in-app domain procurement: search names, check price/availability,
+    # and register. When the account id + a token with Registrar write scope are
+    # set, the /api/v1/domains/search|check|purchase endpoints go live; otherwise
+    # they return 503 with a setup hint. The Registrar API is in beta and only
+    # supports a subset of TLDs.
+    cloudflare_account_id: str = ""
+    # Default registrant contact applied to a registration when the buyer does
+    # not supply one (Cloudflare also requires a default contact on the account).
+    cloudflare_registrant_email: str = ""
 
     # Supabase Storage, used as a standalone S3-compatible blob store for the
     # file-hosting feature. Supabase itself is not the database; only Storage
@@ -145,6 +173,60 @@ class Settings(BaseSettings):
     @property
     def cloudflare_configured(self) -> bool:
         return bool(self.cloudflare_api_token and self.cloudflare_zone_id)
+
+    @property
+    def cloudflare_registrar_configured(self) -> bool:
+        """True when the account-scoped Registrar API can be called."""
+        return bool(self.cloudflare_api_token and self.cloudflare_account_id)
+
+    @property
+    def clerk_environment(self) -> str:
+        """'production' for sk_live_ keys, else 'development'."""
+        return "production" if self.clerk_secret_key.startswith("sk_live_") else "development"
+
+    @property
+    def resolved_clerk_issuer(self) -> str:
+        """Expected `iss` of a Clerk session token.
+
+        Prefers an explicit CLERK_ISSUER; otherwise derives it from the
+        publishable key, whose body is the base64url-encoded Frontend API host
+        with a trailing '$' (e.g. pk_live_<b64('clerk.champbeam.com$')>).
+        Returns "" when neither is available, in which case issuer verification
+        is skipped (signature + expiry are still enforced).
+        """
+        if self.clerk_issuer:
+            return self.clerk_issuer.rstrip("/")
+        pk = self.clerk_publishable_key.strip()
+        if not pk:
+            return ""
+        try:
+            import base64
+
+            body = pk.split("_", 2)[-1]
+            padded = body + "=" * (-len(body) % 4)
+            host = base64.urlsafe_b64decode(padded).decode().rstrip("$").strip("/")
+            return f"https://{host}" if host else ""
+        except Exception:
+            return ""
+
+    @property
+    def clerk_authorized_parties_list(self) -> list[str]:
+        """Origins the session token's `azp` claim is allowed to carry.
+
+        Explicit CLERK_AUTHORIZED_PARTIES wins; otherwise we trust the SPA origin
+        (frontend_url) plus any CORS_ALLOW_ORIGINS. Empty => azp check disabled.
+        """
+        raw = self.clerk_authorized_parties.strip()
+        if raw:
+            parties = [p.strip().rstrip("/") for p in raw.split(",") if p.strip()]
+        else:
+            parties = [self.frontend_url.rstrip("/")] if self.frontend_url else []
+            parties += [o.strip().rstrip("/") for o in self.cors_allow_origins.split(",") if o.strip()]
+        return list(dict.fromkeys(p for p in parties if p))
+
+    @property
+    def clerk_webhook_configured(self) -> bool:
+        return bool(self.clerk_webhook_secret)
 
     @property
     def storage_backend_normalized(self) -> str:
