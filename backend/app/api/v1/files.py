@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import TokenData, get_current_user, require_auth
+from app.core.timeutils import iso_utc
 from app.db.postgres import async_session_maker, get_db_session
 from app.models.domain import Domain, STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE
 from app.models.file_asset import (
@@ -255,11 +256,11 @@ async def _to_response(session: AsyncSession, asset: FileAsset) -> FileResponse:
         status=asset.status,
         serve_mode=asset.serve_mode,
         view_count=asset.view_count or 0,
-        last_viewed_at=asset.last_viewed_at.isoformat() if asset.last_viewed_at else None,
-        created_at=asset.created_at.isoformat() if asset.created_at else "",
+        last_viewed_at=iso_utc(asset.last_viewed_at),
+        created_at=iso_utc(asset.created_at) or "",
         serve_url=_build_serve_url(host, asset.short_code, asset.filename),
         domain_id=str(asset.domain_id) if asset.domain_id else None,
-        expires_at=asset.expires_at.isoformat() if asset.expires_at else None,
+        expires_at=iso_utc(asset.expires_at),
         project_id=str(asset.project_id) if asset.project_id else None,
     )
 
@@ -459,7 +460,7 @@ async def init_upload(
         headers=upload["headers"],
         serve_mode=asset.serve_mode,
         owner_token=owner_token_raw,
-        expires_at=expires_at.isoformat() if expires_at else None,
+        expires_at=iso_utc(expires_at),
         upload_via_backend=bool(upload.get("via_backend")),
     )
 
@@ -597,8 +598,8 @@ async def file_status(
     views = asset.view_count or 0
     return FileStatusResponse(
         view_count=views,
-        last_viewed_at=asset.last_viewed_at.isoformat() if asset.last_viewed_at else None,
-        expires_at=asset.expires_at.isoformat() if asset.expires_at else None,
+        last_viewed_at=iso_utc(asset.last_viewed_at),
+        expires_at=iso_utc(asset.expires_at),
         status="expired" if expired else asset.status,
         seen=views > 0,
     )
@@ -724,8 +725,8 @@ async def file_analytics_summary(
         "view_count": asset.view_count or 0,
         "opens": row.opens or 0,
         "unique_opens": row.unique_opens or 0,
-        "last_viewed_at": asset.last_viewed_at.isoformat() if asset.last_viewed_at else None,
-        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+        "last_viewed_at": iso_utc(asset.last_viewed_at),
+        "created_at": iso_utc(asset.created_at),
     }
 
 
@@ -765,7 +766,7 @@ async def file_view_events(
             "referrer": e.referrer,
             "is_vpn": e.is_vpn or False,
             "asn_org": e.asn_org,
-            "clicked_at": e.clicked_at.isoformat() if e.clicked_at else None,
+            "clicked_at": iso_utc(e.clicked_at),
         }
         for e in events.scalars().all()
     ]

@@ -119,21 +119,14 @@ def _is_private_ip(ip: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# MaxMind lookup (City + ASN combined)
+# MaxMind City lookup
 # ---------------------------------------------------------------------------
-def _lookup_maxmind(ip_address: str) -> Optional[dict]:
-    """Look up IP using the local MaxMind GeoLite2 databases (City + ASN)."""
+def _lookup_city(ip_address: str) -> Optional[dict]:
+    """Look up geo data from the local GeoLite2-City database (no ASN)."""
     if not _maxmind_reader:
         return None
-
     try:
         response = _maxmind_reader.city(ip_address)
-
-        # ASN-based VPN detection
-        asn_data = _lookup_asn(ip_address)
-        asn_org = asn_data["asn_org"] if asn_data else None
-        is_vpn = _is_hosting_asn(asn_org) if _asn_available else None
-
         return {
             "country": response.country.name,
             "country_code": response.country.iso_code,
@@ -141,14 +134,12 @@ def _lookup_maxmind(ip_address: str) -> Optional[dict]:
             "city": response.city.name,
             "latitude": response.location.latitude,
             "longitude": response.location.longitude,
-            "is_vpn": is_vpn,
-            "asn_org": asn_org,
         }
     except geoip2.errors.AddressNotFoundError:
-        logger.debug("MaxMind: IP not found in database: %s", ip_address)
+        logger.debug("MaxMind: IP not found in City database: %s", ip_address)
         return None
     except Exception as e:
-        logger.debug("MaxMind lookup failed for %s: %s", ip_address, e)
+        logger.debug("MaxMind City lookup failed for %s: %s", ip_address, e)
         return None
 
 
@@ -199,22 +190,31 @@ async def lookup_ip(ip_address: str) -> Optional[dict]:
     if not ip_address or _is_private_ip(ip_address):
         return None
 
-    # Try MaxMind first (synchronous, fast local lookup)
-    if _maxmind_available:
-        result = _lookup_maxmind(ip_address)
-        if result:
-            # If ASN DB is missing, is_vpn will be None, fall through to ip-api
-            if result.get("is_vpn") is not None:
-                return result
-            # ASN DB not available, try ip-api for VPN detection only
-            vpn_result = await _lookup_ipapi(ip_address)
-            if vpn_result:
-                result["is_vpn"] = vpn_result.get("is_vpn")
-                result["asn_org"] = vpn_result.get("asn_org")
+    # Local MaxMind lookups are independent: City (geo) and ASN (ISP/VPN) come
+    # from separate databases, so resolve each on its own. This way ISP/VPN
+    # detection keeps working even when the City DB lacks the IP, or when only
+    # the ASN DB is installed.
+    geo = _lookup_city(ip_address) if _maxmind_reader else None
+    asn = _lookup_asn(ip_address) if _asn_reader else None
+
+    if geo or asn:
+        result = geo or {
+            "country": None, "country_code": None, "region": None,
+            "city": None, "latitude": None, "longitude": None,
+        }
+        if asn and asn.get("asn_org"):
+            result["asn_org"] = asn["asn_org"]
+            result["is_vpn"] = _is_hosting_asn(asn["asn_org"])
             return result
+        # No local ASN data — top up ISP/VPN from ip-api (best-effort).
+        vpn_result = await _lookup_ipapi(ip_address)
+        if vpn_result:
+            result["asn_org"] = vpn_result.get("asn_org")
+            result["is_vpn"] = vpn_result.get("is_vpn")
+        else:
+            result.setdefault("asn_org", None)
+            result.setdefault("is_vpn", None)
+        return result
 
-    # Full fallback to ip-api.com
-    if settings.geoip_provider == "ipapi" or not _maxmind_available:
-        return await _lookup_ipapi(ip_address)
-
-    return None
+    # No local databases produced anything: fall back to ip-api.com entirely.
+    return await _lookup_ipapi(ip_address)

@@ -19,6 +19,10 @@ services:
         condition: service_started
     expose:
       - "8000"
+    # Persist the MaxMind GeoLite2 .mmdb files so the boot-time download (when
+    # MAXMIND_LICENSE_KEY is set) is a one-time cost across restarts/redeploys.
+    volumes:
+      - geoipdata:/app/data
     restart: unless-stopped
 
   postgres:
@@ -60,3 +64,4 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  geoipdata:

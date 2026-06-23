@@ -18,6 +18,7 @@ from sqlalchemy import distinct, func, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import TokenData, require_org_admin, require_org_member
+from app.core.timeutils import iso_utc
 from app.db.postgres import get_db_session
 from app.models.content import Content, ContentShare
 from app.models.org import Organization, OrganizationMembership
@@ -273,7 +274,7 @@ async def content_performance(
             sharing_members=int(members or 0),
             opens=int(opens or 0),
             unique_opens=int(uniq or 0),
-            last_engaged_at=last_at.isoformat() if last_at else None,
+            last_engaged_at=iso_utc(last_at),
         ))
     items.sort(key=lambda i: i.opens, reverse=True)
     return ContentPerformanceReport(

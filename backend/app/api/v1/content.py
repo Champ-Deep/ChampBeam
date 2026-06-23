@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import TokenData, require_org_admin, require_org_member
+from app.core.timeutils import iso_utc
 from app.db.postgres import get_db_session
 from app.models.content import CONTENT_KIND_FILE, CONTENT_KIND_LINK, Content, ContentShare
 from app.models.domain import Domain
@@ -172,7 +173,7 @@ async def list_content(
             canonical_url=c.canonical_url,
             file_id=str(c.file_id) if c.file_id else None,
             is_archived=c.is_archived,
-            created_at=c.created_at.isoformat() if c.created_at else "",
+            created_at=iso_utc(c.created_at) or "",
             share_count=share_count,
             my_share=await _build_my_share(session, mine) if mine else None,
         ))
@@ -229,7 +230,7 @@ async def create_content(
         canonical_url=content.canonical_url,
         file_id=str(content.file_id) if content.file_id else None,
         is_archived=content.is_archived,
-        created_at=content.created_at.isoformat() if content.created_at else "",
+        created_at=iso_utc(content.created_at) or "",
         share_count=0,
         my_share=None,
     )
@@ -263,7 +264,7 @@ async def update_content(
         canonical_url=content.canonical_url,
         file_id=str(content.file_id) if content.file_id else None,
         is_archived=content.is_archived,
-        created_at=content.created_at.isoformat() if content.created_at else "",
+        created_at=iso_utc(content.created_at) or "",
         share_count=share_count,
         my_share=None,
     )
@@ -326,7 +327,7 @@ async def my_shares(
             canonical_url=content.canonical_url,
             file_id=str(content.file_id) if content.file_id else None,
             is_archived=content.is_archived,
-            created_at=content.created_at.isoformat() if content.created_at else "",
+            created_at=iso_utc(content.created_at) or "",
             share_count=0,
             my_share=await _build_my_share(session, share),
         ))

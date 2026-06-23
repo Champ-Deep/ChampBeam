@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import TokenData, require_auth
+from app.core.timeutils import iso_utc
 from app.db.postgres import get_db_session
 from app.models.domain import (
     Domain,
@@ -143,9 +144,9 @@ def _to_response(domain: Domain) -> DomainResponse:
         ssl_status=domain.ssl_status,
         verification_errors=domain.verification_errors,
         is_primary=bool(domain.is_primary),
-        created_at=domain.created_at.isoformat() if domain.created_at else "",
-        verified_at=domain.verified_at.isoformat() if domain.verified_at else None,
-        last_checked_at=domain.last_checked_at.isoformat() if domain.last_checked_at else None,
+        created_at=iso_utc(domain.created_at) or "",
+        verified_at=iso_utc(domain.verified_at),
+        last_checked_at=iso_utc(domain.last_checked_at),
         cname_target=settings.cloudflare_cname_target or None,
         cloudflare_managed=bool(domain.cf_custom_hostname_id),
         procured=domain.procured,
@@ -153,7 +154,7 @@ def _to_response(domain: Domain) -> DomainResponse:
         registration_status=domain.registration_status,
         auto_renew=bool(domain.auto_renew),
         registration_price=domain.registration_price,
-        domain_expires_at=domain.domain_expires_at.isoformat() if domain.domain_expires_at else None,
+        domain_expires_at=iso_utc(domain.domain_expires_at),
     )
 
 

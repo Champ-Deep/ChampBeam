@@ -75,6 +75,16 @@ The org/admin features (shared content library + consolidated analytics) ride on
 ## F. Sentry (handled by the intern)
 - [ ] Wire the SDK per README "Error monitoring (Sentry)" and set `SENTRY_DSN` in `deploy/.env`.
 
+## F2. ISP / VPN detection (MaxMind GeoLite2)
+Click ISP + VPN/hosting detection uses local MaxMind databases. Without them the
+code falls back to ip-api.com, whose free tier **blocks datacenter/VPS IPs** — so
+on the droplet VPN/ISP silently stops resolving. Fix:
+- [ ] Create a free MaxMind license key (https://www.maxmind.com/en/geolite2/signup).
+- [ ] Set `MAXMIND_LICENSE_KEY=...` in `deploy/.env`. On boot the app downloads
+      the City + ASN databases into the persisted `geoipdata` volume (one-time).
+- [ ] Verify: open a tracked link from a VPN/datacenter IP and confirm the click
+      shows the ISP/ASN and the VPN flag in Link analytics.
+
 ## G. Delete Resend variables (safe)
 No backend code references Resend, and `Settings(extra="ignore")` means removing them cannot break startup.
 - [ ] Delete `RESEND_*` vars wherever they still live (the old Railway service / any `.env`).

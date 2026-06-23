@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.security import TokenData, require_auth, get_current_user
+from app.core.timeutils import iso_utc
 from app.db.postgres import get_db_session
 from app.models.domain import Domain, STATUS_ACTIVE
 from app.models.file_asset import FileAsset
@@ -267,7 +268,7 @@ def _preset_to_response(preset: UTMPreset) -> dict:
         "utm_content": preset.utm_content,
         "utm_term": preset.utm_term,
         "custom_params": preset.custom_params,
-        "created_at": preset.created_at.isoformat() if preset.created_at else "",
+        "created_at": iso_utc(preset.created_at) or "",
     }
 
 
@@ -851,8 +852,8 @@ async def get_link_performance(
             project_id=str(link.project_id) if link.project_id else None,
             click_count=link.click_count or 0,
             unique_clicks=link.unique_clicks or 0,
-            first_clicked_at=link.first_clicked_at.isoformat() if link.first_clicked_at else None,
-            created_at=link.created_at.isoformat() if link.created_at else None,
+            first_clicked_at=iso_utc(link.first_clicked_at),
+            created_at=iso_utc(link.created_at),
         ))
 
     return items
@@ -967,7 +968,7 @@ async def get_link_click_events(
             "referrer": e.referrer,
             "is_vpn": e.is_vpn or False,
             "asn_org": e.asn_org,
-            "clicked_at": e.clicked_at.isoformat() if e.clicked_at else None,
+            "clicked_at": iso_utc(e.clicked_at),
         }
         for e in events.scalars().all()
     ]
@@ -1156,8 +1157,8 @@ async def list_campaigns(
             "total_clicks": total_clicks,
             "unique_clicks": unique_clicks,
             "click_rate": round((unique_clicks / total_links * 100) if total_links > 0 else 0.0, 2),
-            "first_link_created": r.first_link_created.isoformat() if r.first_link_created else None,
-            "last_click_at": r.last_click_at.isoformat() if r.last_click_at else None,
+            "first_link_created": iso_utc(r.first_link_created),
+            "last_click_at": iso_utc(r.last_click_at),
         })
 
     return campaigns
@@ -1521,7 +1522,7 @@ async def get_campaign_links(
             "utm_medium": link.utm_medium,
             "click_count": link.click_count or 0,
             "unique_clicks": link.unique_clicks or 0,
-            "created_at": link.created_at.isoformat() if link.created_at else None,
+            "created_at": iso_utc(link.created_at),
         }
         for link in links
     ]
@@ -1724,7 +1725,7 @@ async def export_click_events(
     ])
     for row in result.all():
         writer.writerow([
-            row.clicked_at.isoformat() if row.clicked_at else "",
+            iso_utc(row.clicked_at) or "",
             row.original_url, row.short_code,
             row.utm_source, row.utm_medium, row.utm_campaign, row.utm_content, row.utm_term,
             row.ip_address, row.country, row.region, row.city,
@@ -1785,8 +1786,8 @@ async def export_campaign_summary(
             int(r.total_clicks) if r.total_clicks else 0,
             unique,
             round((unique / total_links * 100) if total_links > 0 else 0.0, 2),
-            r.first_created.isoformat() if r.first_created else "",
-            r.last_clicked.isoformat() if r.last_clicked else "",
+            iso_utc(r.first_created) or "",
+            iso_utc(r.last_clicked) or "",
         ])
 
     return StreamingResponse(
@@ -1838,7 +1839,7 @@ async def export_link_performance(
             link.original_url, link.tracked_url, link.short_code,
             link.utm_source, link.utm_medium, link.utm_campaign, link.utm_content, link.utm_term,
             link.project_name, link.click_count or 0, link.unique_clicks or 0,
-            link.created_at.isoformat() if link.created_at else "",
+            iso_utc(link.created_at) or "",
         ])
 
     return StreamingResponse(
@@ -1867,7 +1868,7 @@ async def list_tags(
         .order_by(LinkTag.name)
     )
     return [
-        {"id": str(t.id), "name": t.name, "color": t.color, "created_at": t.created_at.isoformat() if t.created_at else None}
+        {"id": str(t.id), "name": t.name, "color": t.color, "created_at": iso_utc(t.created_at)}
         for t in result.scalars().all()
     ]
 
@@ -1896,7 +1897,7 @@ async def create_tag(
     session.add(tag)
     await session.flush()
 
-    return {"id": str(tag.id), "name": tag.name, "color": tag.color, "created_at": tag.created_at.isoformat() if tag.created_at else None}
+    return {"id": str(tag.id), "name": tag.name, "color": tag.color, "created_at": iso_utc(tag.created_at)}
 
 
 @router.delete("/tags/{tag_id}", status_code=204)
@@ -2036,7 +2037,7 @@ async def get_recent_clicks(
         {
             "id": str(r.id),
             "type": "file" if r.file_id else "link",
-            "clicked_at": r.clicked_at.isoformat() if r.clicked_at else None,
+            "clicked_at": iso_utc(r.clicked_at),
             "country": r.country,
             "region": r.region,
             "device_type": r.device_type,

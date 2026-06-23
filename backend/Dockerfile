@@ -23,6 +23,7 @@ COPY . .
 
 EXPOSE 8000
 
-# On boot: idempotent schema safety net, apply migrations, then serve. This
-# mirrors the Railway start command so behavior is identical off-Railway.
-CMD ["sh", "-c", "python scripts/bootstrap_db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# On boot: fetch GeoIP DBs if a license key is set (best-effort, before the app
+# imports the geo readers), idempotent schema safety net, apply migrations, then
+# serve. Mirrors the Railway start command so behavior is identical off-Railway.
+CMD ["sh", "-c", "python scripts/ensure_geoip.py && python scripts/bootstrap_db.py && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
