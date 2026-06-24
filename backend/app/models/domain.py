@@ -54,4 +54,21 @@ class Domain(Base):
     verified_at = Column(DateTime, nullable=True)
     last_checked_at = Column(DateTime, nullable=True)
 
+    # --- Domain procurement (bought through the platform) ---------------------
+    # NULL when the domain was brought by the user (BYOD). Set to the registrar
+    # ("cloudflare_registrar") when we registered it on their behalf so the UI
+    # can show renewal/expiry and skip the manual CNAME setup steps.
+    registrar = Column(String(32), nullable=True)
+    # Registration workflow state mirrored from the registrar: "active",
+    # "in_progress", "action_required", "failed", ...
+    registration_status = Column(String(32), nullable=True)
+    auto_renew = Column(Boolean, default=False, nullable=False)
+    # Registration price as the registrar reported it (decimal string, USD).
+    registration_price = Column(String(32), nullable=True)
+    domain_expires_at = Column(DateTime, nullable=True)
+
     user = relationship("User", backref="domains")
+
+    @property
+    def procured(self) -> bool:
+        return self.registrar is not None

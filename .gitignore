@@ -70,3 +70,6 @@ logs/
 
 # Superpowers
 .superpowers/
+
+# Local Python virtualenv used for running the backend test suite
+backend/.venv/

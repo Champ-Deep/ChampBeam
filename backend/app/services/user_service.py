@@ -79,6 +79,41 @@ class UserService:
         user = await self.get_by_email(session, email)
         return user is not None
 
+    @staticmethod
+    def has_placeholder_email(user: User) -> bool:
+        """True while the user still carries the stub email minted on first auth."""
+        return bool(user.email) and user.email.endswith("@clerk.placeholder")
+
+    async def apply_identity(
+        self,
+        session: AsyncSession,
+        user: User,
+        email: Optional[str] = None,
+        full_name: Optional[str] = None,
+    ) -> bool:
+        """Fill in real email/name from Clerk, overwriting only the placeholder.
+
+        Returns True when something changed. Email is only replaced while it is
+        still the ``@clerk.placeholder`` stub, so a user who later edits their
+        profile here isn't clobbered. Guards against the unique-email constraint
+        by skipping an email already taken by a different row.
+        """
+        changed = False
+        if email and self.has_placeholder_email(user) and email != user.email:
+            clash = await session.execute(
+                select(User).where(User.email == email, User.id != user.id)
+            )
+            if clash.scalar_one_or_none() is None:
+                user.email = email
+                changed = True
+        if full_name and not user.full_name:
+            user.full_name = full_name
+            changed = True
+        if changed:
+            user.updated_at = datetime.utcnow()
+            await session.flush()
+        return changed
+
     async def get_or_create_by_clerk_id(self, session: AsyncSession, clerk_id: str) -> User:
         """Look up a user by Clerk ID, creating a stub row on first auth.
 

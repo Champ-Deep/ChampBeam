@@ -11,13 +11,15 @@ import {
   Info,
   Plus,
   RefreshCw,
+  Search,
+  ShoppingCart,
   Star,
   Trash2,
   Zap,
 } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
 import { utmApi } from '../api/utm';
-import type { Domain, DomainsConfig, DomainStatus } from '../api/utm';
+import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
 
 type SettingsTab = 'domains' | 'presets';
@@ -199,6 +201,8 @@ export function SettingsPage() {
             onAdd={(hostname) => createMutation.mutate(hostname)}
             submitting={createMutation.isPending}
           />
+
+          {config?.procurement_enabled && <BuyDomainCard />}
 
           <Card>
             <CardHeader>
@@ -491,6 +495,120 @@ function SetupInstructions({
         <li>We issue a TLS certificate; the status flips to Active automatically.</li>
       </ol>
     </div>
+  );
+}
+
+function BuyDomainCard() {
+  const queryClient = useQueryClient();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<DomainSearchResult[] | null>(null);
+
+  const searchMutation = useMutation({
+    mutationFn: (q: string) => utmApi.searchDomains(q),
+    onSuccess: (rows) => setResults(rows),
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(msg ?? 'Search failed.');
+    },
+  });
+
+  const purchaseMutation = useMutation({
+    mutationFn: (name: string) => utmApi.purchaseDomain(name),
+    onSuccess: (domain) => {
+      toast.success(`${domain.hostname} is being set up. Watch its status below.`);
+      setResults(null);
+      setQuery('');
+      queryClient.invalidateQueries({ queryKey: ['domains'] });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(msg ?? 'Could not register that domain.');
+    },
+  });
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) {
+      toast.error('Type a name or keyword to search.');
+      return;
+    }
+    searchMutation.mutate(q);
+  };
+
+  const confirmBuy = (r: DomainSearchResult) => {
+    const price = r.registration_cost ? ` for ${r.currency ?? '$'}${r.registration_cost}/yr` : '';
+    if (window.confirm(`Register ${r.name}${price}? This is billed immediately and is non-refundable.`)) {
+      purchaseMutation.mutate(r.name);
+    }
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShoppingCart className="h-5 w-5 text-brand-purple" />
+          Get a new domain
+        </CardTitle>
+      </CardHeader>
+      <form onSubmit={handleSearch} className="flex items-end gap-3">
+        <div className="flex-1">
+          <Input
+            label="Search domains"
+            placeholder="acme, acmepitch.com…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            helperText="We register it and wire it up automatically — no DNS steps."
+          />
+        </div>
+        <Button
+          type="submit"
+          isLoading={searchMutation.isPending}
+          leftIcon={<Search className="h-4 w-4" />}
+        >
+          Search
+        </Button>
+      </form>
+
+      {results && (
+        <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
+          {results.length === 0 ? (
+            <p className="py-4 text-sm text-slate-500">No suggestions. Try another keyword.</p>
+          ) : (
+            results.map((r) => (
+              <div key={r.name} className="flex items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <span className="font-mono text-sm text-slate-900 break-all">{r.name}</span>
+                  {!r.available && (
+                    <Badge variant="default" size="sm" className="ml-2">
+                      {r.reason === 'domain_unavailable' ? 'Taken' : r.reason ?? 'Unavailable'}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {r.registration_cost && (
+                    <span className="text-sm text-slate-600">
+                      {r.currency ?? '$'}
+                      {r.registration_cost}
+                      <span className="text-slate-400">/yr</span>
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    disabled={!r.available}
+                    isLoading={purchaseMutation.isPending && purchaseMutation.variables === r.name}
+                    onClick={() => confirmBuy(r)}
+                    leftIcon={<ShoppingCart className="h-4 w-4" />}
+                  >
+                    Buy
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 
