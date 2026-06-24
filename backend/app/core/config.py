@@ -159,16 +159,51 @@ class Settings(BaseSettings):
 
     @property
     def resolved_platform_redirect_host(self) -> str:
-        """Hostname (lowercased, no port) of the platform-default redirect host.
+        """Primary platform-default host (lowercased, no port).
 
-        Falls back to parsing redirect_base_url when platform_redirect_host
-        isn't explicitly set.
+        Used when building new short/file URLs and reserving the name. When
+        ``platform_redirect_host`` holds a comma-separated list (during a host
+        migration), the first entry is the primary. Falls back to parsing
+        ``redirect_base_url`` when unset.
         """
         if self.platform_redirect_host:
-            return self.platform_redirect_host.lower().strip()
+            return self.platform_redirect_host.split(",")[0].lower().strip()
         from urllib.parse import urlparse
         parsed = urlparse(self.redirect_base_url)
         return (parsed.hostname or "").lower()
+
+    @property
+    def platform_redirect_hosts(self) -> set[str]:
+        """All hostnames treated as the platform default (no custom domain).
+
+        ``PLATFORM_REDIRECT_HOST`` may be a comma-separated list so that, when
+        you change the backend's public URL, the OLD host can keep serving
+        previously-issued ``/r/`` and ``/f/`` links (whose URLs embed that host)
+        while the new host takes over — no shared link breaks. The host derived
+        from ``redirect_base_url`` is always included.
+        """
+        hosts: set[str] = set()
+        for h in (self.platform_redirect_host or "").split(","):
+            h = h.lower().strip()
+            if h:
+                hosts.add(h)
+        if self.redirect_base_url:
+            from urllib.parse import urlparse
+            derived = (urlparse(self.redirect_base_url).hostname or "").lower()
+            if derived:
+                hosts.add(derived)
+        return hosts
+
+    def is_platform_host(self, host: str | None) -> bool:
+        """True when an incoming Host should resolve in the platform-default
+        (``domain_id IS NULL``) namespace rather than a custom BYOD domain.
+
+        An empty Host is treated as platform-default (preserves prior behavior
+        and keeps internal/test calls working)."""
+        h = (host or "").lower().strip()
+        if not h:
+            return True
+        return h in self.platform_redirect_hosts
 
     @property
     def cloudflare_configured(self) -> bool:

@@ -89,6 +89,54 @@ on the droplet VPN/ISP silently stops resolving. Fix:
 No backend code references Resend, and `Settings(extra="ignore")` means removing them cannot break startup.
 - [ ] Delete `RESEND_*` vars wherever they still live (the old Railway service / any `.env`).
 
+## H. Moving hosts / Clerk dev→prod — keeping data, links & files working
+When you switch the Clerk instance (dev→prod) **and/or** move the backend off
+Railway, three different things can make "old data stop working." Handle each:
+
+### H1. Old short links / file URLs 404 after the public URL changes
+A `/r/{code}` or `/f/{code}` URL embeds the host it was created on. The redirect
+handler only serves the platform-default namespace for hosts it recognizes, so
+once you change the backend's public URL the old shared URLs are refused.
+- [ ] Keep the OLD host pointing at the backend during the transition and list
+      BOTH: `PLATFORM_REDIRECT_HOST=champbeam.com,<old-railway-host>.up.railway.app`.
+      Both now resolve as platform-default, so every previously-shared link keeps
+      working while new links use the first (primary) host. Drop the old entry
+      only once you no longer need those links live.
+
+### H2. "I see my old files/links but they're not mine" after dev→prod Clerk
+Clerk dev and prod are separate instances, so the same person has a DIFFERENT
+Clerk user id in each. The backend keys ownership on `clerk_id`, so a returning
+user authenticates as a brand-new local user and their old links/files/domains
+look orphaned.
+- [ ] Find your production Clerk user id (Clerk Dashboard → Users) and run, in
+      the backend container/venv:
+      ```bash
+      # preview first
+      python scripts/merge_clerk_user.py --from you@example.com --into user_PRODxxx --dry-run
+      # then apply
+      python scripts/merge_clerk_user.py --from you@example.com --into user_PRODxxx
+      ```
+      `--from` can be the dev email, dev `user_...` id, or local UUID; `--into` is
+      the production identity to keep. It reassigns every owned row (links, files,
+      domains, presets, projects, content, shares, memberships) to the prod user
+      and retires the source. Repeat per user, or script it from the Users list.
+
+### H3. Old files 404 even when owned (bytes missing)
+If files were uploaded with `STORAGE_BACKEND=local` on an ephemeral container
+(Railway without a mounted volume), the metadata rows survive in Postgres but the
+bytes were wiped on a redeploy — so they list but won't serve. New uploads work.
+- [ ] Use durable, portable storage: `STORAGE_BACKEND=s3` on **Cloudflare R2**
+      (section B). Bytes then live in R2, independent of the app host, so the
+      Railway→PaaS move doesn't touch them — only Postgres migrates (section C).
+- [ ] Bytes already lost to an ephemeral disk cannot be recovered; re-upload
+      those files (they'll get fresh working URLs).
+
+### H4. The data itself (Postgres) moving to your own PaaS
+- [ ] Postgres: `pg_dump`/`pg_restore` per section C (one-time).
+- [ ] Files: nothing to move if on R2/S3 (H3). Point the new host at the same
+      bucket via the same `SUPABASE_STORAGE_*` vars.
+- [ ] Re-run the Clerk env (section D) + GeoIP key (F2) on the new host.
+
 ---
 
 ## Verification probes

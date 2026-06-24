@@ -60,7 +60,7 @@ def _request_host(request: Request) -> str:
 
 
 async def _resolve_domain(host: str, session: AsyncSession) -> Optional[Domain]:
-    if not host or host == settings.resolved_platform_redirect_host:
+    if not host or settings.is_platform_host(host):
         return None
     result = await session.execute(
         select(Domain).where(
@@ -103,7 +103,7 @@ async def serve_file(
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
 
-    if host and domain is None and host != settings.resolved_platform_redirect_host:
+    if host and domain is None and not settings.is_platform_host(host):
         # Custom hostname that isn't registered or isn't active, refuse rather
         # than fall through to the platform-default bucket.
         return Response(status_code=404, content="File not found.")

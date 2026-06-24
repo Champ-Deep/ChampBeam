@@ -36,7 +36,7 @@ async def redirect_short_link(
     """Redirect a short code to its tracked URL, scoped by Host header."""
     host = (request.headers.get("host") or "").lower().split(":", 1)[0]
     domain_id = None
-    if host and host != settings.resolved_platform_redirect_host:
+    if host and not settings.is_platform_host(host):
         result = await session.execute(
             select(Domain).where(Domain.hostname == host, Domain.status == STATUS_ACTIVE)
         )

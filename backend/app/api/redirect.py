@@ -33,7 +33,7 @@ async def _resolve_domain(host: str, session: AsyncSession) -> Optional[Domain]:
     Returns None when the request arrived on the platform-default host (so the
     caller should query in the ``domain_id IS NULL`` bucket).
     """
-    if not host or host == settings.resolved_platform_redirect_host:
+    if not host or settings.is_platform_host(host):
         return None
     result = await session.execute(
         select(Domain).where(Domain.hostname == host, Domain.status == STATUS_ACTIVE)
@@ -58,7 +58,7 @@ async def redirect_link(
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
 
-    if host and domain is None and host != settings.resolved_platform_redirect_host:
+    if host and domain is None and not settings.is_platform_host(host):
         # Custom hostname that isn't registered or isn't active, refuse rather
         # than fall through to the platform-default bucket (which would leak
         # one tenant's link onto another tenant's domain).

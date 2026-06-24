@@ -335,7 +335,7 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
           Add your own domain
         </CardTitle>
       </CardHeader>
-      <form onSubmit={handleSubmit} className="flex items-end gap-3">
+      <form onSubmit={handleSubmit} className="flex items-start gap-3">
         <div className="flex-1">
           <Input
             label="Domain"
@@ -345,7 +345,12 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
             helperText="Use a subdomain you control. You will add a CNAME record after this step."
           />
         </div>
-        <Button type="submit" isLoading={submitting} leftIcon={<Plus className="h-4 w-4" />}>
+        <Button
+          type="submit"
+          isLoading={submitting}
+          leftIcon={<Plus className="h-4 w-4" />}
+          className="mt-7 whitespace-nowrap"
+        >
           Add domain
         </Button>
       </form>
@@ -551,7 +556,7 @@ function BuyDomainCard() {
           Get a new domain
         </CardTitle>
       </CardHeader>
-      <form onSubmit={handleSearch} className="flex items-end gap-3">
+      <form onSubmit={handleSearch} className="flex items-start gap-3">
         <div className="flex-1">
           <Input
             label="Search domains"
@@ -565,6 +570,7 @@ function BuyDomainCard() {
           type="submit"
           isLoading={searchMutation.isPending}
           leftIcon={<Search className="h-4 w-4" />}
+          className="mt-7 whitespace-nowrap"
         >
           Search
         </Button>
