@@ -26,7 +26,7 @@ from app.middleware.rate_limit import setup_rate_limiting
 # Import routers
 from app.api.v1 import auth, health, projects, utm, short_links, domains, qr
 from app.api.v1 import files as files_v1
-from app.api.v1 import webhooks, org, content
+from app.api.v1 import webhooks, org, content, champvault
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
 from app.services.file_expiry import expiry_sweeper_loop
@@ -194,6 +194,7 @@ app.include_router(qr.router, prefix=settings.api_v1_prefix)
 app.include_router(webhooks.router, prefix=settings.api_v1_prefix)
 app.include_router(org.router, prefix=settings.api_v1_prefix)
 app.include_router(content.router, prefix=settings.api_v1_prefix)
+app.include_router(champvault.router, prefix=settings.api_v1_prefix)
 app.include_router(short_links.router)
 
 

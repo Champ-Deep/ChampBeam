@@ -41,6 +41,41 @@ async def _resolve_domain(host: str, session: AsyncSession) -> Optional[Domain]:
     return result.scalar_one_or_none()
 
 
+async def _resolve_destination(link: LinkClick) -> str | None:
+    """Where this link should send the visitor.
+
+    For a ChampVault-backed beam, re-mint a fresh (short-lived) delivery URL on
+    each open so the link never dies when a previously-minted URL expires; fall
+    back to the last-known ``tracked_url`` if ChampVault is unreachable. The
+    ``champvault://`` pseudo original_url is never a valid destination.
+    """
+    destination = link.tracked_url or link.original_url
+    if link.champvault_asset_id:
+        if settings.champvault_configured:
+            try:
+                from app.integrations.champvault_client import (
+                    ChampVault,
+                    ChampVaultError,
+                    delivery_target,
+                )
+
+                delivered = await ChampVault(timeout=6.0).deliver(
+                    link.champvault_asset_id, expires_in_s=3600
+                )
+                fresh = delivery_target(delivered)
+                if fresh:
+                    destination = fresh
+            except Exception:
+                logger.warning(
+                    "champvault re-mint failed for asset=%s; using last-known URL",
+                    link.champvault_asset_id,
+                    exc_info=True,
+                )
+        if destination and destination.startswith("champvault://"):
+            destination = None
+    return destination
+
+
 @router.get("/r/{short_code}")
 async def redirect_link(
     short_code: str,
@@ -76,7 +111,7 @@ async def redirect_link(
     if not link:
         return RedirectResponse(url="/", status_code=302)
 
-    destination = link.tracked_url or link.original_url
+    destination = await _resolve_destination(link)
     if not destination:
         return RedirectResponse(url="/", status_code=302)
 

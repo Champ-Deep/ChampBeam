@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Library, Users } from 'lucide-react';
+import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Library, Users, Radio } from 'lucide-react';
 
 import { clsx } from 'clsx';
+import { useQuery } from '@tanstack/react-query';
 import { Show, SignInButton, SignUpButton, UserButton, OrganizationSwitcher, useAuth } from '@clerk/react';
 import { Button } from '../ui/Button';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import { champvaultApi } from '../../api/champvault';
 
 interface NavLink {
   to: string;
@@ -17,12 +19,15 @@ interface NavLink {
   publicOnly?: boolean;
   // 'member' shows for anyone with an active org; 'admin' only for org admins.
   requiresOrg?: 'member' | 'admin';
+  // Only shown when the ChampVault hub is configured on this deployment.
+  requiresVault?: boolean;
 }
 
 const navLinks: NavLink[] = [
   { to: '/', label: 'Generator', icon: Link2 },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
   { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
+  { to: '/vault', label: 'Vault', icon: Radio, requiresAuth: true, requiresVault: true },
   { to: '/library', label: 'Library', icon: Library, requiresAuth: true, requiresOrg: 'member' },
   { to: '/team', label: 'Team', icon: Users, requiresAuth: true, requiresOrg: 'admin' },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, requiresAuth: true },
@@ -34,6 +39,13 @@ export function Navigation() {
   const { isSignedIn } = useAuth();
   const { inOrg, isAdmin } = useOrgContext();
   const { recentClicks } = useClickNotifications(!!isSignedIn);
+  const { data: vaultConfig } = useQuery({
+    queryKey: ['champvault-config'],
+    queryFn: () => champvaultApi.config(),
+    enabled: !!isSignedIn,
+    staleTime: 5 * 60 * 1000,
+  });
+  const vaultEnabled = !!vaultConfig?.configured;
   const [showBell, setShowBell] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
@@ -57,6 +69,7 @@ export function Navigation() {
     if (link.requiresAuth && !isSignedIn) return false;
     if (link.requiresOrg === 'member' && !inOrg) return false;
     if (link.requiresOrg === 'admin' && !(inOrg && isAdmin)) return false;
+    if (link.requiresVault && !vaultEnabled) return false;
     return true;
   });
 

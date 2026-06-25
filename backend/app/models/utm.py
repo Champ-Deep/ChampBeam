@@ -88,6 +88,12 @@ class LinkClick(Base):
     anchor_text = Column(String(500), nullable=True)
     link_position = Column(Integer, nullable=True)
 
+    # When set, this link wraps a ChampVault asset: the redirect handler re-mints
+    # a fresh (short-lived) delivery URL from ChampVault on each open, so the beam
+    # never breaks when a previously-minted delivery URL expires. tracked_url
+    # holds the last-known delivery URL as a fallback.
+    champvault_asset_id = Column(String(64), nullable=True, index=True)
+
     # UTM attribution
     utm_source = Column(String(255), nullable=True)
     utm_medium = Column(String(255), nullable=True)

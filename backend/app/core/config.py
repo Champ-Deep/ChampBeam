@@ -105,6 +105,12 @@ class Settings(BaseSettings):
     # not supply one (Cloudflare also requires a default contact on the account).
     cloudflare_registrant_email: str = ""
 
+    # ChampVault content hub (external, read-only). ChampBeam lists the library
+    # and mints delivery URLs to wrap in tracked beams; it never stores bytes.
+    # When unset, the /api/v1/champvault endpoints return 503 with a setup hint.
+    champvault_url: str = ""
+    champvault_api_key: str = ""
+
     # Supabase Storage, used as a standalone S3-compatible blob store for the
     # file-hosting feature. Supabase itself is not the database; only Storage
     # is in play. Configure all five in production. When any are unset, the
@@ -213,6 +219,10 @@ class Settings(BaseSettings):
     def cloudflare_registrar_configured(self) -> bool:
         """True when the account-scoped Registrar API can be called."""
         return bool(self.cloudflare_api_token and self.cloudflare_account_id)
+
+    @property
+    def champvault_configured(self) -> bool:
+        return bool(self.champvault_url and self.champvault_api_key)
 
     @property
     def clerk_environment(self) -> str:

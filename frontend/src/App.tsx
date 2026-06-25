@@ -14,6 +14,7 @@ import { FilesPage } from './pages/FilesPage';
 import { FileAnalyticsPage } from './pages/FileAnalyticsPage';
 import { ContentLibraryPage } from './pages/ContentLibraryPage';
 import { TeamAnalyticsPage } from './pages/TeamAnalyticsPage';
+import { VaultPage } from './pages/VaultPage';
 import { useOrgContext } from './hooks/useOrgContext';
 import { setTokenGetter } from './api/client';
 
@@ -71,6 +72,7 @@ export default function App() {
                 <Route path="/campaigns/:campaignName" element={<ProtectedRoute><CampaignDetailPage /></ProtectedRoute>} />
                 <Route path="/files" element={<ProtectedRoute><FilesPage /></ProtectedRoute>} />
                 <Route path="/files/:fileId/analytics" element={<ProtectedRoute><FileAnalyticsPage /></ProtectedRoute>} />
+                <Route path="/vault" element={<ProtectedRoute><VaultPage /></ProtectedRoute>} />
                 <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><OrgRoute admin><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
