@@ -64,7 +64,7 @@ _MIME_KIND = {
 
 _KIND_CAP_BYTES = {
     KIND_PDF: 50 * 1024 * 1024,
-    KIND_HTML: 1 * 1024 * 1024,
+    KIND_HTML: 10 * 1024 * 1024,
     KIND_IMAGE: 10 * 1024 * 1024,
     KIND_VIDEO: 500 * 1024 * 1024,
     KIND_OTHER: 50 * 1024 * 1024,
@@ -74,7 +74,7 @@ _KIND_CAP_BYTES = {
 # on the shared platform-default namespace. Authed users keep _KIND_CAP_BYTES.
 _GUEST_KIND_CAP_BYTES = {
     KIND_PDF: 10 * 1024 * 1024,
-    KIND_HTML: 1 * 1024 * 1024,
+    KIND_HTML: 5 * 1024 * 1024,
     KIND_IMAGE: 5 * 1024 * 1024,
     KIND_VIDEO: 50 * 1024 * 1024,
     KIND_OTHER: 10 * 1024 * 1024,
