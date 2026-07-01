@@ -490,7 +490,7 @@ export function FilesPage() {
           isUploading={isUploading}
           accept=".pdf,.html,.htm,.mp4,.webm,.png,.jpg,.jpeg,.webp"
           label="Drop a PDF, video, HTML, or image here"
-          hint="PDF/HTML/image up to 10 MB, video up to 500 MB"
+          hint="HTML up to 20 MB, PDF/image up to 10 MB, video up to 500 MB"
           uploadingLabel={
             progress !== null ? `Uploading... ${progress}%` : 'Uploading...'
           }
