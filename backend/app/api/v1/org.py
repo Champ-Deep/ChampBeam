@@ -25,6 +25,7 @@ from app.core.security import (
 )
 from app.core.timeutils import iso_utc
 from app.db.postgres import get_db_session
+from app.models.assignment import Assignment
 from app.models.content import Content, ContentShare
 from app.models.org import ROLE_LEADER, Organization, OrganizationMembership
 from app.models.user import User
@@ -69,6 +70,24 @@ class MemberAssignment(BaseModel):
     user_id: str
     role: str
     leader_user_id: Optional[str]
+
+
+class AssignmentCreate(BaseModel):
+    champvault_asset_id: str
+    asset_title: Optional[str] = None
+    assigned_to_user_id: str
+    note: Optional[str] = None
+
+
+class AssignmentResponse(BaseModel):
+    id: str
+    champvault_asset_id: str
+    asset_title: Optional[str]
+    assigned_to_user_id: str
+    assigned_by_user_id: Optional[str]
+    note: Optional[str]
+    created_at: str
+    sent: bool
 
 
 class ContentPerformance(BaseModel):
@@ -447,6 +466,178 @@ async def assign_member_leader(
         role=membership.role,
         leader_user_id=str(leader_uuid) if leader_uuid else None,
     )
+
+
+# ============================================================================
+# Assignments (leader -> rep soft recommendations)
+# ============================================================================
+
+
+async def _sent_lookup(
+    session: AsyncSession, org_id: UUID, assignments: list[Assignment]
+) -> dict[UUID, bool]:
+    """Map assignment id -> whether the assignee has since sent that asset.
+
+    "Sent" = the rep has a ContentShare of the org's shadow Content for the
+    asset. Computed in two set-based queries rather than per-row.
+    """
+    if not assignments:
+        return {}
+    asset_ids = {a.champvault_asset_id for a in assignments}
+    content_by_asset = {
+        asset: cid
+        for cid, asset in (await session.execute(
+            select(Content.id, Content.champvault_asset_id).where(
+                Content.organization_id == org_id,
+                Content.champvault_asset_id.in_(asset_ids),
+            )
+        )).all()
+    }
+    shares: set[tuple[UUID, UUID]] = set()
+    cids = list(content_by_asset.values())
+    if cids:
+        shares = {
+            (cid, uid)
+            for cid, uid in (await session.execute(
+                select(ContentShare.content_id, ContentShare.shared_by_user_id).where(
+                    ContentShare.content_id.in_(cids)
+                )
+            )).all()
+        }
+    out: dict[UUID, bool] = {}
+    for a in assignments:
+        cid = content_by_asset.get(a.champvault_asset_id)
+        out[a.id] = bool(cid and (cid, a.assigned_to_user_id) in shares)
+    return out
+
+
+def _assignment_response(a: Assignment, sent: bool) -> AssignmentResponse:
+    return AssignmentResponse(
+        id=str(a.id),
+        champvault_asset_id=a.champvault_asset_id,
+        asset_title=a.asset_title,
+        assigned_to_user_id=str(a.assigned_to_user_id),
+        assigned_by_user_id=str(a.assigned_by_user_id) if a.assigned_by_user_id else None,
+        note=a.note,
+        created_at=iso_utc(a.created_at) or "",
+        sent=sent,
+    )
+
+
+@router.post("/assignments", response_model=AssignmentResponse, status_code=201)
+async def create_assignment(
+    data: AssignmentCreate,
+    user: TokenData = Depends(require_org_leader_or_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Recommend a ChampVault asset to a rep (leader → their reps; admin → anyone).
+
+    Idempotent per (org, asset, rep): re-assigning refreshes the note/title.
+    """
+    org = await _org(session, user)
+    try:
+        assignee = UUID(data.assigned_to_user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid assigned_to_user_id.")
+
+    membership = (await session.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == org.id,
+            OrganizationMembership.user_id == assignee,
+        )
+    )).scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=400, detail="Assignee is not a member of this org.")
+    # A leader may only assign to their own reps; a super admin may assign to anyone.
+    if not user.is_org_admin and membership.leader_user_id != UUID(user.user_id):
+        raise HTTPException(status_code=403, detail="You can only assign to your own reps.")
+
+    existing = (await session.execute(
+        select(Assignment).where(
+            Assignment.organization_id == org.id,
+            Assignment.champvault_asset_id == data.champvault_asset_id,
+            Assignment.assigned_to_user_id == assignee,
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        existing.note = data.note
+        if data.asset_title:
+            existing.asset_title = data.asset_title
+        assignment = existing
+    else:
+        assignment = Assignment(
+            organization_id=org.id,
+            champvault_asset_id=data.champvault_asset_id,
+            asset_title=data.asset_title,
+            assigned_to_user_id=assignee,
+            assigned_by_user_id=UUID(user.user_id),
+            note=data.note,
+        )
+        session.add(assignment)
+    await session.commit()
+    await session.refresh(assignment)
+    sent = await _sent_lookup(session, org.id, [assignment])
+    return _assignment_response(assignment, sent.get(assignment.id, False))
+
+
+@router.get("/assignments/mine", response_model=List[AssignmentResponse])
+async def my_assignments(
+    user: TokenData = Depends(require_org_member),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """The assets a leader has recommended to the caller, with sent status."""
+    org = await _org(session, user)
+    rows = (await session.execute(
+        select(Assignment)
+        .where(
+            Assignment.organization_id == org.id,
+            Assignment.assigned_to_user_id == UUID(user.user_id),
+        )
+        .order_by(Assignment.created_at.desc())
+    )).scalars().all()
+    sent = await _sent_lookup(session, org.id, list(rows))
+    return [_assignment_response(a, sent.get(a.id, False)) for a in rows]
+
+
+@router.get("/assignments", response_model=List[AssignmentResponse])
+async def list_assignments(
+    user: TokenData = Depends(require_org_leader_or_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Assignments the caller made (leader) or every one in the org (super admin)."""
+    org = await _org(session, user)
+    stmt = select(Assignment).where(Assignment.organization_id == org.id)
+    if not user.is_org_admin:
+        stmt = stmt.where(Assignment.assigned_by_user_id == UUID(user.user_id))
+    rows = (await session.execute(stmt.order_by(Assignment.created_at.desc()))).scalars().all()
+    sent = await _sent_lookup(session, org.id, list(rows))
+    return [_assignment_response(a, sent.get(a.id, False)) for a in rows]
+
+
+@router.delete("/assignments/{assignment_id}", status_code=204)
+async def delete_assignment(
+    assignment_id: str,
+    user: TokenData = Depends(require_org_leader_or_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Withdraw an assignment (leader: only their own; super admin: any in org)."""
+    org = await _org(session, user)
+    try:
+        aid = UUID(assignment_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid assignment id.")
+    assignment = (await session.execute(
+        select(Assignment).where(
+            Assignment.id == aid,
+            Assignment.organization_id == org.id,
+        )
+    )).scalar_one_or_none()
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Assignment not found.")
+    if not user.is_org_admin and assignment.assigned_by_user_id != UUID(user.user_id):
+        raise HTTPException(status_code=403, detail="You can only withdraw your own assignments.")
+    await session.delete(assignment)
+    await session.commit()
 
 
 def user_service_is_placeholder(email: Optional[str]) -> bool:
