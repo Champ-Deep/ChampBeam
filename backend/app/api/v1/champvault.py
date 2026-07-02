@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -29,7 +30,8 @@ from app.integrations.champvault_client import (
     ChampVaultNotConfigured,
     delivery_target,
 )
-from app.services import content_service
+from app.models.favorite import Favorite
+from app.services import content_service, org_service
 from app.services.utm_service import utm_service
 
 logger = logging.getLogger(__name__)
@@ -65,15 +67,87 @@ async def list_assets(
     q: Optional[str] = None,
     collection: Optional[str] = None,
     user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
 ):
-    """List published ChampVault assets (BD-facing → published only)."""
+    """List published ChampVault assets (BD-facing → published only).
+
+    Each asset is annotated with ``favorited`` for the caller so the library can
+    render the star state without a second round-trip.
+    """
     try:
         assets = await _client().list_assets(
             type=type, tag=tag, q=q, collection=collection, status="published"
         )
     except (ChampVaultNotConfigured, ChampVaultError) as exc:
         raise _unavailable(exc)
-    return [a.to_dict() for a in assets]
+    fav_ids = await _favorite_ids(session, user.user_id, [a.id for a in assets])
+    out = []
+    for a in assets:
+        d = a.to_dict()
+        d["favorited"] = a.id in fav_ids
+        out.append(d)
+    return out
+
+
+async def _favorite_ids(session: AsyncSession, user_id: str, asset_ids: list[str]) -> set[str]:
+    """Which of ``asset_ids`` the user has favorited (empty set if none given)."""
+    if not asset_ids:
+        return set()
+    rows = (await session.execute(
+        select(Favorite.champvault_asset_id).where(
+            Favorite.user_id == user_id,
+            Favorite.champvault_asset_id.in_(asset_ids),
+        )
+    )).scalars().all()
+    return set(rows)
+
+
+@router.get("/favorites")
+async def list_favorites(
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """The caller's favorited asset ids, newest first (for the My Favorites shelf)."""
+    rows = (await session.execute(
+        select(Favorite.champvault_asset_id, Favorite.created_at)
+        .where(Favorite.user_id == user.user_id)
+        .order_by(Favorite.created_at.desc())
+    )).all()
+    return [{"asset_id": aid, "favorited_at": created.isoformat() if created else None} for aid, created in rows]
+
+
+@router.put("/assets/{asset_id}/favorite", status_code=204)
+async def add_favorite(
+    asset_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Favorite an asset (idempotent — favoriting twice is a no-op)."""
+    exists = (await session.execute(
+        select(Favorite.id).where(
+            Favorite.user_id == user.user_id,
+            Favorite.champvault_asset_id == asset_id,
+        )
+    )).scalar_one_or_none()
+    if exists is None:
+        session.add(Favorite(user_id=user.user_id, champvault_asset_id=asset_id))
+        await session.commit()
+
+
+@router.delete("/assets/{asset_id}/favorite", status_code=204)
+async def remove_favorite(
+    asset_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Un-favorite an asset (idempotent)."""
+    await session.execute(
+        sql_delete(Favorite).where(
+            Favorite.user_id == user.user_id,
+            Favorite.champvault_asset_id == asset_id,
+        )
+    )
+    await session.commit()
 
 
 @router.get("/collections")
@@ -116,6 +190,12 @@ async def beam_asset(
     if not target:
         raise HTTPException(status_code=502, detail="ChampVault returned no delivery URL.")
 
+    # Org members: route the send through a shadow Content + ContentShare so it
+    # rolls up in the org's team analytics like any other library sendout. Signed
+    # -in-without-an-org (personal) users get a plain tracked beam (below).
+    if user.org_id:
+        return await _beam_for_org(client, user, session, asset_id, target, delivered, data.domain_id)
+
     # Resolve the caller's chosen active domain (or platform default).
     domain = await content_service._resolve_member_domain(session, user.user_id, data.domain_id)
     domain_uuid = domain.id if domain else None
@@ -140,6 +220,48 @@ async def beam_asset(
     return {
         "asset_id": asset_id,
         "link_id": str(link.id),
+        "beam_url": beam_url,
+        "kind": delivered.get("kind"),
+        "expires_at": delivered.get("expiresAt"),
+    }
+
+
+async def _beam_for_org(
+    client: ChampVault,
+    user: TokenData,
+    session: AsyncSession,
+    asset_id: str,
+    target: str,
+    delivered: dict,
+    domain_id: Optional[str],
+) -> dict:
+    """Org-scoped beam: upsert the org's shadow Content for the asset, then mint
+    the member's tracked share of it (idempotent per member+domain)."""
+    org_uuid = await org_service.resolve_org_uuid(session, user.org_id)
+    if org_uuid is None:
+        raise HTTPException(status_code=409, detail="Organization is not provisioned yet. Retry shortly.")
+
+    content = await content_service.get_champvault_content(session, org_uuid, asset_id)
+    if content is None:
+        # First send of this asset in the org: fetch its details for a human title.
+        try:
+            asset = await client.get_asset(asset_id)
+        except (ChampVaultNotConfigured, ChampVaultError) as exc:
+            raise _unavailable(exc)
+        content = await content_service.get_or_create_champvault_content(
+            session, org_uuid, asset_id,
+            title=asset.title, description=asset.description,
+            created_by_user_id=user.user_id,
+        )
+
+    share, beam_url = await content_service.mint_share(
+        session, content, user.user_id, domain_id, champvault_delivery_url=target
+    )
+    await session.commit()
+    return {
+        "asset_id": asset_id,
+        "content_id": str(content.id),
+        "link_id": str(share.link_id) if share.link_id else None,
         "beam_url": beam_url,
         "kind": delivered.get("kind"),
         "expires_at": delivered.get("expiresAt"),

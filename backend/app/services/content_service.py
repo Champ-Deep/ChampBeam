@@ -92,12 +92,19 @@ async def mint_share(
     content: Content,
     member_user_id: str,
     domain_id: Optional[str] = None,
+    *,
+    champvault_delivery_url: Optional[str] = None,
 ) -> tuple[ContentShare, str]:
     """Create (or reuse) a member's link/file for ``content`` and record a share.
 
     Returns ``(content_share, share_url)``. Re-sharing the same item on the same
     domain reuses the existing link/file so a member ends up with one stable URL
     per item rather than a new one each click of "Share".
+
+    For a ChampVault-backed content (``content.champvault_asset_id`` set) the
+    caller passes ``champvault_delivery_url`` — a freshly-minted delivery URL used
+    as the link's fallback ``tracked_url``. The minted link is stamped with the
+    asset id so the redirect handler re-mints a fresh delivery URL on each open.
     """
     domain = await _resolve_member_domain(session, member_user_id, domain_id)
     domain_uuid = domain.id if domain else None
@@ -109,6 +116,10 @@ async def mint_share(
     if existing is not None:
         link = await session.get(LinkClick, existing.link_id) if existing.link_id else None
         file = await session.get(FileAsset, existing.file_id) if existing.file_id else None
+        # Refresh the fallback URL on a ChampVault re-send so a stale delivery URL
+        # never lingers if the redirect-time re-mint is unavailable.
+        if link is not None and champvault_delivery_url:
+            link.tracked_url = champvault_delivery_url
         return existing, build_share_url(link=link, file=file, hostname=hostname)
 
     if content.kind == CONTENT_KIND_LINK:
@@ -117,11 +128,13 @@ async def mint_share(
         link = await utm_service.record_link(
             user_id=member_user_id,
             original_url=content.canonical_url,
-            tracked_url=content.canonical_url,
+            tracked_url=champvault_delivery_url or content.canonical_url,
             utm_params={},
             domain_id=domain_uuid,
             session=session,
         )
+        if content.champvault_asset_id:
+            link.champvault_asset_id = content.champvault_asset_id
         share = await _record_share(session, content, member_user_id, link_id=link.id, domain_uuid=domain_uuid)
         return share, build_share_url(link=link, file=None, hostname=hostname)
 
@@ -149,6 +162,50 @@ async def mint_share(
         return share, build_share_url(link=None, file=copy, hostname=hostname)
 
     raise HTTPException(status_code=400, detail=f"Unsupported content kind '{content.kind}'.")
+
+
+async def get_champvault_content(
+    session: AsyncSession, org_uuid: UUID, asset_id: str
+) -> Optional[Content]:
+    """The org's shadow library row for a ChampVault asset, if one exists."""
+    return (await session.execute(
+        select(Content).where(
+            Content.organization_id == org_uuid,
+            Content.champvault_asset_id == asset_id,
+        )
+    )).scalar_one_or_none()
+
+
+async def get_or_create_champvault_content(
+    session: AsyncSession,
+    org_uuid: UUID,
+    asset_id: str,
+    *,
+    title: str,
+    description: Optional[str],
+    created_by_user_id: Optional[str],
+) -> Content:
+    """Idempotently get/create the org's shadow ``Content`` for a ChampVault asset.
+
+    One row per (org, asset). ``canonical_url`` holds the ``champvault://`` marker
+    (never a real destination); shares carry the re-mintable delivery URL.
+    """
+    existing = await get_champvault_content(session, org_uuid, asset_id)
+    if existing is not None:
+        return existing
+    content = Content(
+        id=uuid4(),
+        organization_id=org_uuid,
+        created_by_user_id=UUID(created_by_user_id) if created_by_user_id else None,
+        title=title or f"ChampVault asset {asset_id}",
+        description=description,
+        kind=CONTENT_KIND_LINK,
+        canonical_url=f"champvault://{asset_id}",
+        champvault_asset_id=asset_id,
+    )
+    session.add(content)
+    await session.flush()
+    return content
 
 
 async def _load_master_file(session: AsyncSession, content: Content) -> FileAsset:
