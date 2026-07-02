@@ -17,11 +17,16 @@ from pydantic import BaseModel
 from sqlalchemy import distinct, func, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import TokenData, require_org_admin, require_org_member
+from app.core.security import (
+    TokenData,
+    require_org_admin,
+    require_org_leader_or_admin,
+    require_org_member,
+)
 from app.core.timeutils import iso_utc
 from app.db.postgres import get_db_session
 from app.models.content import Content, ContentShare
-from app.models.org import Organization, OrganizationMembership
+from app.models.org import ROLE_LEADER, Organization, OrganizationMembership
 from app.models.user import User
 from app.models.utm import ClickEvent
 
@@ -49,9 +54,21 @@ class MemberStats(BaseModel):
     email: Optional[str]
     full_name: Optional[str]
     role: str
+    leader_user_id: Optional[str] = None
     shares: int
     opens: int
     unique_opens: int
+
+
+class MemberUpdate(BaseModel):
+    # The leader this member reports to. Send an empty string / null to clear.
+    leader_user_id: Optional[str] = None
+
+
+class MemberAssignment(BaseModel):
+    user_id: str
+    role: str
+    leader_user_id: Optional[str]
 
 
 class ContentPerformance(BaseModel):
@@ -137,6 +154,25 @@ def _engagement_rows(org_uuid: UUID):
     return union_all(link_q, file_q).subquery("engagement")
 
 
+async def _visible_member_ids(
+    session: AsyncSession, org: Organization, user: TokenData
+) -> Optional[set[UUID]]:
+    """The member ids the caller may see in analytics.
+
+    ``None`` means "the whole org" (super admin — no filtering). A leader sees
+    only the reps assigned to them plus their own activity.
+    """
+    if user.is_org_admin:
+        return None
+    rep_ids = (await session.execute(
+        select(OrganizationMembership.user_id).where(
+            OrganizationMembership.organization_id == org.id,
+            OrganizationMembership.leader_user_id == UUID(user.user_id),
+        )
+    )).scalars().all()
+    return {UUID(user.user_id)} | set(rep_ids)
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -166,17 +202,20 @@ async def org_context(
 
 @router.get("/members", response_model=List[MemberStats])
 async def list_members(
-    user: TokenData = Depends(require_org_admin),
+    user: TokenData = Depends(require_org_leader_or_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Roster of the org's members with their sharing activity (admin only)."""
+    """Roster with sharing activity. Super admin sees all; a leader sees their reps."""
     org = await _org(session, user)
+    visible = await _visible_member_ids(session, org, user)
 
     members = (await session.execute(
         select(OrganizationMembership, User)
         .join(User, OrganizationMembership.user_id == User.id)
         .where(OrganizationMembership.organization_id == org.id)
     )).all()
+    if visible is not None:
+        members = [(m, u) for (m, u) in members if u.id in visible]
 
     # Shares per member.
     share_counts = dict((row.member, row.n) for row in (await session.execute(
@@ -209,6 +248,7 @@ async def list_members(
             email=None if user_service_is_placeholder(u.email) else u.email,
             full_name=u.full_name,
             role=membership.role,
+            leader_user_id=str(membership.leader_user_id) if membership.leader_user_id else None,
             shares=int(share_counts.get(u.id, 0)),
             opens=int(opens or 0),
             unique_opens=int(uniq or 0),
@@ -219,11 +259,12 @@ async def list_members(
 
 @router.get("/analytics/content", response_model=ContentPerformanceReport)
 async def content_performance(
-    user: TokenData = Depends(require_org_admin),
+    user: TokenData = Depends(require_org_leader_or_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Consolidated per-content performance across all members (admin only)."""
+    """Consolidated per-content performance. Super admin: whole org. Leader: their reps."""
     org = await _org(session, user)
+    visible = await _visible_member_ids(session, org, user)
 
     contents = (await session.execute(
         select(Content).where(Content.organization_id == org.id)
@@ -231,32 +272,41 @@ async def content_performance(
     if not contents:
         return ContentPerformanceReport(total_content=0, total_shares=0, total_opens=0, items=[])
 
-    # shares + distinct sharing members per content.
+    # shares + distinct sharing members per content (scoped to visible members).
+    share_stmt = (
+        select(
+            ContentShare.content_id.label("cid"),
+            func.count(ContentShare.id).label("shares"),
+            func.count(distinct(ContentShare.shared_by_user_id)).label("members"),
+        )
+        .where(ContentShare.organization_id == org.id)
+        .group_by(ContentShare.content_id)
+    )
+    if visible is not None:
+        share_stmt = share_stmt.where(ContentShare.shared_by_user_id.in_(visible))
     share_agg = {
         row.cid: (row.shares, row.members)
-        for row in (await session.execute(
-            select(
-                ContentShare.content_id.label("cid"),
-                func.count(ContentShare.id).label("shares"),
-                func.count(distinct(ContentShare.shared_by_user_id)).label("members"),
-            )
-            .where(ContentShare.organization_id == org.id)
-            .group_by(ContentShare.content_id)
-        )).all()
+        for row in (await session.execute(share_stmt)).all()
     }
 
     eng = _engagement_rows(org.id)
+    opens_stmt = select(
+        eng.c.cid.label("cid"),
+        func.count(eng.c.eid).label("opens"),
+        func.count(distinct(eng.c.ip)).label("uniq"),
+        func.max(eng.c.at).label("last_at"),
+    ).group_by(eng.c.cid)
+    if visible is not None:
+        opens_stmt = opens_stmt.where(eng.c.member.in_(visible))
     opens_agg = {
         row.cid: (row.opens, row.uniq, row.last_at)
-        for row in (await session.execute(
-            select(
-                eng.c.cid.label("cid"),
-                func.count(eng.c.eid).label("opens"),
-                func.count(distinct(eng.c.ip)).label("uniq"),
-                func.max(eng.c.at).label("last_at"),
-            ).group_by(eng.c.cid)
-        )).all()
+        for row in (await session.execute(opens_stmt)).all()
     }
+
+    # A leader only sees content their reps have actually shared; a super admin
+    # sees the whole library.
+    if visible is not None:
+        contents = [c for c in contents if c.id in share_agg]
 
     items: list[ContentPerformance] = []
     total_shares = total_opens = 0
@@ -288,11 +338,12 @@ async def content_performance(
 @router.get("/analytics/content/{content_id}", response_model=ContentBreakdown)
 async def content_member_breakdown(
     content_id: str,
-    user: TokenData = Depends(require_org_admin),
+    user: TokenData = Depends(require_org_leader_or_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Per-member breakdown for one content item (who shared it, how it did)."""
+    """Per-member breakdown for one content item. Leaders see only their reps."""
     org = await _org(session, user)
+    visible = await _visible_member_ids(session, org, user)
     try:
         cid = UUID(content_id)
     except ValueError:
@@ -304,7 +355,7 @@ async def content_member_breakdown(
         raise HTTPException(status_code=404, detail="Content not found.")
 
     eng = _engagement_rows(org.id)
-    rows = (await session.execute(
+    breakdown_stmt = (
         select(
             eng.c.member.label("member"),
             func.count(eng.c.eid).label("opens"),
@@ -312,7 +363,10 @@ async def content_member_breakdown(
         )
         .where(eng.c.cid == cid)
         .group_by(eng.c.member)
-    )).all()
+    )
+    if visible is not None:
+        breakdown_stmt = breakdown_stmt.where(eng.c.member.in_(visible))
+    rows = (await session.execute(breakdown_stmt)).all()
 
     # Resolve member identities for the contributors.
     member_ids = [r.member for r in rows]
@@ -341,6 +395,57 @@ async def content_member_breakdown(
         opens=total_opens,
         unique_opens=total_uniq,
         members=members,
+    )
+
+
+@router.patch("/members/{user_id}", response_model=MemberAssignment)
+async def assign_member_leader(
+    user_id: str,
+    data: MemberUpdate,
+    user: TokenData = Depends(require_org_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Assign (or clear) the leader a member reports to (super admin only)."""
+    org = await _org(session, user)
+    try:
+        member_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user id.")
+
+    membership = (await session.execute(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == org.id,
+            OrganizationMembership.user_id == member_uuid,
+        )
+    )).scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Member not found in this org.")
+
+    leader_uuid: Optional[UUID] = None
+    if data.leader_user_id:  # empty string / null clears the assignment
+        try:
+            leader_uuid = UUID(data.leader_user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid leader_user_id.")
+        if leader_uuid == member_uuid:
+            raise HTTPException(status_code=400, detail="A member cannot lead themselves.")
+        leader = (await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == org.id,
+                OrganizationMembership.user_id == leader_uuid,
+            )
+        )).scalar_one_or_none()
+        if leader is None:
+            raise HTTPException(status_code=400, detail="Leader is not a member of this org.")
+        if not (leader.is_leader or leader.is_admin):
+            raise HTTPException(status_code=400, detail="That member is not a leader or admin.")
+
+    membership.leader_user_id = leader_uuid
+    await session.commit()
+    return MemberAssignment(
+        user_id=str(member_uuid),
+        role=membership.role,
+        leader_user_id=str(leader_uuid) if leader_uuid else None,
     )
 
 

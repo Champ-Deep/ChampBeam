@@ -29,7 +29,13 @@ from sqlalchemy.orm import relationship
 from app.db.postgres import Base
 
 
+# Role tiers. Super admin (any role ending in "admin") sees the whole org; a
+# leader sees only the reps assigned to them (OrganizationMembership.leader_user_id);
+# a member (rep / account manager) sees only their own activity. The external
+# leads/prospects a rep sends to are not app users — they're the open/click layer.
 ROLE_ADMIN = "admin"
+ROLE_SUPER_ADMIN = "super_admin"
+ROLE_LEADER = "leader"
 ROLE_MEMBER = "member"
 
 
@@ -75,17 +81,32 @@ class OrganizationMembership(Base):
         nullable=False,
         index=True,
     )
-    # Normalized role with the Clerk "org:" prefix stripped: "admin" | "member"
-    # (or any custom org role name).
+    # Normalized role with the Clerk "org:" prefix stripped: "super_admin" |
+    # "admin" | "leader" | "member" (or any custom org role name).
     role = Column(String(32), nullable=False, default=ROLE_MEMBER)
     clerk_membership_id = Column(String(255), nullable=True, index=True)
+
+    # The leader (a user in the same org) this member reports to. Set by a super
+    # admin; scopes a leader's analytics to just their reps. NULL for unassigned
+    # members and for leaders/admins themselves. App-managed (not from Clerk).
+    leader_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="memberships")
-    user = relationship("User", backref="org_memberships")
+    # Two FK paths to users (user_id, leader_user_id) — disambiguate the member.
+    user = relationship("User", foreign_keys=[user_id], backref="org_memberships")
 
     @property
     def is_admin(self) -> bool:
         return (self.role or "").lower().endswith(ROLE_ADMIN)
+
+    @property
+    def is_leader(self) -> bool:
+        return (self.role or "").lower() == ROLE_LEADER

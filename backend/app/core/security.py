@@ -55,6 +55,10 @@ class TokenData(BaseModel):
     def is_org_admin(self) -> bool:
         return bool(self.org_role) and self.org_role.lower().endswith("admin")
 
+    @property
+    def is_org_leader(self) -> bool:
+        return bool(self.org_role) and self.org_role.lower() == "leader"
+
 
 async def _fetch_clerk_jwks(force_refresh: bool = False) -> dict[str, Any]:
     """Fetch (and cache) Clerk's JWKS. Non-blocking; safe under concurrency."""
@@ -267,5 +271,15 @@ async def require_org_admin(user: TokenData = Depends(require_org_member)) -> To
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This action requires an organization admin.",
+        )
+    return user
+
+
+async def require_org_leader_or_admin(user: TokenData = Depends(require_org_member)) -> TokenData:
+    """Require an active org AND a leader or admin role (team-analytics tier)."""
+    if not (user.is_org_admin or user.is_org_leader):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires a team leader or organization admin.",
         )
     return user
