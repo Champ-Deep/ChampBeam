@@ -17,8 +17,9 @@ interface NavLink {
   icon: typeof Link2;
   requiresAuth?: boolean;
   publicOnly?: boolean;
-  // 'member' shows for anyone with an active org; 'admin' only for org admins.
-  requiresOrg?: 'member' | 'admin';
+  // 'member' shows for anyone with an active org; 'admin' only for org admins;
+  // 'team' for the team-analytics tier (admins + leaders).
+  requiresOrg?: 'member' | 'admin' | 'team';
   // Only shown when the ChampVault hub is configured on this deployment.
   requiresVault?: boolean;
 }
@@ -29,7 +30,7 @@ const navLinks: NavLink[] = [
   { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
   { to: '/vault', label: 'Vault', icon: Radio, requiresAuth: true, requiresVault: true },
   { to: '/library', label: 'Library', icon: Library, requiresAuth: true, requiresOrg: 'member' },
-  { to: '/team', label: 'Team', icon: Users, requiresAuth: true, requiresOrg: 'admin' },
+  { to: '/team', label: 'Team', icon: Users, requiresAuth: true, requiresOrg: 'team' },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, requiresAuth: true },
   { to: '/settings', label: 'Settings', icon: Settings, requiresAuth: true },
 ];
@@ -37,7 +38,7 @@ const navLinks: NavLink[] = [
 export function Navigation() {
   const location = useLocation();
   const { isSignedIn } = useAuth();
-  const { inOrg, isAdmin } = useOrgContext();
+  const { inOrg, isAdmin, canManageTeam } = useOrgContext();
   const { recentClicks } = useClickNotifications(!!isSignedIn);
   const { data: vaultConfig } = useQuery({
     queryKey: ['champvault-config'],
@@ -69,6 +70,7 @@ export function Navigation() {
     if (link.requiresAuth && !isSignedIn) return false;
     if (link.requiresOrg === 'member' && !inOrg) return false;
     if (link.requiresOrg === 'admin' && !(inOrg && isAdmin)) return false;
+    if (link.requiresOrg === 'team' && !(inOrg && canManageTeam)) return false;
     if (link.requiresVault && !vaultEnabled) return false;
     return true;
   });

@@ -35,12 +35,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Requires an active organization; admin-only when `admin` is set. The backend
-// enforces the real authorization — this just keeps the UI honest.
-function OrgRoute({ admin = false, children }: { admin?: boolean; children: React.ReactNode }) {
-  const { inOrg, isAdmin } = useOrgContext();
+// Requires an active organization. `team` limits to the team-analytics tier
+// (admins + leaders). The backend enforces the real authorization — this just
+// keeps the UI honest.
+function OrgRoute({ team = false, children }: { team?: boolean; children: React.ReactNode }) {
+  const { inOrg, canManageTeam } = useOrgContext();
   if (!inOrg) return <Navigate to="/" replace />;
-  if (admin && !isAdmin) return <Navigate to="/library" replace />;
+  if (team && !canManageTeam) return <Navigate to="/library" replace />;
   return <>{children}</>;
 }
 
@@ -74,7 +75,7 @@ export default function App() {
                 <Route path="/files/:fileId/analytics" element={<ProtectedRoute><FileAnalyticsPage /></ProtectedRoute>} />
                 <Route path="/vault" element={<ProtectedRoute><VaultPage /></ProtectedRoute>} />
                 <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
-                <Route path="/team" element={<ProtectedRoute><OrgRoute admin><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
+                <Route path="/team" element={<ProtectedRoute><OrgRoute team><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               </Routes>
             </main>

@@ -19,11 +19,20 @@ export interface VaultAsset {
   description: string | null;
   created_at: number | null;
   updated_at: number | null;
+  // Annotated per-caller by the backend on GET /champvault/assets.
+  favorited?: boolean;
+}
+
+export interface FavoriteEntry {
+  asset_id: string;
+  favorited_at: string | null;
 }
 
 export interface BeamResult {
   asset_id: string;
-  link_id: string;
+  // Present for org-scoped sends: the shadow Content the send rolls up under.
+  content_id?: string | null;
+  link_id: string | null;
   beam_url: string;
   kind: 'file' | 'video' | string;
   expires_at: number | null;
@@ -54,5 +63,18 @@ export const champvaultApi = {
       domain_id: opts.domain_id ?? null,
     });
     return res.data;
+  },
+
+  async listFavorites(): Promise<FavoriteEntry[]> {
+    const res = await api.get<FavoriteEntry[]>('/champvault/favorites');
+    return asArray<FavoriteEntry>(res.data);
+  },
+
+  async addFavorite(assetId: string): Promise<void> {
+    await api.put(`/champvault/assets/${assetId}/favorite`);
+  },
+
+  async removeFavorite(assetId: string): Promise<void> {
+    await api.delete(`/champvault/assets/${assetId}/favorite`);
   },
 };

@@ -23,9 +23,28 @@ export interface MemberStats {
   email: string | null;
   full_name: string | null;
   role: string;
+  leader_user_id: string | null;
   shares: number;
   opens: number;
   unique_opens: number;
+}
+
+export interface Assignment {
+  id: string;
+  champvault_asset_id: string;
+  asset_title: string | null;
+  assigned_to_user_id: string;
+  assigned_by_user_id: string | null;
+  note: string | null;
+  created_at: string;
+  sent: boolean;
+}
+
+export interface CreateAssignmentInput {
+  champvault_asset_id: string;
+  asset_title?: string;
+  assigned_to_user_id: string;
+  note?: string;
 }
 
 export interface ContentPerformance {
@@ -116,6 +135,42 @@ export const orgApi = {
   async contentBreakdown(contentId: string): Promise<ContentBreakdown> {
     const response = await api.get<ContentBreakdown>(`/org/analytics/content/${contentId}`);
     return response.data;
+  },
+
+  // Super admin: set (or clear, with null) the leader a member reports to.
+  async assignMemberLeader(
+    userId: string,
+    leaderUserId: string | null
+  ): Promise<{ user_id: string; role: string; leader_user_id: string | null }> {
+    const response = await api.patch(`/org/members/${userId}`, { leader_user_id: leaderUserId });
+    return response.data;
+  },
+};
+
+// ============================================================
+// Assignments (leader -> rep soft recommendations)
+// ============================================================
+
+export const assignmentsApi = {
+  async create(input: CreateAssignmentInput): Promise<Assignment> {
+    const response = await api.post<Assignment>('/org/assignments', input);
+    return response.data;
+  },
+
+  // Assignments the caller received (their shelf).
+  async mine(): Promise<Assignment[]> {
+    const response = await api.get<Assignment[]>('/org/assignments/mine');
+    return asArray<Assignment>(response.data);
+  },
+
+  // Assignments the caller made (leader) or every one in the org (super admin).
+  async made(): Promise<Assignment[]> {
+    const response = await api.get<Assignment[]>('/org/assignments');
+    return asArray<Assignment>(response.data);
+  },
+
+  async remove(id: string): Promise<void> {
+    await api.delete(`/org/assignments/${id}`);
   },
 };
 

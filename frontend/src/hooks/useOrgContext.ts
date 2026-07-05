@@ -10,7 +10,12 @@ import { useAuth } from '@clerk/react';
 export function useOrgContext() {
   const { isSignedIn, orgId, orgRole, orgSlug } = useAuth();
   const role = orgRole ?? null;
-  const isAdmin = !!role && role.toLowerCase().endsWith('admin');
+  const normalized = role ? role.toLowerCase().replace(/^org:/, '') : null;
+  // Super admin: any role ending in "admin". Leader: the "leader" role. These
+  // mirror the backend tiers; a leader + admin can both see team analytics.
+  const isAdmin = !!normalized && normalized.endsWith('admin');
+  const isLeader = normalized === 'leader';
+  const canManageTeam = isAdmin || isLeader;
   return {
     isSignedIn: !!isSignedIn,
     inOrg: !!orgId,
@@ -18,5 +23,7 @@ export function useOrgContext() {
     orgSlug: orgSlug ?? null,
     role,
     isAdmin,
+    isLeader,
+    canManageTeam,
   };
 }
