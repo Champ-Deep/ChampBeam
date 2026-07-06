@@ -394,11 +394,15 @@ class UTMService:
         return event
 
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
-        """Background task: resolve GeoIP + VPN/ASN detection and update click event."""
+        """Background task: resolve GeoIP + VPN/ASN + company intent, then update
+        the click event. Geo and company enrichment are independent — either can
+        land on its own — so a missing/failed lookup for one never drops the other."""
+        from app.services.company_intel import resolve_company
         from app.services.geoip_service import lookup_ip
 
         geo = await lookup_ip(ip_address)
-        if not geo:
+        company = await resolve_company(ip_address)
+        if not geo and not company:
             return
 
         async with async_session_maker() as session:
@@ -406,7 +410,9 @@ class UTMService:
                 select(ClickEvent).where(ClickEvent.id == event_id)
             )
             event = result.scalar_one_or_none()
-            if event:
+            if event is None:
+                return
+            if geo:
                 event.country = geo.get("country")
                 event.country_code = geo.get("country_code")
                 event.region = geo.get("region")
@@ -415,7 +421,13 @@ class UTMService:
                 event.longitude = geo.get("longitude")
                 event.is_vpn = bool(geo.get("is_vpn")) if geo.get("is_vpn") is not None else False
                 event.asn_org = geo.get("asn_org")
-                await session.commit()
+            if company:
+                event.company_name = company.get("name")
+                event.company_domain = company.get("domain")
+                event.company_industry = company.get("industry")
+                event.company_size = company.get("size")
+                event.company_type = company.get("type")
+            await session.commit()
 
     # ------------------------------------------------------------------
     # Bulk CSV processing

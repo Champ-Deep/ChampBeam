@@ -162,6 +162,15 @@ class ClickEvent(Base):
     is_vpn = Column(Boolean, default=False, nullable=False)
     asn_org = Column(String(255), nullable=True)  # ISP/ASN organization name
 
+    # Company intent (reverse-IP firmographics), resolved async like geo. Only
+    # populated when a company-intel provider is configured; the "asn" provider
+    # leaves these NULL and analytics falls back to asn_org as a rough signal.
+    company_name = Column(String(255), nullable=True)
+    company_domain = Column(String(255), nullable=True, index=True)
+    company_industry = Column(String(128), nullable=True)
+    company_size = Column(String(64), nullable=True)      # employee range
+    company_type = Column(String(32), nullable=True)      # business|isp|hosting|education|…
+
     # Timestamp
     clicked_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

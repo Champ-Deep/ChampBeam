@@ -1106,6 +1106,142 @@ async def get_link_device_breakdown(
 
 
 # ============================================================================
+# Company intent (reverse-IP) — which companies open the caller's content
+# ============================================================================
+
+# Obvious consumer ISPs / clouds / hosting to drop from the free "asn" fallback,
+# where we only have the network owner (not a real business-vs-isp classifier).
+# With a firmographic provider this is unnecessary — company_type does the job.
+_NETWORK_NOISE = (
+    "comcast", "verizon", "at&t", "att ", "spectrum", "charter", "cox ", "centurylink",
+    "t-mobile", "sprint", "vodafone", "telstra", "orange", "telefonica", "deutsche telekom",
+    "jio", "airtel", "bsnl", "sky ", "virgin media", "bell canada", "rogers", "shaw ",
+    "amazon", "aws", "google", "microsoft", "azure", "cloudflare", "digitalocean", "ovh",
+    "hetzner", "linode", "akamai", "fastly", "oracle cloud", "gcp",
+)
+
+
+def _looks_like_network_noise(name: Optional[str]) -> bool:
+    if not name:
+        return True
+    low = name.lower()
+    return any(k in low for k in _NETWORK_NOISE)
+
+
+def _intent_temperature(recency_days: float, opens: int) -> str:
+    if recency_days <= 3 and opens >= 3:
+        return "hot"
+    if recency_days <= 10 or opens >= 3:
+        return "warm"
+    return "cool"
+
+
+_TEMP_RANK = {"hot": 0, "warm": 1, "cool": 2}
+
+
+@router.get("/analytics/company-intent")
+async def company_intent(
+    days: int = Query(default=14, ge=1, le=365),
+    limit: int = Query(default=25, ge=1, le=200),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Companies opening the caller's links & files (reverse-IP intent).
+
+    Uses firmographic company data when a provider is configured (``ipinfo``);
+    otherwise falls back to the ASN/network owner collected for free (``asn``),
+    dropping obvious consumer ISPs / clouds and VPN opens so the list reads as
+    real accounts. Returns each company with open count, last-seen, what they
+    last viewed, and a Hot/Warm/Cool temperature.
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+
+    link_ids = (await session.execute(
+        select(LinkClick.id).where(LinkClick.user_id == user.user_id)
+    )).scalars().all()
+    file_ids = (await session.execute(
+        select(FileAsset.id).where(FileAsset.user_id == user.user_id)
+    )).scalars().all()
+    if not link_ids and not file_ids:
+        return {"provider": settings.company_intel_provider, "companies": []}
+
+    # Labels for "what they viewed".
+    link_label: dict = {}
+    if link_ids:
+        for lid, url, anchor, code in (await session.execute(
+            select(LinkClick.id, LinkClick.original_url, LinkClick.anchor_text, LinkClick.short_code)
+            .where(LinkClick.id.in_(link_ids))
+        )).all():
+            link_label[lid] = anchor or url or code
+    file_label: dict = {}
+    if file_ids:
+        for fid, fname in (await session.execute(
+            select(FileAsset.id, FileAsset.filename).where(FileAsset.id.in_(file_ids))
+        )).all():
+            file_label[fid] = fname
+
+    scope = []
+    if link_ids:
+        scope.append(ClickEvent.link_id.in_(link_ids))
+    if file_ids:
+        scope.append(ClickEvent.file_id.in_(file_ids))
+
+    rows = (await session.execute(
+        select(
+            ClickEvent.company_name, ClickEvent.company_domain, ClickEvent.company_industry,
+            ClickEvent.company_type, ClickEvent.asn_org, ClickEvent.is_vpn,
+            ClickEvent.city, ClickEvent.country, ClickEvent.clicked_at,
+            ClickEvent.link_id, ClickEvent.file_id,
+        ).where(or_(*scope), ClickEvent.clicked_at >= cutoff)
+    )).all()
+
+    # Aggregate by company. Prefer firmographic data; fall back to the ASN owner.
+    agg: dict = {}
+    for r in rows:
+        if r.is_vpn:
+            continue
+        if r.company_name:
+            if (r.company_type or "").lower() in ("isp", "hosting", "vpn"):
+                continue
+            key = (r.company_domain or r.company_name).lower()
+            name, domain, industry, source = r.company_name, r.company_domain, r.company_industry, "firmographic"
+        elif r.asn_org and not _looks_like_network_noise(r.asn_org):
+            key = r.asn_org.lower()
+            name, domain, industry, source = r.asn_org, None, None, "network"
+        else:
+            continue
+
+        label = link_label.get(r.link_id) or file_label.get(r.file_id)
+        entry = agg.get(key)
+        if entry is None:
+            entry = {
+                "name": name, "domain": domain, "industry": industry, "source": source,
+                "opens": 0, "last_seen": None, "last_asset": None, "city": None, "country": None,
+            }
+            agg[key] = entry
+        entry["opens"] += 1
+        if entry["last_seen"] is None or (r.clicked_at and r.clicked_at > entry["last_seen"]):
+            entry["last_seen"] = r.clicked_at
+            entry["last_asset"] = label
+            entry["city"], entry["country"] = r.city, r.country
+
+    companies = []
+    for e in agg.values():
+        last_seen = e["last_seen"] or now
+        recency_days = max(0.0, (now - last_seen).total_seconds() / 86400.0)
+        temp = _intent_temperature(recency_days, e["opens"])
+        companies.append({
+            "name": e["name"], "domain": e["domain"], "industry": e["industry"],
+            "source": e["source"], "opens": e["opens"],
+            "last_seen": iso_utc(e["last_seen"]), "last_asset": e["last_asset"],
+            "city": e["city"], "country": e["country"], "temperature": temp,
+        })
+    companies.sort(key=lambda c: (_TEMP_RANK[c["temperature"]], -c["opens"]))
+    return {"provider": settings.company_intel_provider, "companies": companies[:limit]}
+
+
+# ============================================================================
 # Campaign-Level Analytics (auth required)
 # ============================================================================
 

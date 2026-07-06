@@ -163,6 +163,16 @@ class Settings(BaseSettings):
     maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
     maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
 
+    # Company intent (reverse-IP firmographics). Provider-agnostic:
+    #   "none"   - disabled.
+    #   "asn"    - $0: reuse the ASN/network owner we already resolve via MaxMind
+    #              (rough "network" signal, no firmographics). No external call.
+    #   "ipinfo" - IPinfo's IP-to-Company add-on (real company name/domain/type);
+    #              needs IPINFO_API_TOKEN on a plan that includes the company data.
+    # Swap providers without touching app code — see app/services/company_intel.py.
+    company_intel_provider: str = "asn"
+    ipinfo_api_token: str = ""
+
     @property
     def resolved_platform_redirect_host(self) -> str:
         """Primary platform-default host (lowercased, no port).
@@ -223,6 +233,20 @@ class Settings(BaseSettings):
     @property
     def champvault_configured(self) -> bool:
         return bool(self.champvault_url and self.champvault_api_key)
+
+    @property
+    def company_intel_configured(self) -> bool:
+        """True when company-intent has a usable signal source.
+
+        'asn' always qualifies (reuses free MaxMind ASN data); 'ipinfo' needs a
+        token; 'none' disables the feature.
+        """
+        p = (self.company_intel_provider or "none").lower()
+        if p == "asn":
+            return True
+        if p == "ipinfo":
+            return bool(self.ipinfo_api_token)
+        return False
 
     @property
     def clerk_environment(self) -> str:
