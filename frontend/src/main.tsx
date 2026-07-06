@@ -20,7 +20,14 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={CLERK_KEY} afterSignOutUrl="/">
+    <ClerkProvider
+      publishableKey={CLERK_KEY}
+      afterSignOutUrl="/"
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/"
+    >
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <App />

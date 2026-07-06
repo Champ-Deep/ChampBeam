@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Show, useAuth } from '@clerk/react';
+import { Show, SignIn, SignUp, useAuth } from '@clerk/react';
 import { useEffect } from 'react';
 import { Navigation } from './components/layout/Navigation';
 import { HomePage } from './pages/HomePage';
@@ -26,6 +26,33 @@ function ClerkTokenSync() {
   return null;
 }
 
+// Standalone auth pages. These MUST exist because ProtectedRoute and the API
+// 401 handler both send signed-out users to /sign-in; without a mounted Clerk
+// component the route falls through to the catch-all and renders blank.
+function AuthLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      {children}
+    </div>
+  );
+}
+
+function SignInPage() {
+  return (
+    <AuthLayout>
+      <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" fallbackRedirectUrl="/" />
+    </AuthLayout>
+  );
+}
+
+function SignUpPage() {
+  return (
+    <AuthLayout>
+      <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" fallbackRedirectUrl="/" />
+    </AuthLayout>
+  );
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return (
     <>
@@ -50,6 +77,8 @@ export default function App() {
     <div className="min-h-screen bg-slate-50">
       <ClerkTokenSync />
       <Routes>
+        <Route path="/sign-in/*" element={<SignInPage />} />
+        <Route path="/sign-up/*" element={<SignUpPage />} />
         <Route path="*" element={
           <>
             <Navigation />
