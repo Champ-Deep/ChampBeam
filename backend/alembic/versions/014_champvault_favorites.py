@@ -11,14 +11,18 @@ hub:
 
 Idempotent via IF NOT EXISTS, matching the defensive style of prior migrations.
 
-Revision ID: 014_champvault_favorites_and_content
+Revision ID: 014_champvault_favorites
 Revises: 013_champvault_asset_id
+
+Note: the revision id is kept <= 32 chars because alembic's ``alembic_version``
+table stores it in a ``VARCHAR(32)`` column — a longer id makes ``alembic
+upgrade head`` fail at write time and blocks startup.
 """
 
 from alembic import op
 
 
-revision = "014_champvault_favorites_and_content"
+revision = "014_champvault_favorites"
 down_revision = "013_champvault_asset_id"
 branch_labels = None
 depends_on = None
