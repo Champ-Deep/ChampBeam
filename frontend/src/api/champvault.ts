@@ -23,11 +23,6 @@ export interface VaultAsset {
   favorited?: boolean;
 }
 
-export interface FavoriteEntry {
-  asset_id: string;
-  favorited_at: string | null;
-}
-
 export interface BeamResult {
   asset_id: string;
   // Present for org-scoped sends: the shadow Content the send rolls up under.
@@ -65,9 +60,10 @@ export const champvaultApi = {
     return res.data;
   },
 
-  async listFavorites(): Promise<FavoriteEntry[]> {
-    const res = await api.get<FavoriteEntry[]>('/champvault/favorites');
-    return asArray<FavoriteEntry>(res.data);
+  // Resolved favorited assets (newest first) — the cross-search My Favorites shelf.
+  async listFavorites(): Promise<VaultAsset[]> {
+    const res = await api.get<VaultAsset[]>('/champvault/favorites');
+    return asArray<VaultAsset>(res.data);
   },
 
   async addFavorite(assetId: string): Promise<void> {

@@ -37,6 +37,14 @@ export function VaultPage() {
     queryFn: () => champvaultApi.listAssets({ q: submitted || undefined }),
   });
 
+  // The My Favorites shelf resolves independently of the search, so a favorite
+  // shows even when it isn't in the current results. Fetched only when viewing.
+  const { data: favoriteAssets = [], isLoading: favLoading } = useQuery<VaultAsset[]>({
+    queryKey: ['champvault-favorites'],
+    queryFn: () => champvaultApi.listFavorites(),
+    enabled: favoritesOnly,
+  });
+
   const { data: domains = [] } = useQuery<Domain[]>({
     queryKey: ['domains'],
     queryFn: () => utmApi.listDomains(),
@@ -87,7 +95,8 @@ export function VaultPage() {
   const notConfigured =
     isError && (error as { response?: { status?: number } })?.response?.status === 503;
 
-  const visibleAssets = favoritesOnly ? assets.filter((a) => a.favorited) : assets;
+  const visibleAssets = favoritesOnly ? favoriteAssets : assets;
+  const listLoading = favoritesOnly ? favLoading : isLoading;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
@@ -168,7 +177,7 @@ export function VaultPage() {
             <CardHeader>
               <CardTitle>{favoritesOnly ? 'My favorites' : 'Assets'}</CardTitle>
             </CardHeader>
-            {isLoading ? (
+            {listLoading ? (
               <div className="py-10 flex justify-center">
                 <LoadingSpinner />
               </div>

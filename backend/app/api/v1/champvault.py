@@ -12,6 +12,7 @@ the external asset hub.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -107,13 +108,44 @@ async def list_favorites(
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """The caller's favorited asset ids, newest first (for the My Favorites shelf)."""
-    rows = (await session.execute(
-        select(Favorite.champvault_asset_id, Favorite.created_at)
+    """The caller's favorited assets (newest first) resolved to full details.
+
+    This is the My Favorites shelf — it works regardless of the current search.
+    Assets that no longer resolve (deleted/unpublished on the ChampVault side)
+    are skipped so a stale favorite never breaks the shelf; an unconfigured hub
+    returns 503 like the rest of the ChampVault endpoints.
+    """
+    asset_ids = (await session.execute(
+        select(Favorite.champvault_asset_id)
         .where(Favorite.user_id == user.user_id)
         .order_by(Favorite.created_at.desc())
-    )).all()
-    return [{"asset_id": aid, "favorited_at": created.isoformat() if created else None} for aid, created in rows]
+    )).scalars().all()
+    if not asset_ids:
+        return []
+
+    client = _client()
+
+    async def _resolve(aid: str):
+        # ChampVaultNotConfigured propagates (whole hub is down/misconfigured);
+        # a per-asset ChampVaultError just drops that one favorite.
+        try:
+            return await client.get_asset(aid)
+        except ChampVaultError:
+            return None
+
+    try:
+        resolved = await asyncio.gather(*[_resolve(aid) for aid in asset_ids])
+    except ChampVaultNotConfigured as exc:
+        raise _unavailable(exc)
+
+    out = []
+    for asset in resolved:
+        if asset is None:
+            continue
+        d = asset.to_dict()
+        d["favorited"] = True
+        out.append(d)
+    return out
 
 
 @router.put("/assets/{asset_id}/favorite", status_code=204)

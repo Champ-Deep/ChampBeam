@@ -160,8 +160,11 @@ async def test_favorite_add_list_remove_and_annotation(lib_ctx, monkeypatch):
     assert (await client.put("/api/v1/champvault/assets/a1/favorite")).status_code == 204
     assert (await client.put("/api/v1/champvault/assets/a1/favorite")).status_code == 204
 
+    # The favorites shelf resolves full asset details (works cross-search).
     favs = (await client.get("/api/v1/champvault/favorites")).json()
-    assert [f["asset_id"] for f in favs] == ["a1"]
+    assert [f["id"] for f in favs] == ["a1"]
+    assert favs[0]["favorited"] is True
+    assert favs[0]["title"] == "Deck a1"
 
     # /assets annotates the caller's favorite state.
     assets = {a["id"]: a for a in (await client.get("/api/v1/champvault/assets")).json()}
@@ -172,6 +175,32 @@ async def test_favorite_add_list_remove_and_annotation(lib_ctx, monkeypatch):
     assert (await client.delete("/api/v1/champvault/assets/a1/favorite")).status_code == 204
     assert (await client.delete("/api/v1/champvault/assets/a1/favorite")).status_code == 204
     assert (await client.get("/api/v1/champvault/favorites")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_favorites_shelf_skips_unresolvable_assets(lib_ctx, monkeypatch):
+    client, maker = lib_ctx
+    _admin, (member_id,) = await _seed_org(maker)
+    _CURRENT["token"] = _token(member_id)
+    monkeypatch.setattr(settings, "champvault_url", "https://vault.test")
+    monkeypatch.setattr(settings, "champvault_api_key", "cvb_test")
+
+    from app.integrations.champvault_client import ChampVaultError
+
+    async def fake_get_asset(self, asset_id):
+        if asset_id == "gone":
+            raise ChampVaultError("get gone -> 404")
+        return Asset.from_json({"id": asset_id, "title": f"Deck {asset_id}", "type": "deck",
+                                "storage": "r2", "status": "published"})
+
+    monkeypatch.setattr(ChampVault, "get_asset", fake_get_asset)
+
+    for aid in ("live", "gone"):
+        assert (await client.put(f"/api/v1/champvault/assets/{aid}/favorite")).status_code == 204
+
+    # The unresolvable favorite is silently skipped; the live one still shows.
+    favs = (await client.get("/api/v1/champvault/favorites")).json()
+    assert [f["id"] for f in favs] == ["live"]
 
 
 # ----------------------------------------------------------------------------

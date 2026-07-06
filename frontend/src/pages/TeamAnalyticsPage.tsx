@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { BarChart3, ChevronDown, ChevronRight, Crown, Shield, Users } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, Crown, Inbox, Shield, Trash2, Users } from 'lucide-react';
 import { Badge, Card, CardHeader, CardTitle, EmptyState, LoadingSpinner } from '../components/ui';
 import {
+  assignmentsApi,
   orgApi,
+  type Assignment,
   type ContentBreakdown,
   type ContentPerformanceReport,
   type MemberStats,
@@ -90,8 +92,106 @@ export function TeamAnalyticsPage() {
         )}
       </Card>
 
+      <AssignmentsCard members={members} />
+
       <MembersCard members={members} canAssignLeaders={isAdmin} />
     </div>
+  );
+}
+
+function AssignmentsCard({ members }: { members: MemberStats[] }) {
+  const queryClient = useQueryClient();
+  const { data: assignments = [], isLoading } = useQuery<Assignment[]>({
+    queryKey: ['org-assignments-made'],
+    queryFn: () => assignmentsApi.made(),
+  });
+
+  const nameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) map.set(m.user_id, m.full_name || m.email || m.user_id.slice(0, 8));
+    return map;
+  }, [members]);
+
+  const withdraw = useMutation({
+    mutationFn: (id: string) => assignmentsApi.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-assignments-made'] });
+      toast.success('Assignment withdrawn.');
+    },
+    onError: () => toast.error('Could not withdraw the assignment.'),
+  });
+
+  const sentCount = assignments.filter((a) => a.sent).length;
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Inbox className="h-5 w-5 text-brand-purple" />
+          Assignments
+          {assignments.length > 0 && (
+            <span className="text-sm font-normal text-slate-400">
+              · {sentCount}/{assignments.length} sent
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      {isLoading ? (
+        <div className="py-8 flex justify-center">
+          <LoadingSpinner />
+        </div>
+      ) : assignments.length === 0 ? (
+        <EmptyState
+          icon={Inbox}
+          title="No assignments yet"
+          description="Recommend an asset to a rep from the Library — assign an asset and it shows up here with follow-through."
+        />
+      ) : (
+        <div className="overflow-x-auto -mx-6 -mb-6">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500 border-b border-slate-100">
+                <th className="px-6 py-3 font-medium">Asset</th>
+                <th className="px-6 py-3 font-medium">Assigned to</th>
+                <th className="px-6 py-3 font-medium">Status</th>
+                <th className="px-6 py-3 font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {assignments.map((a) => (
+                <tr key={a.id} className="border-b border-slate-50">
+                  <td className="px-6 py-3">
+                    <span className="text-slate-900">{a.asset_title || a.champvault_asset_id}</span>
+                    {a.note && <p className="text-xs text-slate-400 mt-0.5">“{a.note}”</p>}
+                  </td>
+                  <td className="px-6 py-3 text-slate-700">
+                    {nameById.get(a.assigned_to_user_id) ?? a.assigned_to_user_id.slice(0, 8)}
+                  </td>
+                  <td className="px-6 py-3">
+                    {a.sent ? (
+                      <Badge variant="success" size="sm">Sent</Badge>
+                    ) : (
+                      <Badge variant="warning" size="sm">Not sent</Badge>
+                    )}
+                  </td>
+                  <td className="px-6 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => withdraw.mutate(a.id)}
+                      disabled={withdraw.isPending}
+                      className="text-slate-400 hover:text-red-600 transition-colors"
+                      aria-label="Withdraw assignment"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 
