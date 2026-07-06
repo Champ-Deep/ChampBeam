@@ -133,11 +133,36 @@ class FileResponse(BaseModel):
     domain_id: Optional[str] = None
     expires_at: Optional[str] = None
     project_id: Optional[str] = None
+    # Access controls (security console).
+    max_views: Optional[int] = None
+    remaining_views: Optional[int] = None
+    require_email: bool = False
+    block_vpn: bool = False
+    branded: bool = False
+    revoked: bool = False
+    access_status: str = "tracking"  # tracking | expiring | expired
 
 
 class FileUpdateRequest(BaseModel):
     # Assign/move the file to a project (folder); send null to unfile it.
     project_id: Optional[str] = None
+
+
+class FileAccessRequest(BaseModel):
+    # Only fields actually sent are applied (checked via model_fields_set).
+    # For the two int limits, send 0 to CLEAR, a positive number to SET.
+    expires_in_hours: Optional[int] = None
+    max_views: Optional[int] = None
+    require_email: Optional[bool] = None
+    block_vpn: Optional[bool] = None
+    branded: Optional[bool] = None
+    revoked: Optional[bool] = None
+
+
+class LeadResponse(BaseModel):
+    email: str
+    ip_address: Optional[str] = None
+    created_at: str
 
 
 class FileFinalizeRequest(BaseModel):
@@ -244,8 +269,26 @@ def _build_serve_url(host: str, short_code: str, filename: str) -> str:
     return f"{_scheme_for(host)}://{host}/f/{short_code}/{safe}"
 
 
+def _access_status(asset: FileAsset) -> str:
+    """tracking (no self-destruct) | expiring (controls set, still live) | expired."""
+    now = datetime.utcnow()
+    views = asset.view_count or 0
+    is_expired = (
+        asset.revoked_at is not None
+        or (asset.expires_at is not None and asset.expires_at < now)
+        or (asset.max_views is not None and views >= asset.max_views)
+    )
+    if is_expired:
+        return "expired"
+    if asset.expires_at is not None or asset.max_views is not None or asset.revoked_at is not None:
+        return "expiring"
+    return "tracking"
+
+
 async def _to_response(session: AsyncSession, asset: FileAsset) -> FileResponse:
     host = await _serve_host(session, asset.user_id, asset.domain_id)
+    views = asset.view_count or 0
+    remaining = max(0, asset.max_views - views) if asset.max_views is not None else None
     return FileResponse(
         id=str(asset.id),
         short_code=asset.short_code,
@@ -255,13 +298,20 @@ async def _to_response(session: AsyncSession, asset: FileAsset) -> FileResponse:
         size_bytes=asset.size_bytes,
         status=asset.status,
         serve_mode=asset.serve_mode,
-        view_count=asset.view_count or 0,
+        view_count=views,
         last_viewed_at=iso_utc(asset.last_viewed_at),
         created_at=iso_utc(asset.created_at) or "",
         serve_url=_build_serve_url(host, asset.short_code, asset.filename),
         domain_id=str(asset.domain_id) if asset.domain_id else None,
         expires_at=iso_utc(asset.expires_at),
         project_id=str(asset.project_id) if asset.project_id else None,
+        max_views=asset.max_views,
+        remaining_views=remaining,
+        require_email=bool(asset.require_email),
+        block_vpn=bool(asset.block_vpn),
+        branded=bool(asset.branded),
+        revoked=asset.revoked_at is not None,
+        access_status=_access_status(asset),
     )
 
 
@@ -653,6 +703,59 @@ async def update_file(
     await session.commit()
     await session.refresh(asset)
     return await _to_response(session, asset)
+
+
+@router.put("/{file_id}/access", response_model=FileResponse)
+async def set_file_access(
+    file_id: str,
+    data: FileAccessRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Set self-destruct / access controls on a file (owner only).
+
+    Only the fields present in the request body are changed; for the int limits
+    send 0 to clear and a positive number to set.
+    """
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    fields = data.model_fields_set
+    now = datetime.utcnow()
+    if "expires_in_hours" in fields:
+        asset.expires_at = (
+            now + timedelta(hours=data.expires_in_hours) if data.expires_in_hours else None
+        )
+    if "max_views" in fields:
+        asset.max_views = data.max_views if (data.max_views and data.max_views > 0) else None
+    if "require_email" in fields:
+        asset.require_email = bool(data.require_email)
+    if "block_vpn" in fields:
+        asset.block_vpn = bool(data.block_vpn)
+    if "branded" in fields:
+        asset.branded = bool(data.branded)
+    if "revoked" in fields:
+        asset.revoked_at = now if data.revoked else None
+    await session.commit()
+    await session.refresh(asset)
+    return await _to_response(session, asset)
+
+
+@router.get("/{file_id}/leads", response_model=List[LeadResponse])
+async def file_leads(
+    file_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Emails captured by this file's access gate (owner only)."""
+    from app.models.access_lead import AccessLead
+
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    rows = (await session.execute(
+        select(AccessLead).where(AccessLead.file_id == asset.id).order_by(AccessLead.created_at.desc())
+    )).scalars().all()
+    return [
+        LeadResponse(email=r.email, ip_address=r.ip_address, created_at=iso_utc(r.created_at) or "")
+        for r in rows
+    ]
 
 
 # ============================================================================

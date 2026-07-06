@@ -314,6 +314,68 @@ class UTMService:
             )
             await session.commit()
 
+    async def consume_link_view(self, link_id: UUID, ip_address: Optional[str]) -> str:
+        """Atomic self-destruct gate + view counter for a link at redirect time.
+
+        Returns ``"ok"`` when the view is allowed (and counted), else a block
+        reason: ``"revoked" | "expired" | "maxed" | "gone"``.
+
+        The gate lives in the UPDATE's WHERE so the view cap is race-safe:
+        concurrent opens serialize on the row and only ``click_count < max_views``
+        passes, so ``click_count`` never exceeds ``max_views``. Uniqueness is a
+        best-effort pre-check, same as :meth:`bump_click_counter`.
+        """
+        from sqlalchemy import or_
+
+        now = datetime.utcnow()
+        async with async_session_maker() as session:
+            is_unique = True
+            if ip_address:
+                try:
+                    existing = await session.execute(
+                        select(ClickEvent.id).where(
+                            ClickEvent.link_id == link_id,
+                            ClickEvent.ip_address == ip_address,
+                        ).limit(1)
+                    )
+                    if existing.scalar_one_or_none() is not None:
+                        is_unique = False
+                except Exception:
+                    await session.rollback()
+
+            unique_inc = 1 if is_unique else 0
+            result = await session.execute(
+                sa_update(LinkClick)
+                .where(
+                    LinkClick.id == link_id,
+                    LinkClick.revoked_at.is_(None),
+                    or_(LinkClick.expires_at.is_(None), LinkClick.expires_at > now),
+                    or_(
+                        LinkClick.max_views.is_(None),
+                        func.coalesce(LinkClick.click_count, 0) < LinkClick.max_views,
+                    ),
+                )
+                .values(
+                    click_count=func.coalesce(LinkClick.click_count, 0) + 1,
+                    unique_clicks=func.coalesce(LinkClick.unique_clicks, 0) + unique_inc,
+                    last_clicked_at=now,
+                    first_clicked_at=func.coalesce(LinkClick.first_clicked_at, now),
+                )
+            )
+            await session.commit()
+            if result.rowcount and result.rowcount > 0:
+                return "ok"
+
+            # Blocked — classify for the expired-page message.
+            link = await session.get(LinkClick, link_id)
+            if link is None:
+                return "gone"
+            if link.revoked_at is not None:
+                return "revoked"
+            if link.expires_at is not None and link.expires_at <= now:
+                return "expired"
+            return "maxed"
+
     async def insert_click_event(
         self,
         link_id: UUID,

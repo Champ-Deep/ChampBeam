@@ -107,6 +107,20 @@ class LinkClick(Base):
     first_clicked_at = Column(DateTime, nullable=True)
     last_clicked_at = Column(DateTime, nullable=True)
 
+    # Access controls, enforced at redirect time (see app/api/redirect.py):
+    #  - expires_at : hard time expiry.
+    #  - max_views  : burn-after-N (the "remaining" meter reads max_views - click_count).
+    #  - revoked_at : manual kill.
+    #  - require_email : email gate — capture a lead before granting access.
+    #  - block_vpn  : refuse opens from VPNs / anonymizing proxies.
+    #  - branded    : render gate/expired pages with the sender's branding.
+    expires_at = Column(DateTime, nullable=True, index=True)
+    max_views = Column(Integer, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    require_email = Column(Boolean, nullable=False, default=False)
+    block_vpn = Column(Boolean, nullable=False, default=False)
+    branded = Column(Boolean, nullable=False, default=False)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
 

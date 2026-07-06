@@ -1242,6 +1242,143 @@ async def company_intent(
 
 
 # ============================================================================
+# Link access controls (self-destruct, email gate, VPN block, branding)
+# ============================================================================
+
+
+class LinkAccessRequest(BaseModel):
+    # Only sent fields apply; for int limits send 0 to clear, positive to set.
+    expires_in_hours: Optional[int] = None
+    max_views: Optional[int] = None
+    require_email: Optional[bool] = None
+    block_vpn: Optional[bool] = None
+    branded: Optional[bool] = None
+    revoked: Optional[bool] = None
+
+
+class LinkAccessResponse(BaseModel):
+    link_id: str
+    expires_at: Optional[str]
+    max_views: Optional[int]
+    remaining_views: Optional[int]
+    require_email: bool
+    block_vpn: bool
+    branded: bool
+    revoked: bool
+    access_status: str
+    views: int
+
+
+class LeadResponse(BaseModel):
+    email: str
+    ip_address: Optional[str] = None
+    created_at: str
+
+
+async def _get_owned_link(session: AsyncSession, link_id: str, user_id: str) -> LinkClick:
+    from uuid import UUID as _UUID
+    try:
+        lid = _UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link id.")
+    link = (await session.execute(
+        select(LinkClick).where(LinkClick.id == lid, LinkClick.user_id == user_id)
+    )).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Link not found.")
+    return link
+
+
+def _link_access_status(link: LinkClick) -> str:
+    now = datetime.utcnow()
+    views = link.click_count or 0
+    expired = (
+        link.revoked_at is not None
+        or (link.expires_at is not None and link.expires_at < now)
+        or (link.max_views is not None and views >= link.max_views)
+    )
+    if expired:
+        return "expired"
+    if link.expires_at is not None or link.max_views is not None or link.revoked_at is not None:
+        return "expiring"
+    return "tracking"
+
+
+def _link_access_response(link: LinkClick) -> LinkAccessResponse:
+    views = link.click_count or 0
+    remaining = max(0, link.max_views - views) if link.max_views is not None else None
+    return LinkAccessResponse(
+        link_id=str(link.id),
+        expires_at=iso_utc(link.expires_at),
+        max_views=link.max_views,
+        remaining_views=remaining,
+        require_email=bool(link.require_email),
+        block_vpn=bool(link.block_vpn),
+        branded=bool(link.branded),
+        revoked=link.revoked_at is not None,
+        access_status=_link_access_status(link),
+        views=views,
+    )
+
+
+@router.put("/links/{link_id}/access", response_model=LinkAccessResponse)
+async def set_link_access(
+    link_id: str,
+    data: LinkAccessRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Set self-destruct / access controls on a link (owner only)."""
+    link = await _get_owned_link(session, link_id, user.user_id)
+    fields = data.model_fields_set
+    now = datetime.utcnow()
+    if "expires_in_hours" in fields:
+        link.expires_at = now + timedelta(hours=data.expires_in_hours) if data.expires_in_hours else None
+    if "max_views" in fields:
+        link.max_views = data.max_views if (data.max_views and data.max_views > 0) else None
+    if "require_email" in fields:
+        link.require_email = bool(data.require_email)
+    if "block_vpn" in fields:
+        link.block_vpn = bool(data.block_vpn)
+    if "branded" in fields:
+        link.branded = bool(data.branded)
+    if "revoked" in fields:
+        link.revoked_at = now if data.revoked else None
+    await session.commit()
+    await session.refresh(link)
+    return _link_access_response(link)
+
+
+@router.get("/links/{link_id}/access", response_model=LinkAccessResponse)
+async def get_link_access(
+    link_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    link = await _get_owned_link(session, link_id, user.user_id)
+    return _link_access_response(link)
+
+
+@router.get("/links/{link_id}/leads", response_model=List[LeadResponse])
+async def link_leads(
+    link_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Emails captured by this link's access gate (owner only)."""
+    from app.models.access_lead import AccessLead
+
+    link = await _get_owned_link(session, link_id, user.user_id)
+    rows = (await session.execute(
+        select(AccessLead).where(AccessLead.link_id == link.id).order_by(AccessLead.created_at.desc())
+    )).scalars().all()
+    return [
+        LeadResponse(email=r.email, ip_address=r.ip_address, created_at=iso_utc(r.created_at) or "")
+        for r in rows
+    ]
+
+
+# ============================================================================
 # Campaign-Level Analytics (auth required)
 # ============================================================================
 
