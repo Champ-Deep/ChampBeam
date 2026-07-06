@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from app.api import access_control as ac
 from app.api.access_pages import blocked_page, email_gate_page
 from app.core.config import settings
 from app.db.postgres import get_db_session
+from app.models.page_engagement import PageEngagement  # noqa: F401  (register table)
 from app.models.domain import Domain, STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE
 from app.models.file_asset import (
     FileAsset,
@@ -190,6 +192,51 @@ async def serve_file(
         )
     except storage.StorageNotConfigured:
         return Response(status_code=503, content="Storage not configured.")
+
+
+class _PageEvent(BaseModel):
+    page: int = Field(ge=0, le=100000)
+    dwell_ms: int = Field(ge=0, le=86_400_000)  # cap a single page at 24h
+
+
+class PageEventsRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    events: list[_PageEvent] = Field(max_length=1000)
+
+
+@router.post("/f/{short_code}/page-events", status_code=204)
+async def ingest_page_events(
+    short_code: str,
+    request: Request,
+    data: PageEventsRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Public: the instrumented viewer reports per-page dwell time for a document.
+
+    No auth — viewers aren't signed in; the file is identified by its short code
+    (+ host namespace), same as the serve path.
+    """
+    host = _request_host(request)
+    domain = await _resolve_domain(host, session)
+    stmt = select(FileAsset).where(
+        FileAsset.short_code == short_code,
+        FileAsset.status == STATUS_ACTIVE,
+    )
+    stmt = stmt.where(FileAsset.domain_id.is_(None)) if domain is None else stmt.where(
+        FileAsset.domain_id == domain.id
+    )
+    asset = (await session.execute(stmt)).scalar_one_or_none()
+    if asset is None:
+        return Response(status_code=404, content="File not found.")
+
+    ip = ac.client_ip(request)
+    sid = data.session_id[:64]
+    for e in data.events:
+        session.add(PageEngagement(
+            file_id=asset.id, session_id=sid, page=e.page, dwell_ms=e.dwell_ms, ip_address=ip,
+        ))
+    await session.commit()
+    return Response(status_code=204)
 
 
 @router.post("/f/{short_code}/unlock")

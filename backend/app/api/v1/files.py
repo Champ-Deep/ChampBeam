@@ -758,6 +758,41 @@ async def file_leads(
     ]
 
 
+@router.get("/{file_id}/pages")
+async def file_page_engagement(
+    file_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Per-page engagement heatmap for a document (owner only): for each page,
+    average dwell (ms), total dwell, and how many view-sessions reached it."""
+    from app.models.page_engagement import PageEngagement
+
+    asset = await _get_owned_file(file_id, user.user_id, session)
+    rows = (await session.execute(
+        select(
+            PageEngagement.page.label("page"),
+            func.avg(PageEngagement.dwell_ms).label("avg_ms"),
+            func.sum(PageEngagement.dwell_ms).label("total_ms"),
+            func.count(func.distinct(PageEngagement.session_id)).label("sessions"),
+        )
+        .where(PageEngagement.file_id == asset.id)
+        .group_by(PageEngagement.page)
+        .order_by(PageEngagement.page)
+    )).all()
+    pages = [
+        {
+            "page": int(r.page),
+            "avg_ms": int(r.avg_ms or 0),
+            "total_ms": int(r.total_ms or 0),
+            "sessions": int(r.sessions or 0),
+        }
+        for r in rows
+    ]
+    peak = max((p["avg_ms"] for p in pages), default=0)
+    return {"pages": pages, "peak_avg_ms": peak}
+
+
 # ============================================================================
 # Per-file analytics (owner only). File opens are recorded as ClickEvent rows
 # with file_id set, so these mirror /utm/analytics/links/{id}/*, filtered by
