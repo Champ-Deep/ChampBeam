@@ -1242,6 +1242,97 @@ async def company_intent(
 
 
 # ============================================================================
+# Opens geo map — where the caller's links & files are being opened
+# ============================================================================
+
+
+@router.get("/analytics/geo")
+async def opens_geo(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=100, ge=1, le=500),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Opens by country / city / day across the caller's links and files.
+
+    Feeds the map (countries), the top-cities list, and the trend bars (by day).
+    Reuses the geo already resolved on every open (ClickEvent), so no new lookups.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    link_ids = (await session.execute(
+        select(LinkClick.id).where(LinkClick.user_id == user.user_id)
+    )).scalars().all()
+    file_ids = (await session.execute(
+        select(FileAsset.id).where(FileAsset.user_id == user.user_id)
+    )).scalars().all()
+    if not link_ids and not file_ids:
+        return {"total_opens": 0, "countries": [], "cities": [], "by_day": []}
+
+    scope = []
+    if link_ids:
+        scope.append(ClickEvent.link_id.in_(link_ids))
+    if file_ids:
+        scope.append(ClickEvent.file_id.in_(file_ids))
+    base = (or_(*scope), ClickEvent.clicked_at >= cutoff)
+
+    total = int((await session.execute(
+        select(func.count(ClickEvent.id)).where(*base)
+    )).scalar() or 0)
+
+    countries = [
+        {
+            "country": r.country,
+            "country_code": r.country_code,
+            "opens": int(r.opens or 0),
+            "unique_opens": int(r.uniq or 0),
+        }
+        for r in (await session.execute(
+            select(
+                ClickEvent.country.label("country"),
+                ClickEvent.country_code.label("country_code"),
+                func.count(ClickEvent.id).label("opens"),
+                func.count(func.distinct(ClickEvent.ip_address)).label("uniq"),
+            )
+            .where(*base, ClickEvent.country.isnot(None))
+            .group_by(ClickEvent.country, ClickEvent.country_code)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(limit)
+        )).all()
+    ]
+
+    cities = [
+        {"city": r.city, "country": r.country, "opens": int(r.opens or 0)}
+        for r in (await session.execute(
+            select(
+                ClickEvent.city.label("city"),
+                ClickEvent.country.label("country"),
+                func.count(ClickEvent.id).label("opens"),
+            )
+            .where(*base, ClickEvent.city.isnot(None))
+            .group_by(ClickEvent.city, ClickEvent.country)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(limit)
+        )).all()
+    ]
+
+    by_day = [
+        {"date": str(r.day), "opens": int(r.opens or 0)}
+        for r in (await session.execute(
+            select(
+                func.date(ClickEvent.clicked_at).label("day"),
+                func.count(ClickEvent.id).label("opens"),
+            )
+            .where(*base)
+            .group_by(func.date(ClickEvent.clicked_at))
+            .order_by(func.date(ClickEvent.clicked_at))
+        )).all()
+    ]
+
+    return {"total_opens": total, "countries": countries, "cities": cities, "by_day": by_day}
+
+
+# ============================================================================
 # Link access controls (self-destruct, email gate, VPN block, branding)
 # ============================================================================
 
