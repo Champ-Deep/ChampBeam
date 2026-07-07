@@ -48,7 +48,17 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const url = error.config?.url || '';
       const isAuthEndpoint = url.includes('/auth/');
-      if (!isAuthEndpoint) {
+      // Only bounce to sign-in when there is genuinely NO Clerk session. If a
+      // session exists but the backend rejected the token (e.g. a Clerk
+      // instance / issuer mismatch between this frontend and the API), a
+      // full-page redirect to /sign-in — where Clerk immediately sends the
+      // signed-in user back to "/" — creates an infinite login loop. In that
+      // case surface the error instead and let the UI show it.
+      const hasClerkSession = Boolean(
+        (window as unknown as { Clerk?: { session?: unknown } }).Clerk?.session
+      );
+      const onAuthPage = /^\/sign-(in|up)/.test(window.location.pathname);
+      if (!isAuthEndpoint && !hasClerkSession && !onAuthPage) {
         window.location.href = '/sign-in';
       }
     }
