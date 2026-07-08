@@ -10,6 +10,7 @@ Falls back to ip-api.com free API if the database files are not available.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 import httpx
@@ -175,6 +176,65 @@ async def _lookup_ipapi(ip_address: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# IPinfo lookup (HTTPS, works from datacenters — unlike free ip-api.com)
+# ---------------------------------------------------------------------------
+async def _lookup_ipinfo(ip_address: str) -> Optional[dict]:
+    """Geo + ISP/VPN via IPinfo (reuses IPINFO_API_TOKEN from company intent).
+
+    Returns None when no token is set or the call fails. Country is the ISO code
+    (IPinfo doesn't return a full name on the base response); MaxMind supplies
+    full names when its local DB is installed.
+    """
+    token = settings.ipinfo_api_token
+    if not token:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"https://ipinfo.io/{ip_address}/json",
+                params={"token": token},
+                headers={"Accept": "application/json"},
+            )
+        if resp.status_code >= 400:
+            return None
+        data = resp.json()
+    except Exception as e:
+        logger.debug("ipinfo lookup failed for %s: %s", ip_address, e)
+        return None
+
+    if data.get("bogon"):
+        return None
+
+    loc = (data.get("loc") or "").split(",")
+    lat = float(loc[0]) if len(loc) == 2 and loc[0] else None
+    lng = float(loc[1]) if len(loc) == 2 and loc[1] else None
+
+    org = data.get("org")
+    asn_org = re.sub(r"^AS\d+\s+", "", org).strip() if org else None
+
+    privacy = data.get("privacy") or {}
+    if privacy:
+        is_vpn = bool(
+            privacy.get("vpn") or privacy.get("proxy") or privacy.get("tor") or privacy.get("hosting")
+        )
+    else:
+        # No privacy dataset on this plan — infer from the ASN owner.
+        is_vpn = _is_hosting_asn(asn_org)
+
+    cc = data.get("country")
+    return {
+        "country": cc,          # ISO code; MaxMind fills full names when present
+        "country_code": cc,
+        "region": data.get("region"),
+        "city": data.get("city"),
+        "latitude": lat,
+        "longitude": lng,
+        "is_vpn": is_vpn,
+        "asn_org": asn_org,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 async def lookup_ip(ip_address: str) -> Optional[dict]:
@@ -206,8 +266,9 @@ async def lookup_ip(ip_address: str) -> Optional[dict]:
             result["asn_org"] = asn["asn_org"]
             result["is_vpn"] = _is_hosting_asn(asn["asn_org"])
             return result
-        # No local ASN data — top up ISP/VPN from ip-api (best-effort).
-        vpn_result = await _lookup_ipapi(ip_address)
+        # No local ASN data — top up ISP/VPN from IPinfo (datacenter-safe), then
+        # ip-api as a last resort.
+        vpn_result = await _lookup_ipinfo(ip_address) or await _lookup_ipapi(ip_address)
         if vpn_result:
             result["asn_org"] = vpn_result.get("asn_org")
             result["is_vpn"] = vpn_result.get("is_vpn")
@@ -216,5 +277,6 @@ async def lookup_ip(ip_address: str) -> Optional[dict]:
             result.setdefault("is_vpn", None)
         return result
 
-    # No local databases produced anything: fall back to ip-api.com entirely.
-    return await _lookup_ipapi(ip_address)
+    # No local databases: IPinfo first (works from datacenters / any PaaS with a
+    # token), then the free ip-api.com (which blocks datacenter IPs).
+    return await _lookup_ipinfo(ip_address) or await _lookup_ipapi(ip_address)
