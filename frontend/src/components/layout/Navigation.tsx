@@ -7,6 +7,7 @@ import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
 import { Show, SignInButton, SignUpButton, UserButton, OrganizationSwitcher, useAuth } from '@clerk/react';
 import { Button } from '../ui/Button';
+import { LogoMark } from '../ui/Logo';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { champvaultApi } from '../../api/champvault';
@@ -80,9 +81,14 @@ export function Navigation() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2">
-            <Link2 className="h-7 w-7 text-brand-purple" />
-            <span className="text-xl font-bold text-slate-900">
-              Champ<span className="text-brand-purple">beam</span>
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-[9px]"
+              style={{ background: 'var(--cb-accent)' }}
+            >
+              <LogoMark size={18} color="#fff" />
+            </span>
+            <span className="font-display text-xl font-bold" style={{ color: 'var(--cb-ink)' }}>
+              Champ<span style={{ color: 'var(--cb-accent)' }}>beam</span>
             </span>
           </Link>
 

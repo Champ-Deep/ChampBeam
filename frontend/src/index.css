@@ -1,14 +1,93 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Champbeam design tokens (App v2)
+   Paper is the workspace default; Graphite / Lagoon / Merlot / Slate are
+   selectable in Settings → Appearance. A theme is applied by stamping
+   data-cb-theme on <html> (see hooks/useTheme.ts); :root carries Paper so the
+   app is themed even before the hook runs.
+--------------------------------------------------------------------------- */
+:root,
+:root[data-cb-theme="paper"] {
+  --cb-accent:#B3502F; --cb-accent-rgb:179,80,47; --cb-accent-soft:#F8ECE5; --cb-accent-border:#EDD3C5;
+  --cb-accent2:#CB7752; --cb-accent-light:#E5A988; --cb-accent2-soft:#F9F0EA;
+  --cb-bg:#FBF8F2; --cb-bg-hover:#F6F1E8; --cb-border:#ECE5D8; --cb-border-strong:#DFD6C6; --cb-divider:#F1EBE0; --cb-chip:#F3EDE2; --cb-input:#F7F2E9;
+  --cb-ink:#241C14; --cb-text:#4A4237; --cb-text-mid:#6A6154; --cb-muted:#98907F; --cb-icon-muted:#B3AB9B; --cb-faint:#C5BDAE; --cb-icon:#8B8272;
+  --cb-track:#DFD8C9; --cb-toggle-off:#DED6C7;
+  --cb-side1:#241A10; --cb-side2:#2E2114; --cb-side3:#3A2A18;
+  --cb-heat1:#F5EFE4; --cb-heat2:#EBD3BC; --cb-heat3:#CE8B5C;
+  --cb-teal:#0AA0AB;
+}
+
+:root[data-cb-theme="graphite"] {
+  --cb-accent:#2F3437; --cb-accent-rgb:47,52,55; --cb-accent-soft:#EDEFEF; --cb-accent-border:#D6DADB;
+  --cb-accent2:#5B6467; --cb-accent-light:#9FA9AC; --cb-accent2-soft:#F0F2F2;
+  --cb-bg:#FAFAF9; --cb-bg-hover:#F4F4F3; --cb-border:#EAEAE8; --cb-border-strong:#DCDCDA; --cb-divider:#EFEFED; --cb-chip:#F1F1EF; --cb-input:#F5F5F4;
+  --cb-ink:#191C1D; --cb-text:#3B4143; --cb-text-mid:#5A6163; --cb-muted:#8F9698; --cb-icon-muted:#ABB1B3; --cb-faint:#BEC4C5; --cb-icon:#82898B;
+  --cb-track:#DADDDD; --cb-toggle-off:#D8DBDB;
+  --cb-side1:#131515; --cb-side2:#1B1E1E; --cb-side3:#232727;
+  --cb-heat1:#F0F1F1; --cb-heat2:#CFD4D5; --cb-heat3:#8B989C;
+  --cb-teal:#4F7D6B;
+}
+
+:root[data-cb-theme="lagoon"] {
+  --cb-accent:#0E5B63; --cb-accent-rgb:14,91,99; --cb-accent-soft:#E6F1F2; --cb-accent-border:#C7E0E2;
+  --cb-accent2:#3E8A93; --cb-accent-light:#8FC6CC; --cb-accent2-soft:#EAF3F4;
+  --cb-bg:#F9FAFA; --cb-bg-hover:#F3F6F6; --cb-border:#E7ECEC; --cb-border-strong:#D9E2E2; --cb-divider:#EDF1F1; --cb-chip:#EFF3F3; --cb-input:#F4F7F7;
+  --cb-ink:#122022; --cb-text:#324442; --cb-text-mid:#526462; --cb-muted:#8A9795; --cb-icon-muted:#A5B1AF; --cb-faint:#B8C3C1; --cb-icon:#7D8B89;
+  --cb-track:#D6DEDD; --cb-toggle-off:#D5DEDD;
+  --cb-side1:#0A1E21; --cb-side2:#0D262A; --cb-side3:#102E33;
+  --cb-heat1:#EBF2F2; --cb-heat2:#BFDCDE; --cb-heat3:#5FA3AA;
+  --cb-teal:#0AA0AB;
+}
+
+:root[data-cb-theme="merlot"] {
+  --cb-accent:#7C3644; --cb-accent-rgb:124,54,68; --cb-accent-soft:#F5EBED; --cb-accent-border:#E5CBD1;
+  --cb-accent2:#A56472; --cb-accent-light:#D3A3AD; --cb-accent2-soft:#F6EEF0;
+  --cb-bg:#FAF9F9; --cb-bg-hover:#F6F3F4; --cb-border:#ECE7E8; --cb-border-strong:#E0D8DA; --cb-divider:#F1EDEE; --cb-chip:#F3EFF0; --cb-input:#F7F4F5;
+  --cb-ink:#201618; --cb-text:#423338; --cb-text-mid:#615257; --cb-muted:#97898D; --cb-icon-muted:#B0A5A8; --cb-faint:#C2B8BB; --cb-icon:#8A7C80;
+  --cb-track:#DED5D7; --cb-toggle-off:#DDD5D7;
+  --cb-side1:#1E1013; --cb-side2:#251317; --cb-side3:#2C171C;
+  --cb-heat1:#F3ECEE; --cb-heat2:#E0C4CA; --cb-heat3:#B37A87;
+  --cb-teal:#0AA0AB;
+}
+
+:root[data-cb-theme="slate"] {
+  --cb-accent:#3D4E63; --cb-accent-rgb:61,78,99; --cb-accent-soft:#EBEFF3; --cb-accent-border:#D2DAE3;
+  --cb-accent2:#6B7E94; --cb-accent-light:#A7B8CA; --cb-accent2-soft:#EFF2F6;
+  --cb-bg:#F9FAFB; --cb-bg-hover:#F4F6F8; --cb-border:#E8EBEF; --cb-border-strong:#DBE0E6; --cb-divider:#EEF1F4; --cb-chip:#F0F3F5; --cb-input:#F5F7F9;
+  --cb-ink:#161B22; --cb-text:#333B47; --cb-text-mid:#535D6B; --cb-muted:#8C95A1; --cb-icon-muted:#A7AFBA; --cb-faint:#BAC2CC; --cb-icon:#7F8894;
+  --cb-track:#D7DDE3; --cb-toggle-off:#D6DCE2;
+  --cb-side1:#10151C; --cb-side2:#141A23; --cb-side3:#19202A;
+  --cb-heat1:#EFF2F4; --cb-heat2:#C8D2DD; --cb-heat3:#7E93AB;
+  --cb-teal:#0AA0AB;
+}
+
+/* Map the existing Tailwind brand-* utilities onto the live theme tokens so
+   every page that already uses brand-purple/brand-teal etc. re-themes for free
+   and follows the active workspace theme. Opacity modifiers (brand-purple/10)
+   keep working via color-mix in Tailwind v4. */
 @theme {
-  --color-brand-purple: #6D08BE;
-  --color-brand-teal: #0095A0;
-  --color-brand-lavender: #7A76DA;
-  --color-brand-navy: #011A6B;
+  --color-brand-purple: var(--cb-accent);
+  --color-brand-teal: var(--cb-teal);
+  --color-brand-lavender: var(--cb-accent-light);
+  --color-brand-navy: var(--cb-side1);
+
+  --color-cb-accent: var(--cb-accent);
+  --color-cb-accent2: var(--cb-accent2);
+  --color-cb-ink: var(--cb-ink);
+  --color-cb-text: var(--cb-text);
+  --color-cb-muted: var(--cb-muted);
+  --color-cb-bg: var(--cb-bg);
+  --color-cb-border: var(--cb-border);
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-sans: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Hanken Grotesk', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 }
@@ -28,22 +107,41 @@ body,
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--cb-bg);
+  color: var(--cb-ink);
+}
+
+/* Space Grotesk for headings gives the app its display voice. */
+.font-display,
+h1, h2, h3 {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.font-mono-cb {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: var(--cb-track);
+  border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--cb-border-strong);
 }
+
+/* Entrance keyframes (frozen-safe: first frame already visible). */
+@keyframes cb-popin { from { transform: scale(.975) translateY(5px); } to { transform: none; } }
+@keyframes cb-rowin { from { transform: translateY(6px); } to { transform: none; } }
+@keyframes cb-ping { 0% { transform: scale(1); opacity:.5; } 70%,100% { transform: scale(2.6); opacity:0; } }
+@keyframes cb-fadein { from { opacity:.6; } to { opacity:1; } }

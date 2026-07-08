@@ -9,3 +9,6 @@ export { DateRangePicker } from './DateRangePicker';
 export { ExportButton } from './ExportButton';
 export { GeoChart } from './GeoChart';
 export { QrCode, QrButton, QrDownloadButton, qrUrlFor } from './QrCode';
+export { Logo, LogoMark } from './Logo';
+export { FolderChips } from './FolderChips';
+export type { FolderChipItem } from './FolderChips';

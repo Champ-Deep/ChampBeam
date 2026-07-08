@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Show, SignIn, SignUp, useAuth } from '@clerk/react';
 import { useEffect } from 'react';
 import { Navigation } from './components/layout/Navigation';
+import { Sidebar } from './components/layout/Sidebar';
 import { HomePage } from './pages/HomePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LinksPage } from './pages/LinksPage';
@@ -31,7 +32,7 @@ function ClerkTokenSync() {
 // component the route falls through to the catch-all and renders blank.
 function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+    <div className="flex min-h-screen items-center justify-center p-4" style={{ background: 'var(--cb-bg)' }}>
       {children}
     </div>
   );
@@ -72,18 +73,37 @@ function OrgRoute({ team = false, children }: { team?: boolean; children: React.
   return <>{children}</>;
 }
 
+// App chrome. Signed-in users get the App v2 dark sidebar with the content
+// scrolling to its right; signed-out visitors keep the marketing top nav so the
+// landing page reads full-width.
+function Chrome({ children }: { children: React.ReactNode }) {
+  const { isSignedIn, isLoaded } = useAuth();
+  if (isLoaded && isSignedIn) {
+    return (
+      <div className="flex min-h-screen flex-col md:flex-row">
+        <Sidebar />
+        <main className="min-w-0 flex-1">{children}</main>
+      </div>
+    );
+  }
+  return (
+    <>
+      <Navigation />
+      <main>{children}</main>
+    </>
+  );
+}
+
 export default function App() {
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen" style={{ background: 'var(--cb-bg)' }}>
       <ClerkTokenSync />
       <Routes>
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignUpPage />} />
         <Route path="*" element={
-          <>
-            <Navigation />
-            <main>
-              <Routes>
+          <Chrome>
+            <Routes>
                 <Route path="/" element={<HomePage />} />
                 {/* /welcome retired: the home page now serves both the marketing
                     content (signed-out) and the full app (signed-in). */}
@@ -106,9 +126,8 @@ export default function App() {
                 <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><OrgRoute team><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-              </Routes>
-            </main>
-          </>
+            </Routes>
+          </Chrome>
         } />
       </Routes>
     </div>

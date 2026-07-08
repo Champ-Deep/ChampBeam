@@ -15,11 +15,8 @@ import {
   File as FileIcon,
   Trash2,
   FolderOpen,
-  Plus,
   Save,
   X,
-  Pencil,
-  Inbox,
   GripVertical,
   CheckSquare,
 } from 'lucide-react';
@@ -34,6 +31,7 @@ import {
   LoadingSpinner,
   EmptyState,
   QrButton,
+  FolderChips,
 } from '../components/ui';
 import { filesApi } from '../api/files';
 import type { FileAsset, FileKind } from '../api/files';
@@ -96,7 +94,7 @@ export function FilesPage() {
     queryFn: () => utmApi.listDomains(),
   });
 
-  const { data: projects = [], isLoading: projectsLoading } = useQuery<Project[]>({
+  const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: () => utmApi.getProjects(),
   });
@@ -435,17 +433,6 @@ export function FilesPage() {
   // Render
   // ---------------------------------------------------------------
 
-  // Shared classes for a folder row, with a drop-target highlight ring.
-  const folderClasses = (active: boolean, dropTarget: boolean) =>
-    [
-      'w-full text-left rounded-lg border p-3 transition-all',
-      dropTarget
-        ? 'border-brand-purple bg-brand-purple/10 ring-2 ring-brand-purple/40 shadow'
-        : active
-          ? 'border-brand-purple bg-brand-purple/5 shadow-sm'
-          : 'border-slate-200 hover:border-slate-300 hover:shadow-sm',
-    ].join(' ');
-
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">
       <div className="mb-8">
@@ -506,7 +493,67 @@ export function FilesPage() {
         )}
       </Card>
 
-      <div className="flex flex-col lg:flex-row gap-6">
+      {/* Folder chips: filter + drag-and-drop drop targets (App v2 layout) */}
+      <div className="mb-5">
+        <FolderChips
+          allId={FILTER_ALL}
+          allLabel="All files"
+          allCount={files.length}
+          unfiledId={FILTER_UNFILED}
+          unfiledLabel="Unfiled"
+          unfiledCount={unfiledCount}
+          folders={projects.map((p) => ({
+            id: p.id,
+            name: p.name,
+            count: countByProject.get(p.id) ?? 0,
+          }))}
+          activeId={filterProject}
+          dragOverId={dragOverTarget}
+          isDragging={isDragging}
+          onSelect={(id) => setFilterProject(id === filterProject && id !== FILTER_ALL ? FILTER_ALL : id)}
+          onDragOver={(e, id) => id !== FILTER_ALL && handleFolderDragOver(e, id === FILTER_UNFILED ? DROP_UNFILED : id)}
+          onDragLeave={(id) => handleFolderDragLeave(id === FILTER_UNFILED ? DROP_UNFILED : id)}
+          onDrop={(e, id) => id !== FILTER_ALL && handleFolderDrop(e, id === FILTER_UNFILED ? DROP_UNFILED : id)}
+          onNew={openCreateForm}
+          onEdit={(id) => {
+            const p = projects.find((x) => x.id === id);
+            if (p) handleEditProject(p);
+          }}
+          onDelete={handleDeleteProject}
+          form={showForm && (
+            <Card className="border-brand-purple/30 max-w-md">
+              <div className="space-y-3">
+                <Input
+                  label="Name"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Folder name"
+                />
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                  <textarea
+                    value={form.description || ''}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    placeholder="Optional..."
+                    rows={2}
+                    className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveProject} isLoading={saving} leftIcon={<Save className="h-3.5 w-3.5" />}>
+                    {editingId ? 'Update' : 'Create'}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleCancelForm} leftIcon={<X className="h-3.5 w-3.5" />}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+        />
+      </div>
+
+      <div className="flex flex-col gap-6">
         {/* Main pane: Files */}
         <div className="flex-1 min-w-0 space-y-4">
           {/* Filter indicator */}
@@ -630,176 +677,6 @@ export function FilesPage() {
               </div>
             )}
           </Card>
-        </div>
-
-        {/* Right pane: Projects (folders) */}
-        <div className="w-full lg:w-72 flex-shrink-0">
-          <div className="lg:sticky lg:top-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FolderOpen className="h-4 w-4 text-slate-400" />
-                <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Projects</h2>
-              </div>
-              {!showForm && (
-                <button
-                  onClick={openCreateForm}
-                  className="p-1.5 text-slate-400 hover:text-brand-purple hover:bg-brand-purple/10 rounded-lg transition-colors"
-                  title="New project"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            {isDragging && (
-              <p className="text-xs text-brand-purple font-medium">
-                Drop on a folder to file the dragged files.
-              </p>
-            )}
-
-            {/* Create/Edit form */}
-            {showForm && (
-              <Card className="border-brand-purple/30">
-                <div className="space-y-3">
-                  <Input
-                    label="Name"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Project name"
-                  />
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
-                    <textarea
-                      value={form.description || ''}
-                      onChange={(e) => setForm({ ...form, description: e.target.value })}
-                      placeholder="Optional..."
-                      rows={2}
-                      className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={handleSaveProject} isLoading={saving} leftIcon={<Save className="h-3.5 w-3.5" />}>
-                      {editingId ? 'Update' : 'Create'}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleCancelForm} leftIcon={<X className="h-3.5 w-3.5" />}>
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            )}
-
-            {/* Synthetic folders: All files + Unfiled (always present, both are
-                drop-aware where it makes sense). */}
-            <div className="space-y-2">
-              {/* All files (filter only, not a drop target) */}
-              <button
-                onClick={() => setFilterProject(FILTER_ALL)}
-                className={folderClasses(filterProject === FILTER_ALL, false)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FileIcon className={`h-4 w-4 ${filterProject === FILTER_ALL ? 'text-brand-purple' : 'text-slate-400'}`} />
-                    <span className={`text-sm font-medium ${filterProject === FILTER_ALL ? 'text-brand-purple' : 'text-slate-700'}`}>
-                      All files
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500">{files.length}</span>
-                </div>
-              </button>
-
-              {/* Unfiled (filter + drop target -> project_id null) */}
-              <button
-                onClick={() => setFilterProject(FILTER_UNFILED)}
-                onDragOver={(e) => handleFolderDragOver(e, DROP_UNFILED)}
-                onDragLeave={() => handleFolderDragLeave(DROP_UNFILED)}
-                onDrop={(e) => handleFolderDrop(e, DROP_UNFILED)}
-                className={folderClasses(filterProject === FILTER_UNFILED, dragOverTarget === DROP_UNFILED)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Inbox className={`h-4 w-4 ${filterProject === FILTER_UNFILED ? 'text-brand-purple' : 'text-slate-400'}`} />
-                    <span className={`text-sm font-medium ${filterProject === FILTER_UNFILED ? 'text-brand-purple' : 'text-slate-700'}`}>
-                      Unfiled
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500">{unfiledCount}</span>
-                </div>
-              </button>
-            </div>
-
-            {/* Project folders */}
-            {projectsLoading ? (
-              <LoadingSpinner />
-            ) : projects.length === 0 ? (
-              <div className="text-center py-6 border border-dashed border-slate-200 rounded-lg">
-                <FolderOpen className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm text-slate-500">No projects yet</p>
-                <button
-                  onClick={openCreateForm}
-                  className="text-sm text-brand-purple hover:underline mt-1"
-                >
-                  Create your first project
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {projects.map((project) => {
-                  const active = filterProject === project.id;
-                  const isDropTarget = dragOverTarget === project.id;
-                  const count = countByProject.get(project.id) ?? 0;
-                  return (
-                    <div
-                      key={project.id}
-                      onDragOver={(e) => handleFolderDragOver(e, project.id)}
-                      onDragLeave={() => handleFolderDragLeave(project.id)}
-                      onDrop={(e) => handleFolderDrop(e, project.id)}
-                      className={folderClasses(active, isDropTarget)}
-                    >
-                      <div className="flex items-start justify-between">
-                        <button
-                          onClick={() => setFilterProject(active ? FILTER_ALL : project.id)}
-                          className="flex items-center gap-2 text-left flex-1 min-w-0"
-                        >
-                          <FolderOpen className={`h-4 w-4 flex-shrink-0 ${
-                            active || isDropTarget ? 'text-brand-purple' : 'text-slate-400'
-                          }`} />
-                          <div className="min-w-0">
-                            <p className={`text-sm font-medium truncate ${
-                              active || isDropTarget ? 'text-brand-purple' : 'text-slate-800'
-                            }`}>
-                              {project.name}
-                            </p>
-                            <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
-                              <span className="flex items-center gap-0.5">
-                                <FileIcon className="h-3 w-3" /> {count}
-                              </span>
-                            </div>
-                          </div>
-                        </button>
-                        <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
-                          <button
-                            onClick={() => handleEditProject(project)}
-                            className="p-1 text-slate-400 hover:text-brand-purple rounded transition-colors"
-                            title="Rename / edit"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProject(project.id)}
-                            className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
-                            title="Delete project"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

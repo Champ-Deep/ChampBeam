@@ -9,6 +9,7 @@ import {
   Copy,
   Globe,
   Info,
+  Palette,
   Plus,
   RefreshCw,
   Search,
@@ -18,11 +19,17 @@ import {
   Zap,
 } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
+import { AppearanceSettings } from '../components/AppearanceSettings';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
 
-type SettingsTab = 'domains' | 'presets';
+type SettingsTab = 'domains' | 'presets' | 'appearance';
+
+function initialTab(param: string | null): SettingsTab {
+  if (param === 'presets' || param === 'appearance') return param;
+  return 'domains';
+}
 
 const STATUS_LABEL: Record<DomainStatus, string> = {
   pending_cname: 'Waiting on CNAME',
@@ -54,9 +61,7 @@ function validateSlug(slug: string): string | null {
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<SettingsTab>(
-    searchParams.get('tab') === 'presets' ? 'presets' : 'domains'
-  );
+  const [tab, setTab] = useState<SettingsTab>(initialTab(searchParams.get('tab')));
 
   const { data: config } = useQuery<DomainsConfig>({
     queryKey: ['domains-config'],
@@ -183,8 +188,21 @@ export function SettingsPage() {
             <BookmarkCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             Presets
           </button>
+          <button
+            onClick={() => setTab('appearance')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'appearance'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Palette className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Appearance
+          </button>
         </div>
       </div>
+
+      {tab === 'appearance' && <AppearanceSettings />}
 
       {tab === 'domains' && (
         <>
