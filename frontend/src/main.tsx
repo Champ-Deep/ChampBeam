@@ -5,7 +5,11 @@ import { ClerkProvider } from '@clerk/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import App from './App'
+import { initTheme } from './hooks/useTheme'
 import './index.css'
+
+// Theme the document before React mounts so the first paint is correct.
+initTheme()
 
 const queryClient = new QueryClient({
   defaultOptions: {

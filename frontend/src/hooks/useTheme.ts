@@ -39,11 +39,16 @@ export function applyTheme(theme: ThemeName) {
   document.documentElement.setAttribute('data-cb-theme', theme);
 }
 
-// Applied once at module load so the very first paint is themed (no flash of
-// the wrong palette while React mounts).
-if (typeof document !== 'undefined') {
-  applyTheme(readStored());
+// Apply the stored (or default) theme to <html>. Call this once at app entry
+// (main.tsx) so the very first paint is themed — no flash of the wrong palette
+// while React mounts, and no dependency on which component imports this module.
+export function initTheme() {
+  if (typeof document !== 'undefined') applyTheme(readStored());
 }
+
+// Also self-apply on import as a safety net for any entry that forgets to call
+// initTheme() explicitly.
+initTheme();
 
 export function useTheme() {
   const [theme, setThemeState] = useState<ThemeName>(() => readStored());
