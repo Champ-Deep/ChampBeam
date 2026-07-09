@@ -104,6 +104,10 @@ but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the ser
 | GEO-3 | backend | No `IPINFO_API_TOKEN` → IPinfo path is skipped (no crash, falls back). |
 | GEO-4 | backend | Private/loopback IPs short-circuit (no external call). |
 | GEO-5 | backend | `GET /utm/analytics/geo` aggregates opens into countries/cities/by-day. |
+| GEO-6 | backend | MaxMind GeoIP2 web service (Insights) parses geo + ISP + `is_vpn` from anonymizer traits; account id is passed as an int. |
+| GEO-7 | backend | No MaxMind account id **or** license key → web-service path skipped (no call). |
+| GEO-8 | backend | With no local DB, `lookup_ip` prefers MaxMind web service over IPinfo/ip-api. |
+| GEO-9 | backend | City endpoint (no anonymizer flags) infers `is_vpn` from the hosting ASN owner. |
 | LOCATION-1 | e2e (authed) | A link's analytics view exposes a location/geo section. |
 
 ### Analytics — backend (`test_opens_geo.py`, `test_company_intent.py`) + E2E
@@ -134,18 +138,33 @@ fixed in the backend:
 2. The fix adds an **IPinfo path** (HTTPS, datacenter-safe) and wires
    `ensure_geoip.py` into boot.
 
+**We are using MaxMind** (GeoIP Insights). Two ways to run it — pick one:
+
+- **MaxMind web service / Insights (chosen)** — HTTPS REST, datacenter-safe, and
+  returns anonymizer traits for VPN detection. Set on the backend:
+  - `MAXMIND_ACCOUNT_ID` = your MaxMind account id
+  - `MAXMIND_LICENSE_KEY` = the license key for that account
+  - `MAXMIND_WS_HOST` = `geoip.maxmind.com` (default; use `geolite.info` for the
+    free GeoLite2 web service)
+  - `MAXMIND_WS_ENDPOINT` = `insights` (default; `city` is cheaper but has no
+    VPN/anonymizer flags)
+- **MaxMind local DB (free GeoLite2)** — set `MAXMIND_LICENSE_KEY` only; boot
+  (`ensure_geoip.py`) downloads GeoLite2 City + ASN to a mounted volume.
+
+Fallbacks remain available and need no MaxMind: `IPINFO_API_TOKEN`, then the free
+ip-api.com. Provider order and the swap plan are in **docs/GEO-PROVIDERS.md**.
+
 To confirm on a live instance:
 
-1. **Set a provider token** on the backend — either is enough:
-   - `IPINFO_API_TOKEN` (fastest; works on Railway's datacenter IP), or
-   - `MAXMIND_LICENSE_KEY` (free; boot downloads GeoLite2 City+ASN).
-2. Redeploy, then open a tracked link from a real network.
+1. Set the MaxMind vars above and redeploy.
+2. Open a tracked link from a real network.
 3. In the link/file analytics, the new open should show **country + city + ISP**,
    and VPN/proxy opens should be flagged. Historical opens stay "Unknown" — they
    were recorded before enrichment and are not backfilled.
 
-Automated backing: **GEO-1..GEO-5** prove the resolver + endpoint; **API-2**
-proves the endpoint is deployed; **LOCATION-1** proves the UI surfaces it.
+Automated backing: **GEO-1..GEO-9** prove the resolvers (IPinfo + MaxMind web
+service) and the endpoint; **API-2** proves the endpoint is deployed;
+**LOCATION-1** proves the UI surfaces it.
 
 ---
 

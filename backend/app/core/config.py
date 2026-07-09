@@ -163,6 +163,17 @@ class Settings(BaseSettings):
     maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
     maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
 
+    # MaxMind GeoIP2 web service (GeoIP Insights / City / Country). Unlike the
+    # local .mmdb files this is an HTTPS REST call — datacenter-safe, so it fixes
+    # "Unknown" geo on Railway/any PaaS without shipping a database. Insights adds
+    # anonymizer traits (VPN/proxy/hosting/Tor) for VPN detection. Auth = account
+    # id + license key. Host: geoip.maxmind.com for paid GeoIP2 (Insights lives
+    # here); geolite.info for the free GeoLite2 web service. Endpoint: one of
+    # "insights" | "city" | "country" (Insights has the richest traits).
+    maxmind_account_id: str = ""
+    maxmind_ws_host: str = "geoip.maxmind.com"
+    maxmind_ws_endpoint: str = "insights"
+
     # Company intent (reverse-IP firmographics). Provider-agnostic:
     #   "none"   - disabled.
     #   "asn"    - $0: reuse the ASN/network owner we already resolve via MaxMind
@@ -233,6 +244,11 @@ class Settings(BaseSettings):
     @property
     def champvault_configured(self) -> bool:
         return bool(self.champvault_url and self.champvault_api_key)
+
+    @property
+    def maxmind_ws_configured(self) -> bool:
+        """True when the MaxMind GeoIP2 web service can be called (account + key)."""
+        return bool(self.maxmind_account_id and self.maxmind_license_key)
 
     @property
     def company_intel_configured(self) -> bool:
