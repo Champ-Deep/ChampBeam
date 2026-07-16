@@ -139,6 +139,15 @@ but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the ser
 | NAV-1 | The dark sidebar + orbit wordmark render after sign-in. |
 | CHIPS-1 | Links and Files show the folder **chips** row (App v2), not the old rail. |
 
+### Content library ↔ ChampVault — backend (`test_champvault_library.py`)
+The admin curates the library directly from ChampVault; picked assets become live
+references the whole team can share (each share re-mints a fresh delivery URL).
+
+| ID | Proves |
+|----|--------|
+| CVLIB-1 | An admin adds a ChampVault asset to the library (title resolved from ChampVault, `champvault_asset_id` surfaced); it's idempotent per (org, asset), shows in `/content`, and a member share of it re-mints a fresh delivery URL on open. |
+| CVLIB-2 | An explicit title skips the ChampVault lookup; a non-admin member is forbidden (403) from adding to the library. |
+
 ### Deploy / config — backend (`test_config_database_url.py`)
 Guards the `DATABASE_URL` handling that has bitten deploys. See
 **docs/DEPLOY-TROUBLESHOOTING.md** for the runbook.

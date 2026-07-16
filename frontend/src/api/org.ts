@@ -97,6 +97,10 @@ export interface ContentItem {
   description: string | null;
   kind: ContentKind;
   canonical_url: string | null;
+  // Set when the item is a live reference to a ChampVault asset (member shares
+  // re-mint a fresh delivery URL on each open). UI badges it and hides the
+  // internal champvault:// marker.
+  champvault_asset_id?: string | null;
   file_id: string | null;
   is_archived: boolean;
   created_at: string;
@@ -186,6 +190,15 @@ export const contentApi = {
 
   async create(input: CreateContentInput): Promise<ContentItem> {
     const response = await api.post<ContentItem>('/content', input);
+    return response.data;
+  },
+
+  // Admin: add a ChampVault asset to the library as a live reference. Idempotent
+  // per (org, asset); title/description resolve from ChampVault when omitted.
+  async addFromChampVault(
+    input: { asset_id: string; title?: string; description?: string }
+  ): Promise<ContentItem> {
+    const response = await api.post<ContentItem>('/content/from-champvault', input);
     return response.data;
   },
 

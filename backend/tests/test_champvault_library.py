@@ -255,6 +255,70 @@ async def test_org_send_records_shadow_content_and_shows_in_analytics(lib_ctx, m
 
 
 @pytest.mark.asyncio
+async def test_admin_adds_champvault_asset_to_library(lib_ctx, monkeypatch):
+    """CVLIB-1: an admin adds a ChampVault asset to the Content Library; it becomes
+    a shadow Content the whole team can then share (title resolved from ChampVault,
+    champvault_asset_id surfaced, idempotent per org+asset)."""
+    client, maker = lib_ctx
+    admin_id, (member_id,) = await _seed_org(maker)
+    _configure_champvault(monkeypatch)
+
+    _CURRENT["token"] = _token(admin_id, "admin")
+    resp = await client.post("/api/v1/content/from-champvault", json={"asset_id": "asset_deck"})
+    assert resp.status_code == 201, resp.text
+    item = resp.json()
+    assert item["champvault_asset_id"] == "asset_deck"
+    assert item["title"] == "Deck asset_deck"  # resolved from ChampVault
+    assert item["kind"] == "link"
+    content_id = item["id"]
+
+    # Idempotent: re-adding the same asset returns the same library item.
+    again = await client.post("/api/v1/content/from-champvault", json={"asset_id": "asset_deck"})
+    assert again.status_code == 201
+    assert again.json()["id"] == content_id
+
+    # It shows up in the org library, and a member can share it (re-mintable).
+    lib = (await client.get("/api/v1/content")).json()
+    assert any(c["id"] == content_id and c["champvault_asset_id"] == "asset_deck" for c in lib)
+
+    _CURRENT["token"] = _token(member_id)
+    share = await client.post(f"/api/v1/content/{content_id}/share", json={})
+    assert share.status_code == 201, share.text
+    short_code = share.json()["share_url"].rsplit("/", 1)[1]
+    r = await client.get(f"/r/{short_code}", headers={"X-Forwarded-For": "10.0.0.5"})
+    assert r.status_code == 302
+    assert r.headers["location"].startswith("https://vault.test/d/asset_deck?v=")
+
+
+@pytest.mark.asyncio
+async def test_admin_add_champvault_title_override_and_member_forbidden(lib_ctx, monkeypatch):
+    """CVLIB-2: an explicit title skips the ChampVault lookup; a non-admin member
+    cannot add to the library (admin-only)."""
+    client, maker = lib_ctx
+    admin_id, (member_id,) = await _seed_org(maker)
+    _configure_champvault(monkeypatch)
+
+    # A supplied title is used verbatim (no get_asset needed).
+    async def _boom(self, asset_id):
+        raise AssertionError("get_asset must not be called when a title is supplied")
+
+    monkeypatch.setattr(ChampVault, "get_asset", _boom)
+
+    _CURRENT["token"] = _token(admin_id, "admin")
+    resp = await client.post(
+        "/api/v1/content/from-champvault",
+        json={"asset_id": "asset_z", "title": "Custom Q3 Pitch"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["title"] == "Custom Q3 Pitch"
+
+    # Members can't add to the library.
+    _CURRENT["token"] = _token(member_id)
+    forbidden = await client.post("/api/v1/content/from-champvault", json={"asset_id": "asset_y", "title": "x"})
+    assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_org_send_idempotent_and_consolidates_across_members(lib_ctx, monkeypatch):
     client, maker = lib_ctx
     admin_id, (m1, m2) = await _seed_org(maker, members=2)
