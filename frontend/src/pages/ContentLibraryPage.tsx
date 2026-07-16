@@ -104,13 +104,25 @@ export function ContentLibraryPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <CardTitle>Content</CardTitle>
-            <label className="flex items-center gap-2 text-sm text-slate-500">
+            <label
+              className="inline-flex cursor-pointer select-none items-center gap-2.5 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+              style={
+                showArchived
+                  ? {
+                      borderColor: 'var(--cb-accent-border)',
+                      backgroundColor: 'var(--cb-accent-soft)',
+                      color: 'var(--cb-accent)',
+                    }
+                  : undefined
+              }
+            >
               <input
                 type="checkbox"
                 checked={showArchived}
                 onChange={(e) => setShowArchived(e.target.checked)}
+                className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-brand-purple"
               />
               Show archived
             </label>
