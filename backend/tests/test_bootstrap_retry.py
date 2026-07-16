@@ -57,3 +57,20 @@ async def test_cfg7_auth_error_fails_fast_without_retry(monkeypatch):
     with pytest.raises(boot.OperationalError):
         await boot.main()
     assert calls["n"] == 1  # not retried
+
+
+def test_cfg8_redacted_target_names_host_but_never_the_password(monkeypatch):
+    """The startup diagnostic must show WHERE we connect (user/host/db) so an auth
+    failure is diagnosable, but must never print the password into the logs."""
+    secret = "sup3rS3cr3t_pw"
+    monkeypatch.setattr(
+        boot.settings,
+        "database_url",
+        f"postgresql://postgres:{secret}@shinkansen.proxy.rlwy.net:5432/railway",
+    )
+    target = boot._redacted_target()
+    assert secret not in target  # password never leaks into logs
+    assert "postgres" in target  # user is shown
+    assert "shinkansen.proxy.rlwy.net" in target  # host is shown
+    assert "railway" in target  # db name is shown
+    assert "DATABASE_URL" in target  # reports where the URL came from

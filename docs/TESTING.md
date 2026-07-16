@@ -141,6 +141,7 @@ Guards the `DATABASE_URL` handling that has bitten deploys. See
 | CFG-5 | With no `DATABASE_URL`, the URL is built from discrete `POSTGRES_*` vars. |
 | CFG-6 | `bootstrap_db.main()` retries a transient connect (DNS/connection race at cold start) and then succeeds (`test_bootstrap_retry.py`). |
 | CFG-7 | A wrong-password auth error fails fast without retrying (no 20 s stall). |
+| CFG-8 | The startup diagnostic logs the connection target (user/host/db) so an auth failure is diagnosable, but **never prints the password** (`test_bootstrap_retry.py`). |
 
 ---
 

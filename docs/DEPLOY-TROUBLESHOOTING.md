@@ -40,26 +40,58 @@ build.
 
 ## "password authentication failed for user postgres" → healthcheck timeout
 
-**Cause.** `DATABASE_URL` carries a password that no longer matches the Postgres
-service. `bootstrap_db.py` can't connect, migrations never run, uvicorn never
-starts. This happens when `DATABASE_URL` is a **hardcoded literal** and the
-database's password later changes (DB recreated/restored, service replaced, or
-credentials rotated). The app scheme handling is fine — it connected far enough
-to be rejected at auth.
+**Symptom.** The deploy (not the build) crashes on the FIRST start step with a
+full traceback ending in
+`asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "postgres"`,
+repeated every ~1s (that's Railway restarting the crashed container). uvicorn
+never binds, so the healthcheck times out.
 
-**Fix (Railway).** Stop hardcoding; make `DATABASE_URL` a **reference** so it
-always tracks the live database credentials:
+**This is a database credential problem, not a code bug.** The connection
+*reached* Postgres and was rejected at auth — so the host/port/scheme are all
+correct and `DATABASE_URL` is being read (the app's default DB user is
+`champbeam`; seeing user `postgres` means `DATABASE_URL` is present and carries
+`user=postgres`). Only the **password** is wrong. `bootstrap_db.py` prints the
+redacted target (`connecting to Postgres: user=… host=… db=…`, password never
+logged — CFG-8) right before it connects, and fails fast on auth (CFG-7) rather
+than stalling. Nothing in the app can fix a password the database itself
+rejects.
 
-1. Backend service → **Variables**.
-2. Set `DATABASE_URL` to a reference to the Postgres service (replace `Postgres`
-   with your DB service's actual name):
-   - Preferred (internal networking, no egress cost/latency):
-     `DATABASE_URL=${{Postgres.DATABASE_PRIVATE_URL}}`
-   - Or public: `DATABASE_URL=${{Postgres.DATABASE_URL}}`
-3. Remove any stale hardcoded `DATABASE_URL` value.
-4. Redeploy.
+**Why it "deployed fine before."** The code path is unchanged; the DB
+credentials drifted since the last good deploy. Three common triggers:
 
-A referenced value can never drift out of sync with the database again.
+1. **Volume-baked password (the classic Railway trap).** Postgres only applies
+   `POSTGRES_PASSWORD` when it *first initializes an empty data volume*. If that
+   variable was changed afterward, Railway's UI and the generated `DATABASE_URL`
+   show the NEW password, but the running role still authenticates with the
+   ORIGINAL one stored in the volume. Comparing the backend's `DATABASE_URL` to
+   the Postgres service's `DATABASE_URL` just compares two copies of the same new
+   (wrong) value — they'll look identical and still be rejected.
+2. A **hardcoded** `DATABASE_URL` literal that went stale after the DB was
+   recreated/restored or credentials were rotated.
+3. The `DATABASE_URL` reference points at a **different Postgres service** than
+   the one whose password you're checking.
+
+**Fix — make the password the DB actually expects match `DATABASE_URL`:**
+
+- **Reset the Postgres role's password to a known value** (Postgres service →
+  *Data*/*Query* tab, or `psql`): `ALTER USER postgres WITH PASSWORD 'newpw';`
+  then set that same value in the variables. This is the only fix that works
+  when the password is baked into the volume (case 1) — changing the variable
+  alone won't touch the role.
+- **Or** reference the credentials so they can't drift again (best once the
+  role password and the service variable agree): Backend service → **Variables**
+  → set `DATABASE_URL` to a reference to the Postgres service (replace `Postgres`
+  with its actual name):
+  - Preferred (internal networking, no egress cost/latency):
+    `DATABASE_URL=${{Postgres.DATABASE_PRIVATE_URL}}`
+  - Or public: `DATABASE_URL=${{Postgres.DATABASE_URL}}`
+  Remove any stale hardcoded value, then redeploy.
+- **To confirm which case you're in:** open the deploy log and read the
+  `connecting to Postgres: user=… host=… db=…` line. If the host/user/db are the
+  ones you expect, it's purely the password — reset the role (above). If the host
+  is a *default* (e.g. `localhost`) or the user is `champbeam`, `DATABASE_URL`
+  isn't reaching the container and it's falling back to discrete vars — fix the
+  variable/reference instead.
 
 **Notes / gotchas.**
 - The app normalizes the driver automatically: `postgres://` and
