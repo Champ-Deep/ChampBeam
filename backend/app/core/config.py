@@ -339,11 +339,26 @@ class Settings(BaseSettings):
 
     @property
     def postgres_url(self) -> str:
-        """Build PostgreSQL async connection URL."""
+        """Build the async (asyncpg) PostgreSQL connection URL.
+
+        Accepts whatever DATABASE_URL shape a host hands us and normalizes the
+        driver: Railway/Heroku expose ``postgres://`` or ``postgresql://`` and
+        SQLAlchemy needs ``postgresql+asyncpg://``. If DATABASE_URL is already an
+        explicit ``+driver`` URL it is passed through untouched.
+
+        Note: this only fixes the *scheme* — a wrong password/host in
+        DATABASE_URL still fails auth at connect time. On Railway, set
+        ``DATABASE_URL=${{Postgres.DATABASE_URL}}`` (a reference) so the password
+        can never drift out of sync with the database service.
+        """
         if self.database_url:
-            url = self.database_url
+            url = self.database_url.strip()
+            if url.startswith("postgresql+"):
+                return url  # already has an explicit driver
             if url.startswith("postgresql://"):
-                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+                return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if url.startswith("postgres://"):
+                return url.replace("postgres://", "postgresql+asyncpg://", 1)
             return url
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"

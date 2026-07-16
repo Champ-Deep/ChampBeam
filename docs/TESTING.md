@@ -125,6 +125,18 @@ but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the ser
 | NAV-1 | The dark sidebar + orbit wordmark render after sign-in. |
 | CHIPS-1 | Links and Files show the folder **chips** row (App v2), not the old rail. |
 
+### Deploy / config — backend (`test_config_database_url.py`)
+Guards the `DATABASE_URL` handling that has bitten deploys. See
+**docs/DEPLOY-TROUBLESHOOTING.md** for the runbook.
+
+| ID | Proves |
+|----|--------|
+| CFG-1 | `postgresql://…` is normalized to the asyncpg driver. |
+| CFG-2 | `postgres://…` (Railway/Heroku shorthand) is normalized to asyncpg. |
+| CFG-3 | An explicit `postgresql+asyncpg://…` is passed through unchanged. |
+| CFG-4 | Surrounding whitespace (copy-paste) is trimmed. |
+| CFG-5 | With no `DATABASE_URL`, the URL is built from discrete `POSTGRES_*` vars. |
+
 ---
 
 ## Verifying location end-to-end (the "Unknown" fix)
