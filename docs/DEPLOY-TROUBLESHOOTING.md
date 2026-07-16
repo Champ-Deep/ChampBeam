@@ -94,6 +94,33 @@ never starts. Keep every Alembic `revision` id ≤ 32 characters.
 
 ---
 
+## Healthcheck times out right after setting a MaxMind key (build succeeds)
+
+**Symptom.** The build passes, but the deploy's healthcheck times out — uvicorn
+never binds. Started happening right after `MAXMIND_LICENSE_KEY` was set.
+
+**Cause.** `ensure_geoip.py` runs on the start command **before uvicorn**. With a
+license key set and no local `.mmdb` present (no mounted volume → always
+"missing"), it downloads GeoLite2 City+ASN on every boot. A slow/hung MaxMind
+endpoint could block for up to ~4 minutes, pushing uvicorn past the healthcheck
+window. Before the key was set it was an instant no-op — which is why it
+"deployed fine before".
+
+**Fix (already in code).** `ensure_geoip` now **skips the download when a web geo
+provider is configured** (`MAXMIND_ACCOUNT_ID` for the web service, or
+`IPINFO_API_TOKEN`) — the common case, since Insights/IPinfo resolve over HTTPS
+with no local DB — and the download timeout is capped (default 20s,
+`GEOIP_DOWNLOAD_TIMEOUT`). Force local DBs anyway with `GEOIP_FORCE_DOWNLOAD=1`
+(only useful with a mounted volume at `data/`). Guarded by GEO-10..12.
+
+Note: `/health` always returns HTTP 200 (it reports DB status in the body but
+never 500s), so a failing healthcheck means **uvicorn isn't binding** — look at
+the start-command steps (bootstrap → alembic → ensure_geoip), not the app. And
+ChampVault is never called at boot or in `/health`, so `CHAMPVAULT_*` cannot
+cause a healthcheck failure.
+
+---
+
 ## Geo shows "Unknown" after a successful deploy
 
 The app is up but no geo provider is configured, or the only one configured is

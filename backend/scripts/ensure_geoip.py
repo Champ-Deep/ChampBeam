@@ -35,7 +35,10 @@ def _download(edition: str, key: str, dest: str) -> None:
         "https://download.maxmind.com/app/geoip_download"
         f"?edition_id={edition}&license_key={key}&suffix=tar.gz"
     )
-    resp = httpx.get(url, timeout=120, follow_redirects=True)
+    # Bounded so a slow/hung MaxMind endpoint can't stall boot past the
+    # healthcheck window. Override via GEOIP_DOWNLOAD_TIMEOUT (seconds).
+    timeout = float(os.getenv("GEOIP_DOWNLOAD_TIMEOUT", "20"))
+    resp = httpx.get(url, timeout=timeout, follow_redirects=True)
     resp.raise_for_status()
     with tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz") as tar:
         member = next(
@@ -51,7 +54,27 @@ def _download(edition: str, key: str, dest: str) -> None:
             out.write(extracted.read())
 
 
+def _web_provider_configured() -> bool:
+    """True when a datacenter-safe web geo provider is set (MaxMind GeoIP2 /
+    Insights web service, or IPinfo). Then local .mmdb files aren't needed for
+    geo/VPN, so we must NOT spend boot time downloading them."""
+    return bool(os.getenv("MAXMIND_ACCOUNT_ID") or os.getenv("IPINFO_API_TOKEN"))
+
+
 def main() -> None:
+    # CRITICAL: this runs on the start command BEFORE uvicorn binds. It must never
+    # block long, or the platform healthcheck times out before the server is up.
+    # If a web provider is configured we skip the download entirely (the common
+    # case now — MaxMind Insights / IPinfo resolve over HTTPS with no local DB).
+    # Force the download anyway with GEOIP_FORCE_DOWNLOAD=1.
+    force = os.getenv("GEOIP_FORCE_DOWNLOAD", "").lower() in ("1", "true", "yes")
+    if _web_provider_configured() and not force:
+        log.info(
+            "A web geo provider is configured (MaxMind web service / IPinfo); "
+            "skipping local GeoIP DB download so boot isn't delayed."
+        )
+        return
+
     missing = {e: d for e, d in EDITIONS.items() if not os.path.exists(d)}
     if not missing:
         log.info("GeoIP databases present; skipping download.")

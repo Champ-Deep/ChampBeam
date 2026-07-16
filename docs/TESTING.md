@@ -108,6 +108,9 @@ but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the ser
 | GEO-7 | backend | No MaxMind account id **or** license key → web-service path skipped (no call). |
 | GEO-8 | backend | With no local DB, `lookup_ip` prefers MaxMind web service over IPinfo/ip-api. |
 | GEO-9 | backend | City endpoint (no anonymizer flags) infers `is_vpn` from the hosting ASN owner. |
+| GEO-10 | backend | `ensure_geoip` skips the local-DB download when the MaxMind web service is configured (so boot isn't delayed → no healthcheck timeout). |
+| GEO-11 | backend | `ensure_geoip` skips the download when IPinfo is configured. |
+| GEO-12 | backend | `GEOIP_FORCE_DOWNLOAD=1` overrides the skip and attempts the download. |
 | LOCATION-1 | e2e (authed) | A link's analytics view exposes a location/geo section. |
 
 ### Analytics — backend (`test_opens_geo.py`, `test_company_intent.py`) + E2E
