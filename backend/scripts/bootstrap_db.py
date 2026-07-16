@@ -26,9 +26,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import socket
 import sys
 
 from sqlalchemy import text
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.core.config import settings
@@ -111,56 +114,88 @@ async def _apply_schema_safety_net(conn: AsyncConnection) -> None:
             log.warning("safety-net statement failed (continuing): %s :: %s", stmt, exc)
 
 
+# Transient at container start on Railway: private networking DNS
+# (*.railway.internal) can lag a second or two, and the DB may still be
+# accepting connections. These are worth retrying. An auth failure (wrong
+# password) is NOT transient and is surfaced immediately below.
+_RETRYABLE_CONNECT = (OSError, socket.gaierror, ConnectionError, OperationalError, InterfaceError)
+
+
+async def _run_bootstrap(engine) -> int:
+    async with engine.begin() as conn:
+        users_exists = await conn.scalar(text(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM information_schema.tables"
+            "  WHERE table_schema = 'public' AND table_name = 'users'"
+            ")"
+        ))
+        if not users_exists:
+            log.info("fresh database (no users table), letting alembic create the schema from scratch")
+            return 0
+
+        version_table_exists = await conn.scalar(text(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM information_schema.tables"
+            "  WHERE table_schema = 'public' AND table_name = 'alembic_version'"
+            ")"
+        ))
+        already_stamped = False
+        if version_table_exists:
+            existing_count = await conn.scalar(text("SELECT COUNT(*) FROM alembic_version"))
+            if existing_count and existing_count > 0:
+                current = await conn.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
+                log.info("alembic_version already populated at %s, no stamp needed", current)
+                already_stamped = True
+
+        if not already_stamped:
+            await conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS alembic_version ("
+                "  version_num VARCHAR(32) NOT NULL PRIMARY KEY"
+                ")"
+            ))
+            await conn.execute(text("DELETE FROM alembic_version"))
+            await conn.execute(
+                text("INSERT INTO alembic_version (version_num) VALUES (:rev)"),
+                {"rev": STAMP_REVISION},
+            )
+            log.info("stamped legacy schema at %s, alembic upgrade head will apply newer migrations only", STAMP_REVISION)
+
+        # Always run the safety net. It's idempotent, fast, and the
+        # only reliable way to recover from a schema that drifted from
+        # alembic_version (e.g. a half-applied 007_repair_legacy).
+        log.info("applying schema safety net (idempotent ADD COLUMN IF NOT EXISTS)")
+        await _apply_schema_safety_net(conn)
+        log.info("schema safety net complete")
+    return 0
+
+
 async def main() -> int:
-    engine = create_async_engine(settings.postgres_url)
-    try:
-        async with engine.begin() as conn:
-            users_exists = await conn.scalar(text(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables"
-                "  WHERE table_schema = 'public' AND table_name = 'users'"
-                ")"
-            ))
-            if not users_exists:
-                log.info("fresh database (no users table), letting alembic create the schema from scratch")
-                return 0
-
-            version_table_exists = await conn.scalar(text(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables"
-                "  WHERE table_schema = 'public' AND table_name = 'alembic_version'"
-                ")"
-            ))
-            already_stamped = False
-            if version_table_exists:
-                existing_count = await conn.scalar(text("SELECT COUNT(*) FROM alembic_version"))
-                if existing_count and existing_count > 0:
-                    current = await conn.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
-                    log.info("alembic_version already populated at %s, no stamp needed", current)
-                    already_stamped = True
-
-            if not already_stamped:
-                await conn.execute(text(
-                    "CREATE TABLE IF NOT EXISTS alembic_version ("
-                    "  version_num VARCHAR(32) NOT NULL PRIMARY KEY"
-                    ")"
-                ))
-                await conn.execute(text("DELETE FROM alembic_version"))
-                await conn.execute(
-                    text("INSERT INTO alembic_version (version_num) VALUES (:rev)"),
-                    {"rev": STAMP_REVISION},
-                )
-                log.info("stamped legacy schema at %s, alembic upgrade head will apply newer migrations only", STAMP_REVISION)
-
-            # Always run the safety net. It's idempotent, fast, and the
-            # only reliable way to recover from a schema that drifted from
-            # alembic_version (e.g. a half-applied 007_repair_legacy).
-            log.info("applying schema safety net (idempotent ADD COLUMN IF NOT EXISTS)")
-            await _apply_schema_safety_net(conn)
-            log.info("schema safety net complete")
-        return 0
-    finally:
-        await engine.dispose()
+    """Bootstrap with a bounded connect-retry so a cold-start DNS/connection race
+    on Railway private networking doesn't crash boot (which would time out the
+    healthcheck). Wrong-password / auth errors are NOT retried — they surface at
+    once so a real misconfiguration fails fast instead of stalling for 20s."""
+    attempts = int(os.getenv("DB_CONNECT_ATTEMPTS", "12"))
+    delay = 1.0
+    last_exc: Exception | None = None
+    for i in range(1, attempts + 1):
+        engine = create_async_engine(settings.postgres_url)
+        try:
+            return await _run_bootstrap(engine)
+        except _RETRYABLE_CONNECT as exc:
+            if "password authentication failed" in str(exc).lower():
+                log.error("Postgres rejected the password in DATABASE_URL — not retrying.")
+                raise
+            last_exc = exc
+            log.warning("database not reachable yet (attempt %d/%d): %s", i, attempts, exc)
+            if i < attempts:
+                await asyncio.sleep(min(delay, 3.0))
+                delay *= 1.5
+        finally:
+            await engine.dispose()
+    log.error("could not reach the database after %d attempts", attempts)
+    if last_exc:
+        raise last_exc
+    return 1
 
 
 if __name__ == "__main__":
