@@ -153,6 +153,39 @@ cause a healthcheck failure.
 
 ---
 
+## Every API call returns 401 (blanket Unauthorized) even though you're signed in
+
+**Symptom.** The app loads, Clerk shows you signed in (org switcher works), but the
+console is a wall of `401 (Unauthorized)` on **every** endpoint — `config`,
+`projects`, `files`, `domains`, `content`, `champvault/config`, analytics. The UI
+does **not** bounce to `/sign-in` (by design — see `client.ts`: a full redirect
+while a Clerk session exists would infinite-loop, so the error is surfaced instead).
+
+**Cause.** The backend rejects **every** Clerk token — the frontend and backend
+are not aligned on the same Clerk instance, or the SPA origin isn't authorized.
+`_verify_clerk_token` (`app/core/security.py`) fails in one of three exact spots.
+**Read the `detail` in the 401 response body** (Network tab → click a red request →
+Response) to know which:
+
+| `detail` | Meaning | Fix |
+|----------|---------|-----|
+| `Unknown signing key` | The token's `kid` isn't in the backend's JWKS → backend `CLERK_SECRET_KEY` is from a **different Clerk instance** than the frontend's publishable key. | Set the backend's `CLERK_SECRET_KEY` to the **same instance** as the frontend's `VITE_CLERK_PUBLISHABLE_KEY`. A preview frontend on dev keys (`pk_test_…`) needs the matching `sk_test_…`; a `sk_live_…` backend paired with a `pk_test_…` frontend fails every request. |
+| `Could not validate credentials` | Signature/issuer/expiry rejected — usually `CLERK_ISSUER` (or the issuer derived from the publishable key) points at a different instance. | Align `CLERK_PUBLISHABLE_KEY` / `CLERK_ISSUER` with the frontend's instance, or clear `CLERK_ISSUER` to fall back to signature+expiry. |
+| `Unauthorized party` | The token's `azp` (the SPA origin) isn't allowed — common on **Vercel preview URLs**, which change every deploy. | Add the origin to `CLERK_AUTHORIZED_PARTIES` / `FRONTEND_URL`, **or** set `CORS_ALLOW_ORIGIN_REGEX` to match your preview origins (e.g. `https://champbeam-[a-z0-9-]+\.vercel\.app`). The azp check now honors that regex — AUTH-2. |
+
+**Fastest triage.** One `curl` tells you if it's the whole backend or your token:
+
+```bash
+curl -si https://<backend>/api/v1/champvault/config | head -1   # no token → 401 expected
+curl -si https://<backend>/health | head -1                      # 200 = server up; auth is the issue
+```
+
+`/health` is unauthenticated, so a 200 there with 401 everywhere else confirms the
+server is healthy and the problem is purely token verification (one of the three rows
+above) — not the deploy.
+
+---
+
 ## Geo shows "Unknown" after a successful deploy
 
 The app is up but no geo provider is configured, or the only one configured is

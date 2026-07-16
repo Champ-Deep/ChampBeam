@@ -67,6 +67,17 @@ The login-loop regression: a 401 must **not** bounce the browser between
 | LOGIN-1 | Visiting `/links` signed-out lands on `/sign-in` and the URL **stays put** (no loop); a Clerk sign-in surface renders (not blank). |
 | LOGIN-2 | The landing page loads with **no uncaught console/runtime errors**. |
 
+### Auth / Clerk token verification — backend (`test_clerk_security.py`)
+Guards the authorized-party (`azp`) check that gates every authenticated request.
+A blanket 401 across all endpoints is usually a frontend↔backend Clerk mismatch —
+see **docs/DEPLOY-TROUBLESHOOTING.md**.
+
+| ID | Proves |
+|----|--------|
+| AUTH-1 | An `azp` origin in the strict allowlist (CLERK_AUTHORIZED_PARTIES / FRONTEND_URL / CORS_ALLOW_ORIGINS) authorizes; an unlisted one does not. |
+| AUTH-2 | A per-deploy Vercel **preview** origin still authenticates when it matches `CORS_ALLOW_ORIGIN_REGEX` (so previews don't 401 with "Unauthorized party"). |
+| AUTH-3 | With no regex configured, only the exact allowlist authorizes (strict, unchanged). |
+
 ### Performance / no stutter — `frontend/e2e/app-smoke.spec.ts`, `authed.spec.ts`
 
 | ID | Proves |
