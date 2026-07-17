@@ -35,6 +35,7 @@ import {
 } from '../components/ui';
 import { filesApi } from '../api/files';
 import type { FileAsset, FileKind } from '../api/files';
+import { UPLOAD_ACCEPT, UPLOAD_HINT, UPLOAD_LABEL } from '../config/uploadLimits';
 import { utmApi } from '../api/utm';
 import type { Domain, Project, ProjectCreate } from '../api/utm';
 
@@ -475,9 +476,9 @@ export function FilesPage() {
         <FileUploadZone
           onFileSelected={handleFile}
           isUploading={isUploading}
-          accept=".pdf,.html,.htm,.mp4,.webm,.png,.jpg,.jpeg,.webp"
-          label="Drop a PDF, video, HTML, or image here"
-          hint="PDF/HTML/image up to 10 MB, video up to 500 MB"
+          accept={UPLOAD_ACCEPT}
+          label={UPLOAD_LABEL}
+          hint={UPLOAD_HINT}
           uploadingLabel={
             progress !== null ? `Uploading... ${progress}%` : 'Uploading...'
           }

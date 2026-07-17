@@ -62,9 +62,13 @@ _MIME_KIND = {
     "image/webp": KIND_IMAGE,
 }
 
+# Per-kind upload caps (authed users). Single source of truth — the Files and
+# Generator upload UIs render their size hints from these same numbers, so the
+# copy can't drift from what the API actually accepts. HTML is roomier than
+# PDF/image because HTML one-pagers inline their assets (images/CSS/fonts).
 _KIND_CAP_BYTES = {
     KIND_PDF: 50 * 1024 * 1024,
-    KIND_HTML: 10 * 1024 * 1024,
+    KIND_HTML: 20 * 1024 * 1024,
     KIND_IMAGE: 10 * 1024 * 1024,
     KIND_VIDEO: 500 * 1024 * 1024,
     KIND_OTHER: 50 * 1024 * 1024,
@@ -74,7 +78,7 @@ _KIND_CAP_BYTES = {
 # on the shared platform-default namespace. Authed users keep _KIND_CAP_BYTES.
 _GUEST_KIND_CAP_BYTES = {
     KIND_PDF: 10 * 1024 * 1024,
-    KIND_HTML: 5 * 1024 * 1024,
+    KIND_HTML: 10 * 1024 * 1024,
     KIND_IMAGE: 5 * 1024 * 1024,
     KIND_VIDEO: 50 * 1024 * 1024,
     KIND_OTHER: 10 * 1024 * 1024,
