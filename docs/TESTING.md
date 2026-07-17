@@ -148,6 +148,21 @@ references the whole team can share (each share re-mints a fresh delivery URL).
 | CVLIB-1 | An admin adds a ChampVault asset to the library (title resolved from ChampVault, `champvault_asset_id` surfaced); it's idempotent per (org, asset), shows in `/content`, and a member share of it re-mints a fresh delivery URL on open. |
 | CVLIB-2 | An explicit title skips the ChampVault lookup; a non-admin member is forbidden (403) from adding to the library. |
 
+### Briefing Rooms + visit tracking — backend (`test_rooms.py`)
+Hosted Briefing Rooms (spec Modules B & C), Slice 1 spine: rooms assembled from
+ChampVault assets, per-recipient tokenized links, identified event tracking, and
+the self-ranking engagement score. See **docs/BRIEFING-ROOMS.md**.
+
+| ID | Proves |
+|----|--------|
+| ROOM-1 | A rep creates a draft room (unique slug, assets stored) and publishes it. |
+| ROOM-2 | Each recipient gets a unique tokenized link (`/rooms/{slug}?t={token}`). |
+| ROOM-3 | Public resolve renders per-recipient personalization with a valid token; stays anonymous ("your team") without one. |
+| ROOM-4 | A draft room is 404 publicly; an archived room resolves with `ended=true` (branded "briefing has ended", never a 404). |
+| ROOM-5 | Identified events ingest against the recipient and roll into the engagement score (video 30 + return 20 + cta 20 + dwell 10 = 80). |
+| ROOM-6 | A tokenless event is recorded anonymously (forwarded/unknown viewer) and surfaced as a signal, not attributed to a recipient. |
+| ROOM-7 | An unknown event type is 400; tracking against a missing room is 404. |
+
 ### Deploy / config — backend (`test_config_database_url.py`)
 Guards the `DATABASE_URL` handling that has bitten deploys. See
 **docs/DEPLOY-TROUBLESHOOTING.md** for the runbook.

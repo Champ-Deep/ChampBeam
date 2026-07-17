@@ -6,6 +6,7 @@ from app.models.domain import Domain
 from app.models.file_asset import FileAsset
 from app.models.org import Organization, OrganizationMembership
 from app.models.content import Content, ContentShare
+from app.models.room import Room, RoomRecipient, RoomLink, RoomEvent
 
 __all__ = [
     "User",
@@ -19,4 +20,8 @@ __all__ = [
     "OrganizationMembership",
     "Content",
     "ContentShare",
+    "Room",
+    "RoomRecipient",
+    "RoomLink",
+    "RoomEvent",
 ]
