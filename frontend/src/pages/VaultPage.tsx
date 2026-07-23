@@ -101,7 +101,7 @@ export function VaultPage() {
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">Library</h1>
+        <h1 className="text-3xl font-bold text-slate-900">Vault</h1>
         <p className="text-slate-600 mt-1">
           Browse the ChampVault hub, favorite what you send often, and beam an asset — we wrap it in
           a tracked link and record every open.
