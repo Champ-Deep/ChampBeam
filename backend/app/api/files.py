@@ -162,6 +162,12 @@ async def serve_file(
         session=session,
         domain_id=domain.id if domain else None,
     )
+    # Commit NOW, not at dependency teardown: with a StreamingResponse the
+    # yield-dependency (and its commit) only closes after the whole response
+    # cycle, background tasks included -- so resolve_geo_for_event would query
+    # a row that is not yet visible and drop the enrichment. expire_on_commit
+    # is False, so the asset attributes used below stay loaded.
+    await session.commit()
 
     if ip_address:
         background_tasks.add_task(
