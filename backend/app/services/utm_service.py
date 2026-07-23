@@ -6,6 +6,7 @@ Handles URL generation, bulk CSV processing, click tracking, and redirect record
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -468,11 +469,25 @@ class UTMService:
             return
 
         async with async_session_maker() as session:
-            result = await session.execute(
-                select(ClickEvent).where(ClickEvent.id == event_id)
-            )
-            event = result.scalar_one_or_none()
+            # Background tasks can run before the request's session has
+            # committed the event row (with a StreamingResponse, FastAPI closes
+            # yield-dependencies only after the whole response cycle, background
+            # tasks included). Retry briefly so the enrichment lands once the
+            # insert is visible instead of silently dropping it.
+            event = None
+            for attempt in range(6):
+                result = await session.execute(
+                    select(ClickEvent).where(ClickEvent.id == event_id)
+                )
+                event = result.scalar_one_or_none()
+                if event is not None:
+                    break
+                await asyncio.sleep(0.5 * (attempt + 1))
             if event is None:
+                logger.warning(
+                    "resolve_geo_for_event: event %s never became visible, "
+                    "dropping geo enrichment for %s", event_id, ip_address,
+                )
                 return
             if geo:
                 event.country = geo.get("country")
