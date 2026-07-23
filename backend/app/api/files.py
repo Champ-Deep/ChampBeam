@@ -15,7 +15,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import access_control as ac
@@ -119,10 +119,29 @@ async def serve_file(
     if domain is None:
         stmt = stmt.where(FileAsset.domain_id.is_(None))
     else:
-        stmt = stmt.where(FileAsset.domain_id == domain.id)
+        # A custom domain serves its owner's whole library: files explicitly
+        # assigned to this domain AND the owner's platform-bucket files
+        # (domain_id NULL). The latter matters because serve URLs are minted on
+        # the user's PRIMARY domain (see v1/files._serve_host) even for assets
+        # created before that domain existed -- without this, setting a primary
+        # domain would 404 every pre-existing file link. Prefer the exact
+        # domain match if both buckets hold the same short code.
+        stmt = (
+            stmt.where(
+                or_(
+                    FileAsset.domain_id == domain.id,
+                    and_(
+                        FileAsset.user_id == domain.user_id,
+                        FileAsset.domain_id.is_(None),
+                    ),
+                )
+            )
+            .order_by((FileAsset.domain_id == domain.id).desc())
+            .limit(1)
+        )
 
     result = await session.execute(stmt)
-    asset = result.scalar_one_or_none()
+    asset = result.scalars().first()
     if asset is None:
         return Response(status_code=404, content="File not found.")
 
