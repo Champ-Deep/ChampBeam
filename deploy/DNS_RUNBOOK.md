@@ -23,8 +23,10 @@ origin cert exists — set Cloudflare SSL/TLS mode to **Full (strict)** if so.
 ## 2. What we run after the record flips (already scripted)
 
 ```bash
-# a) Provision nginx + Let's Encrypt cert on the VPS (idempotent):
-ssh root@64.227.154.215 /root/provision-domain.sh share.lakeb2b.com
+# a) Provision nginx + Let's Encrypt cert on the VPS (idempotent; registers the
+#    host in /root/app-domains.conf so the 2-minute sync timer keeps nginx
+#    pointed at the current app container across Coolify redeploys):
+ssh root@64.227.154.215 /root/deepify-add-domain.sh app share.lakeb2b.com glqeabg3bi 8000
 
 # b) Point the platform back at the branded host (Coolify env) and restart:
 #    REDIRECT_BASE_URL=https://share.lakeb2b.com
@@ -72,8 +74,11 @@ Then set on the Coolify app (and restart):
 
 - Platform share host: `champbeam-api.64.227.154.215.sslip.io`
   (`REDIRECT_BASE_URL` on the Coolify app).
-- Customer BYOD domains work today without Cloudflare: the customer adds a
-  CNAME to the platform host, and we provision the cert on the VPS with
-  `/root/provision-domain.sh <hostname>` (nginx server block + certbot,
-  idempotent). The app's Settings → Domains "Refresh" button flips the domain
-  to Active once it routes here with a valid cert.
+- Customer BYOD domains work today without Cloudflare (verified live with
+  beam.deependhq.com): the customer adds a CNAME to the platform host, and we
+  provision the cert on the VPS with
+  `/root/deepify-add-domain.sh app <hostname> glqeabg3bi 8000`
+  (nginx server block + certbot + auto-heal registration, idempotent). The
+  app's Settings → Domains "Refresh" button flips the domain to Active once it
+  routes here with a valid cert. With Cloudflare-for-SaaS (3a above) this
+  per-domain VPS step disappears entirely.
