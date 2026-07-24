@@ -105,6 +105,12 @@ class Settings(BaseSettings):
     # not supply one (Cloudflare also requires a default contact on the account).
     cloudflare_registrant_email: str = ""
 
+    # ChampVault content hub (external, read-only). ChampBeam lists the library
+    # and mints delivery URLs to wrap in tracked beams; it never stores bytes.
+    # When unset, the /api/v1/champvault endpoints return 503 with a setup hint.
+    champvault_url: str = ""
+    champvault_api_key: str = ""
+
     # Supabase Storage, used as a standalone S3-compatible blob store for the
     # file-hosting feature. Supabase itself is not the database; only Storage
     # is in play. Configure all five in production. When any are unset, the
@@ -157,18 +163,74 @@ class Settings(BaseSettings):
     maxmind_asn_db_path: str = "data/GeoLite2-ASN.mmdb"
     maxmind_license_key: str = ""  # Required to download/update GeoLite2 DB
 
+    # MaxMind GeoIP2 web service (GeoIP Insights / City / Country). Unlike the
+    # local .mmdb files this is an HTTPS REST call — datacenter-safe, so it fixes
+    # "Unknown" geo on Railway/any PaaS without shipping a database. Insights adds
+    # anonymizer traits (VPN/proxy/hosting/Tor) for VPN detection. Auth = account
+    # id + license key. Host: geoip.maxmind.com for paid GeoIP2 (Insights lives
+    # here); geolite.info for the free GeoLite2 web service. Endpoint: one of
+    # "insights" | "city" | "country" (Insights has the richest traits).
+    maxmind_account_id: str = ""
+    maxmind_ws_host: str = "geoip.maxmind.com"
+    maxmind_ws_endpoint: str = "insights"
+
+    # Company intent (reverse-IP firmographics). Provider-agnostic:
+    #   "none"   - disabled.
+    #   "asn"    - $0: reuse the ASN/network owner we already resolve via MaxMind
+    #              (rough "network" signal, no firmographics). No external call.
+    #   "ipinfo" - IPinfo's IP-to-Company add-on (real company name/domain/type);
+    #              needs IPINFO_API_TOKEN on a plan that includes the company data.
+    # Swap providers without touching app code — see app/services/company_intel.py.
+    company_intel_provider: str = "asn"
+    ipinfo_api_token: str = ""
+
     @property
     def resolved_platform_redirect_host(self) -> str:
-        """Hostname (lowercased, no port) of the platform-default redirect host.
+        """Primary platform-default host (lowercased, no port).
 
-        Falls back to parsing redirect_base_url when platform_redirect_host
-        isn't explicitly set.
+        Used when building new short/file URLs and reserving the name. When
+        ``platform_redirect_host`` holds a comma-separated list (during a host
+        migration), the first entry is the primary. Falls back to parsing
+        ``redirect_base_url`` when unset.
         """
         if self.platform_redirect_host:
-            return self.platform_redirect_host.lower().strip()
+            return self.platform_redirect_host.split(",")[0].lower().strip()
         from urllib.parse import urlparse
         parsed = urlparse(self.redirect_base_url)
         return (parsed.hostname or "").lower()
+
+    @property
+    def platform_redirect_hosts(self) -> set[str]:
+        """All hostnames treated as the platform default (no custom domain).
+
+        ``PLATFORM_REDIRECT_HOST`` may be a comma-separated list so that, when
+        you change the backend's public URL, the OLD host can keep serving
+        previously-issued ``/r/`` and ``/f/`` links (whose URLs embed that host)
+        while the new host takes over — no shared link breaks. The host derived
+        from ``redirect_base_url`` is always included.
+        """
+        hosts: set[str] = set()
+        for h in (self.platform_redirect_host or "").split(","):
+            h = h.lower().strip()
+            if h:
+                hosts.add(h)
+        if self.redirect_base_url:
+            from urllib.parse import urlparse
+            derived = (urlparse(self.redirect_base_url).hostname or "").lower()
+            if derived:
+                hosts.add(derived)
+        return hosts
+
+    def is_platform_host(self, host: str | None) -> bool:
+        """True when an incoming Host should resolve in the platform-default
+        (``domain_id IS NULL``) namespace rather than a custom BYOD domain.
+
+        An empty Host is treated as platform-default (preserves prior behavior
+        and keeps internal/test calls working)."""
+        h = (host or "").lower().strip()
+        if not h:
+            return True
+        return h in self.platform_redirect_hosts
 
     @property
     def cloudflare_configured(self) -> bool:
@@ -178,6 +240,29 @@ class Settings(BaseSettings):
     def cloudflare_registrar_configured(self) -> bool:
         """True when the account-scoped Registrar API can be called."""
         return bool(self.cloudflare_api_token and self.cloudflare_account_id)
+
+    @property
+    def champvault_configured(self) -> bool:
+        return bool(self.champvault_url and self.champvault_api_key)
+
+    @property
+    def maxmind_ws_configured(self) -> bool:
+        """True when the MaxMind GeoIP2 web service can be called (account + key)."""
+        return bool(self.maxmind_account_id and self.maxmind_license_key)
+
+    @property
+    def company_intel_configured(self) -> bool:
+        """True when company-intent has a usable signal source.
+
+        'asn' always qualifies (reuses free MaxMind ASN data); 'ipinfo' needs a
+        token; 'none' disables the feature.
+        """
+        p = (self.company_intel_provider or "none").lower()
+        if p == "asn":
+            return True
+        if p == "ipinfo":
+            return bool(self.ipinfo_api_token)
+        return False
 
     @property
     def clerk_environment(self) -> str:
@@ -254,11 +339,26 @@ class Settings(BaseSettings):
 
     @property
     def postgres_url(self) -> str:
-        """Build PostgreSQL async connection URL."""
+        """Build the async (asyncpg) PostgreSQL connection URL.
+
+        Accepts whatever DATABASE_URL shape a host hands us and normalizes the
+        driver: Railway/Heroku expose ``postgres://`` or ``postgresql://`` and
+        SQLAlchemy needs ``postgresql+asyncpg://``. If DATABASE_URL is already an
+        explicit ``+driver`` URL it is passed through untouched.
+
+        Note: this only fixes the *scheme* — a wrong password/host in
+        DATABASE_URL still fails auth at connect time. On Railway, set
+        ``DATABASE_URL=${{Postgres.DATABASE_URL}}`` (a reference) so the password
+        can never drift out of sync with the database service.
+        """
         if self.database_url:
-            url = self.database_url
+            url = self.database_url.strip()
+            if url.startswith("postgresql+"):
+                return url  # already has an explicit driver
             if url.startswith("postgresql://"):
-                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+                return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if url.startswith("postgres://"):
+                return url.replace("postgres://", "postgresql+asyncpg://", 1)
             return url
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"

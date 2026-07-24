@@ -5,7 +5,11 @@ import { ClerkProvider } from '@clerk/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import App from './App'
+import { initTheme } from './hooks/useTheme'
 import './index.css'
+
+// Theme the document before React mounts so the first paint is correct.
+initTheme()
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,7 +24,14 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={CLERK_KEY} afterSignOutUrl="/">
+    <ClerkProvider
+      publishableKey={CLERK_KEY}
+      afterSignOutUrl="/"
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/"
+    >
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <App />

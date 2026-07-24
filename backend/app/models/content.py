@@ -60,6 +60,12 @@ class Content(Base):
 
     # Link content: the canonical destination members share.
     canonical_url = Column(Text, nullable=True)
+    # When set, this library item is a "shadow" of an external ChampVault asset
+    # (created lazily the first time an org member sends that asset). Member
+    # shares of it wrap a re-mintable ChampVault delivery URL, so org analytics
+    # roll up ChampVault sendouts by content_id like any other library item.
+    # One shadow row per (organization, asset) — see the partial unique index.
+    champvault_asset_id = Column(String(64), nullable=True, index=True)
     # File content: the admin's master FileAsset. Member shares reuse its bytes
     # (same storage_key) under a fresh short code, so no re-upload is needed.
     file_id = Column(

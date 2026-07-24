@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -72,7 +73,17 @@ class FileAsset(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     # Anonymous uploads auto-expire; NULL = never expires (authenticated users).
+    # Authed users can also set an expiry via self-destruct controls.
     expires_at = Column(DateTime, nullable=True, index=True)
+    # Self-destruct: view cap (burn-after-N; remaining = max_views - view_count)
+    # and a manual kill. Time expiry reuses expires_at above. Enforced at serve.
+    max_views = Column(Integer, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    # Access controls (see app/api/files.py serve): email gate (lead capture),
+    # block VPN/proxy opens, and branded gate/expired pages.
+    require_email = Column(Boolean, nullable=False, default=False)
+    block_vpn = Column(Boolean, nullable=False, default=False)
+    branded = Column(Boolean, nullable=False, default=False)
     # sha256 of the raw owner token handed to an anonymous uploader (once).
     owner_token_hash = Column(String(64), nullable=True)
 

@@ -1106,6 +1106,370 @@ async def get_link_device_breakdown(
 
 
 # ============================================================================
+# Company intent (reverse-IP) — which companies open the caller's content
+# ============================================================================
+
+# Obvious consumer ISPs / clouds / hosting to drop from the free "asn" fallback,
+# where we only have the network owner (not a real business-vs-isp classifier).
+# With a firmographic provider this is unnecessary — company_type does the job.
+_NETWORK_NOISE = (
+    "comcast", "verizon", "at&t", "att ", "spectrum", "charter", "cox ", "centurylink",
+    "t-mobile", "sprint", "vodafone", "telstra", "orange", "telefonica", "deutsche telekom",
+    "jio", "airtel", "bsnl", "sky ", "virgin media", "bell canada", "rogers", "shaw ",
+    "amazon", "aws", "google", "microsoft", "azure", "cloudflare", "digitalocean", "ovh",
+    "hetzner", "linode", "akamai", "fastly", "oracle cloud", "gcp",
+)
+
+
+def _looks_like_network_noise(name: Optional[str]) -> bool:
+    if not name:
+        return True
+    low = name.lower()
+    return any(k in low for k in _NETWORK_NOISE)
+
+
+def _intent_temperature(recency_days: float, opens: int) -> str:
+    if recency_days <= 3 and opens >= 3:
+        return "hot"
+    if recency_days <= 10 or opens >= 3:
+        return "warm"
+    return "cool"
+
+
+_TEMP_RANK = {"hot": 0, "warm": 1, "cool": 2}
+
+
+@router.get("/analytics/company-intent")
+async def company_intent(
+    days: int = Query(default=14, ge=1, le=365),
+    limit: int = Query(default=25, ge=1, le=200),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Companies opening the caller's links & files (reverse-IP intent).
+
+    Uses firmographic company data when a provider is configured (``ipinfo``);
+    otherwise falls back to the ASN/network owner collected for free (``asn``),
+    dropping obvious consumer ISPs / clouds and VPN opens so the list reads as
+    real accounts. Returns each company with open count, last-seen, what they
+    last viewed, and a Hot/Warm/Cool temperature.
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+
+    link_ids = (await session.execute(
+        select(LinkClick.id).where(LinkClick.user_id == user.user_id)
+    )).scalars().all()
+    file_ids = (await session.execute(
+        select(FileAsset.id).where(FileAsset.user_id == user.user_id)
+    )).scalars().all()
+    if not link_ids and not file_ids:
+        return {"provider": settings.company_intel_provider, "companies": []}
+
+    # Labels for "what they viewed".
+    link_label: dict = {}
+    if link_ids:
+        for lid, url, anchor, code in (await session.execute(
+            select(LinkClick.id, LinkClick.original_url, LinkClick.anchor_text, LinkClick.short_code)
+            .where(LinkClick.id.in_(link_ids))
+        )).all():
+            link_label[lid] = anchor or url or code
+    file_label: dict = {}
+    if file_ids:
+        for fid, fname in (await session.execute(
+            select(FileAsset.id, FileAsset.filename).where(FileAsset.id.in_(file_ids))
+        )).all():
+            file_label[fid] = fname
+
+    scope = []
+    if link_ids:
+        scope.append(ClickEvent.link_id.in_(link_ids))
+    if file_ids:
+        scope.append(ClickEvent.file_id.in_(file_ids))
+
+    rows = (await session.execute(
+        select(
+            ClickEvent.company_name, ClickEvent.company_domain, ClickEvent.company_industry,
+            ClickEvent.company_type, ClickEvent.asn_org, ClickEvent.is_vpn,
+            ClickEvent.city, ClickEvent.country, ClickEvent.clicked_at,
+            ClickEvent.link_id, ClickEvent.file_id,
+        ).where(or_(*scope), ClickEvent.clicked_at >= cutoff)
+    )).all()
+
+    # Aggregate by company. Prefer firmographic data; fall back to the ASN owner.
+    agg: dict = {}
+    for r in rows:
+        if r.is_vpn:
+            continue
+        if r.company_name:
+            if (r.company_type or "").lower() in ("isp", "hosting", "vpn"):
+                continue
+            key = (r.company_domain or r.company_name).lower()
+            name, domain, industry, source = r.company_name, r.company_domain, r.company_industry, "firmographic"
+        elif r.asn_org and not _looks_like_network_noise(r.asn_org):
+            key = r.asn_org.lower()
+            name, domain, industry, source = r.asn_org, None, None, "network"
+        else:
+            continue
+
+        label = link_label.get(r.link_id) or file_label.get(r.file_id)
+        entry = agg.get(key)
+        if entry is None:
+            entry = {
+                "name": name, "domain": domain, "industry": industry, "source": source,
+                "opens": 0, "last_seen": None, "last_asset": None, "city": None, "country": None,
+            }
+            agg[key] = entry
+        entry["opens"] += 1
+        if entry["last_seen"] is None or (r.clicked_at and r.clicked_at > entry["last_seen"]):
+            entry["last_seen"] = r.clicked_at
+            entry["last_asset"] = label
+            entry["city"], entry["country"] = r.city, r.country
+
+    companies = []
+    for e in agg.values():
+        last_seen = e["last_seen"] or now
+        recency_days = max(0.0, (now - last_seen).total_seconds() / 86400.0)
+        temp = _intent_temperature(recency_days, e["opens"])
+        companies.append({
+            "name": e["name"], "domain": e["domain"], "industry": e["industry"],
+            "source": e["source"], "opens": e["opens"],
+            "last_seen": iso_utc(e["last_seen"]), "last_asset": e["last_asset"],
+            "city": e["city"], "country": e["country"], "temperature": temp,
+        })
+    companies.sort(key=lambda c: (_TEMP_RANK[c["temperature"]], -c["opens"]))
+    return {"provider": settings.company_intel_provider, "companies": companies[:limit]}
+
+
+# ============================================================================
+# Opens geo map — where the caller's links & files are being opened
+# ============================================================================
+
+
+@router.get("/analytics/geo")
+async def opens_geo(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=100, ge=1, le=500),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Opens by country / city / day across the caller's links and files.
+
+    Feeds the map (countries), the top-cities list, and the trend bars (by day).
+    Reuses the geo already resolved on every open (ClickEvent), so no new lookups.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    link_ids = (await session.execute(
+        select(LinkClick.id).where(LinkClick.user_id == user.user_id)
+    )).scalars().all()
+    file_ids = (await session.execute(
+        select(FileAsset.id).where(FileAsset.user_id == user.user_id)
+    )).scalars().all()
+    if not link_ids and not file_ids:
+        return {"total_opens": 0, "countries": [], "cities": [], "by_day": []}
+
+    scope = []
+    if link_ids:
+        scope.append(ClickEvent.link_id.in_(link_ids))
+    if file_ids:
+        scope.append(ClickEvent.file_id.in_(file_ids))
+    base = (or_(*scope), ClickEvent.clicked_at >= cutoff)
+
+    total = int((await session.execute(
+        select(func.count(ClickEvent.id)).where(*base)
+    )).scalar() or 0)
+
+    countries = [
+        {
+            "country": r.country,
+            "country_code": r.country_code,
+            "opens": int(r.opens or 0),
+            "unique_opens": int(r.uniq or 0),
+        }
+        for r in (await session.execute(
+            select(
+                ClickEvent.country.label("country"),
+                ClickEvent.country_code.label("country_code"),
+                func.count(ClickEvent.id).label("opens"),
+                func.count(func.distinct(ClickEvent.ip_address)).label("uniq"),
+            )
+            .where(*base, ClickEvent.country.isnot(None))
+            .group_by(ClickEvent.country, ClickEvent.country_code)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(limit)
+        )).all()
+    ]
+
+    cities = [
+        {"city": r.city, "country": r.country, "opens": int(r.opens or 0)}
+        for r in (await session.execute(
+            select(
+                ClickEvent.city.label("city"),
+                ClickEvent.country.label("country"),
+                func.count(ClickEvent.id).label("opens"),
+            )
+            .where(*base, ClickEvent.city.isnot(None))
+            .group_by(ClickEvent.city, ClickEvent.country)
+            .order_by(func.count(ClickEvent.id).desc())
+            .limit(limit)
+        )).all()
+    ]
+
+    by_day = [
+        {"date": str(r.day), "opens": int(r.opens or 0)}
+        for r in (await session.execute(
+            select(
+                func.date(ClickEvent.clicked_at).label("day"),
+                func.count(ClickEvent.id).label("opens"),
+            )
+            .where(*base)
+            .group_by(func.date(ClickEvent.clicked_at))
+            .order_by(func.date(ClickEvent.clicked_at))
+        )).all()
+    ]
+
+    return {"total_opens": total, "countries": countries, "cities": cities, "by_day": by_day}
+
+
+# ============================================================================
+# Link access controls (self-destruct, email gate, VPN block, branding)
+# ============================================================================
+
+
+class LinkAccessRequest(BaseModel):
+    # Only sent fields apply; for int limits send 0 to clear, positive to set.
+    expires_in_hours: Optional[int] = None
+    max_views: Optional[int] = None
+    require_email: Optional[bool] = None
+    block_vpn: Optional[bool] = None
+    branded: Optional[bool] = None
+    revoked: Optional[bool] = None
+
+
+class LinkAccessResponse(BaseModel):
+    link_id: str
+    expires_at: Optional[str]
+    max_views: Optional[int]
+    remaining_views: Optional[int]
+    require_email: bool
+    block_vpn: bool
+    branded: bool
+    revoked: bool
+    access_status: str
+    views: int
+
+
+class LeadResponse(BaseModel):
+    email: str
+    ip_address: Optional[str] = None
+    created_at: str
+
+
+async def _get_owned_link(session: AsyncSession, link_id: str, user_id: str) -> LinkClick:
+    from uuid import UUID as _UUID
+    try:
+        lid = _UUID(link_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid link id.")
+    link = (await session.execute(
+        select(LinkClick).where(LinkClick.id == lid, LinkClick.user_id == user_id)
+    )).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Link not found.")
+    return link
+
+
+def _link_access_status(link: LinkClick) -> str:
+    now = datetime.utcnow()
+    views = link.click_count or 0
+    expired = (
+        link.revoked_at is not None
+        or (link.expires_at is not None and link.expires_at < now)
+        or (link.max_views is not None and views >= link.max_views)
+    )
+    if expired:
+        return "expired"
+    if link.expires_at is not None or link.max_views is not None or link.revoked_at is not None:
+        return "expiring"
+    return "tracking"
+
+
+def _link_access_response(link: LinkClick) -> LinkAccessResponse:
+    views = link.click_count or 0
+    remaining = max(0, link.max_views - views) if link.max_views is not None else None
+    return LinkAccessResponse(
+        link_id=str(link.id),
+        expires_at=iso_utc(link.expires_at),
+        max_views=link.max_views,
+        remaining_views=remaining,
+        require_email=bool(link.require_email),
+        block_vpn=bool(link.block_vpn),
+        branded=bool(link.branded),
+        revoked=link.revoked_at is not None,
+        access_status=_link_access_status(link),
+        views=views,
+    )
+
+
+@router.put("/links/{link_id}/access", response_model=LinkAccessResponse)
+async def set_link_access(
+    link_id: str,
+    data: LinkAccessRequest,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Set self-destruct / access controls on a link (owner only)."""
+    link = await _get_owned_link(session, link_id, user.user_id)
+    fields = data.model_fields_set
+    now = datetime.utcnow()
+    if "expires_in_hours" in fields:
+        link.expires_at = now + timedelta(hours=data.expires_in_hours) if data.expires_in_hours else None
+    if "max_views" in fields:
+        link.max_views = data.max_views if (data.max_views and data.max_views > 0) else None
+    if "require_email" in fields:
+        link.require_email = bool(data.require_email)
+    if "block_vpn" in fields:
+        link.block_vpn = bool(data.block_vpn)
+    if "branded" in fields:
+        link.branded = bool(data.branded)
+    if "revoked" in fields:
+        link.revoked_at = now if data.revoked else None
+    await session.commit()
+    await session.refresh(link)
+    return _link_access_response(link)
+
+
+@router.get("/links/{link_id}/access", response_model=LinkAccessResponse)
+async def get_link_access(
+    link_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    link = await _get_owned_link(session, link_id, user.user_id)
+    return _link_access_response(link)
+
+
+@router.get("/links/{link_id}/leads", response_model=List[LeadResponse])
+async def link_leads(
+    link_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Emails captured by this link's access gate (owner only)."""
+    from app.models.access_lead import AccessLead
+
+    link = await _get_owned_link(session, link_id, user.user_id)
+    rows = (await session.execute(
+        select(AccessLead).where(AccessLead.link_id == link.id).order_by(AccessLead.created_at.desc())
+    )).scalars().all()
+    return [
+        LeadResponse(email=r.email, ip_address=r.ip_address, created_at=iso_utc(r.created_at) or "")
+        for r in rows
+    ]
+
+
+# ============================================================================
 # Campaign-Level Analytics (auth required)
 # ============================================================================
 

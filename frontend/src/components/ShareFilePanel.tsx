@@ -14,6 +14,7 @@ import {
 import { Link } from 'react-router-dom';
 import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloadButton } from './ui';
 import { FileUploadZone } from './ui/FileUploadZone';
+import { UPLOAD_ACCEPT, UPLOAD_HINT_COMPACT, UPLOAD_HINT_GUEST, UPLOAD_LABEL } from '../config/uploadLimits';
 import { filesApi } from '../api/files';
 
 const FILE_HISTORY_KEY = 'champbeam_file_history';
@@ -260,9 +261,7 @@ export function ShareFileCreator({
 }) {
   const { lastShared, isUploading, progress, handleFile } = share;
 
-  const hint = isAuthenticated
-    ? 'Files (PDF, ZIP, docs) ≤ 50 MB · image ≤ 10 MB · video ≤ 500 MB'
-    : 'Files ≤ 10 MB · video ≤ 50 MB · link expires in 24h';
+  const hint = isAuthenticated ? UPLOAD_HINT_COMPACT : UPLOAD_HINT_GUEST;
 
   return (
     <div className="space-y-6">
@@ -280,8 +279,8 @@ export function ShareFileCreator({
         <FileUploadZone
           onFileSelected={handleFile}
           isUploading={isUploading}
-          accept="*/*"
-          label="Drop any file: PDF, video, image, HTML, ZIP, docs, and more"
+          accept={UPLOAD_ACCEPT}
+          label={UPLOAD_LABEL}
           hint={hint}
           uploadingLabel={progress !== null ? `Uploading… ${progress}%` : 'Uploading…'}
         />
@@ -328,6 +327,19 @@ export function RecentFilesCard({
 }) {
   const { history } = share;
 
+  // The cached history stores the serve URL as it was at share time, but the
+  // real URL changes when the user's primary domain changes (it is computed
+  // per-read by the backend). For signed-in users, overlay the live URL so the
+  // panel never shows (or copies) a stale host.
+  const { data: liveFiles } = useQuery({
+    queryKey: ['files', 'recent-card'],
+    queryFn: () => filesApi.list(),
+    enabled: isAuthenticated && history.length > 0,
+    staleTime: 60_000,
+  });
+  const liveUrlById = new Map((liveFiles ?? []).map((a) => [a.id, a.serve_url]));
+  const urlFor = (f: SharedFile) => liveUrlById.get(f.fileId) ?? f.serveUrl;
+
   return (
     <Card>
       <CardHeader>
@@ -360,9 +372,9 @@ export function RecentFilesCard({
               </div>
               <p
                 className="text-xs text-brand-purple font-mono break-all line-clamp-1 mb-2"
-                title={f.serveUrl}
+                title={urlFor(f)}
               >
-                {f.serveUrl}
+                {urlFor(f)}
               </p>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] text-slate-400">
@@ -374,20 +386,20 @@ export function RecentFilesCard({
                     size="sm"
                     className="h-7 px-2"
                     onClick={() => {
-                      navigator.clipboard.writeText(f.serveUrl);
+                      navigator.clipboard.writeText(urlFor(f));
                       toast.success('Copied');
                     }}
                     title="Copy link"
                   >
                     <Copy className="h-3.5 w-3.5" />
                   </Button>
-                  <QrButton value={f.serveUrl} filename={`${f.shortCode}.svg`} />
+                  <QrButton value={urlFor(f)} filename={`${f.shortCode}.svg`} />
                   <Link to={`/files/${f.fileId}/analytics`} title="View analytics">
                     <Button variant="ghost" size="sm" className="h-7 px-2 text-brand-purple">
                       <BarChart3 className="h-3.5 w-3.5" />
                     </Button>
                   </Link>
-                  <a href={f.serveUrl} target="_blank" rel="noreferrer" title="Open file">
+                  <a href={urlFor(f)} target="_blank" rel="noreferrer" title="Open file">
                     <Button variant="ghost" size="sm" className="h-7 px-2">
                       <ExternalLink className="h-3.5 w-3.5" />
                     </Button>

@@ -12,13 +12,17 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
-from sqlalchemy import select
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import access_control as ac
+from app.api.access_pages import blocked_page, email_gate_page
 from app.core.config import settings
 from app.db.postgres import get_db_session
+from app.models.page_engagement import PageEngagement  # noqa: F401  (register table)
 from app.models.domain import Domain, STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE
 from app.models.file_asset import (
     FileAsset,
@@ -60,7 +64,7 @@ def _request_host(request: Request) -> str:
 
 
 async def _resolve_domain(host: str, session: AsyncSession) -> Optional[Domain]:
-    if not host or host == settings.resolved_platform_redirect_host:
+    if not host or settings.is_platform_host(host):
         return None
     result = await session.execute(
         select(Domain).where(
@@ -103,7 +107,7 @@ async def serve_file(
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
 
-    if host and domain is None and host != settings.resolved_platform_redirect_host:
+    if host and domain is None and not settings.is_platform_host(host):
         # Custom hostname that isn't registered or isn't active, refuse rather
         # than fall through to the platform-default bucket.
         return Response(status_code=404, content="File not found.")
@@ -115,18 +119,52 @@ async def serve_file(
     if domain is None:
         stmt = stmt.where(FileAsset.domain_id.is_(None))
     else:
-        stmt = stmt.where(FileAsset.domain_id == domain.id)
+        # A custom domain serves its owner's whole library: files explicitly
+        # assigned to this domain AND the owner's platform-bucket files
+        # (domain_id NULL). The latter matters because serve URLs are minted on
+        # the user's PRIMARY domain (see v1/files._serve_host) even for assets
+        # created before that domain existed -- without this, setting a primary
+        # domain would 404 every pre-existing file link. Prefer the exact
+        # domain match if both buckets hold the same short code.
+        stmt = (
+            stmt.where(
+                or_(
+                    FileAsset.domain_id == domain.id,
+                    and_(
+                        FileAsset.user_id == domain.user_id,
+                        FileAsset.domain_id.is_(None),
+                    ),
+                )
+            )
+            .order_by((FileAsset.domain_id == domain.id).desc())
+            .limit(1)
+        )
 
     result = await session.execute(stmt)
-    asset = result.scalar_one_or_none()
+    asset = result.scalars().first()
     if asset is None:
         return Response(status_code=404, content="File not found.")
 
-    # Anonymous assets auto-expire, treat an expired file as gone (and reclaim
-    # it in the background) rather than serving stale bytes.
+    brand = domain.hostname if (asset.branded and domain) else None
+    ip_early = ac.client_ip(request)
+
+    # --- Access gates (before serving / counting a view) -----------------
+    # Email gate: capture a lead before access.
+    if asset.require_email and not ac.has_gate_cookie(request, short_code):
+        return email_gate_page(action=f"/f/{short_code}/unlock", brand=brand)
+    # VPN/proxy block.
+    if asset.block_vpn and await ac.is_vpn_ip(ip_early):
+        return blocked_page("vpn", brand=brand)
+    # Manual kill.
+    if asset.revoked_at is not None:
+        return blocked_page("revoked", brand=brand)
+    # Time expiry (anonymous auto-expiry + authed self-destruct). Reclaim in bg.
     if asset.expires_at is not None and asset.expires_at < datetime.utcnow():
         background_tasks.add_task(expire_asset, asset.id)
-        return Response(status_code=410, content="This file has expired.")
+        return blocked_page("expired", brand=brand)
+    # View cap (burn-after-N). view_count reflects prior views.
+    if asset.max_views is not None and (asset.view_count or 0) >= asset.max_views:
+        return blocked_page("maxed", brand=brand)
 
     # Extract visitor info, same pattern as /r/{code}.
     ip_address = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -143,6 +181,12 @@ async def serve_file(
         session=session,
         domain_id=domain.id if domain else None,
     )
+    # Commit NOW, not at dependency teardown: with a StreamingResponse the
+    # yield-dependency (and its commit) only closes after the whole response
+    # cycle, background tasks included -- so resolve_geo_for_event would query
+    # a row that is not yet visible and drop the enrichment. expire_on_commit
+    # is False, so the asset attributes used below stay loaded.
+    await session.commit()
 
     if ip_address:
         background_tasks.add_task(
@@ -173,3 +217,84 @@ async def serve_file(
         )
     except storage.StorageNotConfigured:
         return Response(status_code=503, content="Storage not configured.")
+
+
+class _PageEvent(BaseModel):
+    page: int = Field(ge=0, le=100000)
+    dwell_ms: int = Field(ge=0, le=86_400_000)  # cap a single page at 24h
+
+
+class PageEventsRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
+    events: list[_PageEvent] = Field(max_length=1000)
+
+
+@router.post("/f/{short_code}/page-events", status_code=204)
+async def ingest_page_events(
+    short_code: str,
+    request: Request,
+    data: PageEventsRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Public: the instrumented viewer reports per-page dwell time for a document.
+
+    No auth — viewers aren't signed in; the file is identified by its short code
+    (+ host namespace), same as the serve path.
+    """
+    host = _request_host(request)
+    domain = await _resolve_domain(host, session)
+    stmt = select(FileAsset).where(
+        FileAsset.short_code == short_code,
+        FileAsset.status == STATUS_ACTIVE,
+    )
+    stmt = stmt.where(FileAsset.domain_id.is_(None)) if domain is None else stmt.where(
+        FileAsset.domain_id == domain.id
+    )
+    asset = (await session.execute(stmt)).scalar_one_or_none()
+    if asset is None:
+        return Response(status_code=404, content="File not found.")
+
+    ip = ac.client_ip(request)
+    sid = data.session_id[:64]
+    for e in data.events:
+        session.add(PageEngagement(
+            file_id=asset.id, session_id=sid, page=e.page, dwell_ms=e.dwell_ms, ip_address=ip,
+        ))
+    await session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/f/{short_code}/unlock")
+async def unlock_file(
+    short_code: str,
+    request: Request,
+    email: str = Form(default=""),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Email-gate submit for a hosted file: capture the lead, set cookie, re-enter /f."""
+    host = _request_host(request)
+    domain = await _resolve_domain(host, session)
+    stmt = select(FileAsset).where(
+        FileAsset.short_code == short_code,
+        FileAsset.status == STATUS_ACTIVE,
+    )
+    stmt = stmt.where(FileAsset.domain_id.is_(None)) if domain is None else stmt.where(
+        FileAsset.domain_id == domain.id
+    )
+    asset = (await session.execute(stmt)).scalar_one_or_none()
+    if asset is None:
+        return Response(status_code=404, content="File not found.")
+
+    brand = domain.hostname if (asset.branded and domain) else None
+    if not ac.valid_email(email):
+        return email_gate_page(action=f"/f/{short_code}/unlock", brand=brand, error=True)
+
+    await ac.capture_lead(session, email, ip=ac.client_ip(request), file_id=asset.id)
+    await session.commit()
+
+    resp = RedirectResponse(url=f"/f/{short_code}", status_code=303)
+    resp.set_cookie(
+        ac.gate_cookie_name(short_code), "1",
+        max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax",
+    )
+    return resp

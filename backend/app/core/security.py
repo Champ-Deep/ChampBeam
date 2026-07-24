@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any, Optional
 
@@ -55,6 +56,10 @@ class TokenData(BaseModel):
     def is_org_admin(self) -> bool:
         return bool(self.org_role) and self.org_role.lower().endswith("admin")
 
+    @property
+    def is_org_leader(self) -> bool:
+        return bool(self.org_role) and self.org_role.lower() == "leader"
+
 
 async def _fetch_clerk_jwks(force_refresh: bool = False) -> dict[str, Any]:
     """Fetch (and cache) Clerk's JWKS. Non-blocking; safe under concurrency."""
@@ -78,6 +83,28 @@ async def _fetch_clerk_jwks(force_refresh: bool = False) -> dict[str, Any]:
             _jwks_cache = resp.json()
             _jwks_fetched_at = time.time()
             return _jwks_cache
+
+
+def _azp_authorized(azp: str) -> bool:
+    """True if the token's authorized-party origin is one we serve the SPA from.
+
+    Exact match against CLERK_AUTHORIZED_PARTIES / FRONTEND_URL / CORS_ALLOW_ORIGINS
+    (the strict allowlist), OR a match against the operator-set CORS_ALLOW_ORIGIN_REGEX.
+    Honoring the same regex the operator already trusts for CORS is what lets
+    per-deploy Vercel PREVIEW origins authenticate — otherwise every request from a
+    preview URL 401s with "Unauthorized party", since the exact origin can't be
+    pinned ahead of time. No regex configured => strict allowlist only (unchanged).
+    """
+    origin = azp.rstrip("/")
+    if origin in settings.clerk_authorized_parties_list:
+        return True
+    pattern = (settings.cors_allow_origin_regex or "").strip()
+    if pattern:
+        try:
+            return re.fullmatch(pattern, origin) is not None or re.fullmatch(pattern, azp) is not None
+        except re.error:
+            logger.warning("invalid CORS_ALLOW_ORIGIN_REGEX; ignoring for azp check")
+    return False
 
 
 def _normalize_role(raw: Optional[str]) -> Optional[str]:
@@ -129,7 +156,7 @@ async def _verify_clerk_token(token: str) -> dict[str, Any]:
         # SPA from. Skipped when no parties are configured or no azp is present.
         parties = settings.clerk_authorized_parties_list
         azp = payload.get("azp")
-        if parties and azp and azp.rstrip("/") not in parties:
+        if parties and azp and not _azp_authorized(azp):
             raise HTTPException(status_code=401, detail="Unauthorized party")
 
         if not payload.get("sub"):
@@ -267,5 +294,15 @@ async def require_org_admin(user: TokenData = Depends(require_org_member)) -> To
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This action requires an organization admin.",
+        )
+    return user
+
+
+async def require_org_leader_or_admin(user: TokenData = Depends(require_org_member)) -> TokenData:
+    """Require an active org AND a leader or admin role (team-analytics tier)."""
+    if not (user.is_org_admin or user.is_org_leader):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires a team leader or organization admin.",
         )
     return user

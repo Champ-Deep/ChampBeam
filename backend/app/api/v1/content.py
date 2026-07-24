@@ -23,6 +23,11 @@ from app.models.content import CONTENT_KIND_FILE, CONTENT_KIND_LINK, Content, Co
 from app.models.domain import Domain
 from app.models.file_asset import STATUS_ACTIVE as FILE_ACTIVE, FileAsset
 from app.models.utm import ClickEvent, LinkClick
+from app.integrations.champvault_client import (
+    ChampVault,
+    ChampVaultError,
+    ChampVaultNotConfigured,
+)
 from app.services import content_service, org_service
 
 logger = logging.getLogger(__name__)
@@ -61,11 +66,22 @@ class ContentResponse(BaseModel):
     description: Optional[str]
     kind: str
     canonical_url: Optional[str]
+    # Set when this library item is a live reference to an external ChampVault
+    # asset (member shares re-mint a fresh delivery URL on each open). The UI uses
+    # this to badge the item and hide the internal ``champvault://`` marker URL.
+    champvault_asset_id: Optional[str] = None
     file_id: Optional[str]
     is_archived: bool
     created_at: str
     share_count: int
     my_share: Optional[MyShare] = None
+
+
+class ChampVaultAddRequest(BaseModel):
+    asset_id: str = Field(..., min_length=1, max_length=64)
+    # Optional overrides; when omitted we resolve title/description from ChampVault.
+    title: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
 
 
 class ShareRequest(BaseModel):
@@ -125,6 +141,30 @@ async def _hostname_for_share(session: AsyncSession, share: ContentShare) -> str
     return content_service._platform_host()
 
 
+def _content_response(
+    content: Content, *, share_count: int, my_share: Optional[MyShare]
+) -> ContentResponse:
+    return ContentResponse(
+        id=str(content.id),
+        title=content.title,
+        description=content.description,
+        kind=content.kind,
+        canonical_url=content.canonical_url,
+        champvault_asset_id=content.champvault_asset_id,
+        file_id=str(content.file_id) if content.file_id else None,
+        is_archived=content.is_archived,
+        created_at=iso_utc(content.created_at) or "",
+        share_count=share_count,
+        my_share=my_share,
+    )
+
+
+async def _share_count(session: AsyncSession, content_id: UUID) -> int:
+    return int((await session.execute(
+        select(func.count(ContentShare.id)).where(ContentShare.content_id == content_id)
+    )).scalar() or 0)
+
+
 async def _build_my_share(session: AsyncSession, share: ContentShare) -> MyShare:
     link = await session.get(LinkClick, share.link_id) if share.link_id else None
     file = await session.get(FileAsset, share.file_id) if share.file_id else None
@@ -156,25 +196,15 @@ async def list_content(
 
     out: list[ContentResponse] = []
     for c in rows:
-        share_count = int((await session.execute(
-            select(func.count(ContentShare.id)).where(ContentShare.content_id == c.id)
-        )).scalar() or 0)
         mine = (await session.execute(
             select(ContentShare).where(
                 ContentShare.content_id == c.id,
                 ContentShare.shared_by_user_id == user.user_id,
             ).limit(1)
         )).scalar_one_or_none()
-        out.append(ContentResponse(
-            id=str(c.id),
-            title=c.title,
-            description=c.description,
-            kind=c.kind,
-            canonical_url=c.canonical_url,
-            file_id=str(c.file_id) if c.file_id else None,
-            is_archived=c.is_archived,
-            created_at=iso_utc(c.created_at) or "",
-            share_count=share_count,
+        out.append(_content_response(
+            c,
+            share_count=await _share_count(session, c.id),
             my_share=await _build_my_share(session, mine) if mine else None,
         ))
     return out
@@ -222,17 +252,49 @@ async def create_content(
     session.add(content)
     await session.commit()
     await session.refresh(content)
-    return ContentResponse(
-        id=str(content.id),
-        title=content.title,
-        description=content.description,
-        kind=content.kind,
-        canonical_url=content.canonical_url,
-        file_id=str(content.file_id) if content.file_id else None,
-        is_archived=content.is_archived,
-        created_at=iso_utc(content.created_at) or "",
-        share_count=0,
-        my_share=None,
+    return _content_response(content, share_count=0, my_share=None)
+
+
+@router.post("/from-champvault", response_model=ContentResponse, status_code=201)
+async def add_champvault_content(
+    data: ChampVaultAddRequest,
+    user: TokenData = Depends(require_org_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Add a ChampVault asset to the library as a live reference (admin only).
+
+    Idempotent per (org, asset): re-adding the same asset returns the existing
+    library item. The item shares like any other content, and each member share
+    re-mints a fresh ChampVault delivery URL on open (perpetual beams).
+    """
+    org_uuid = await _org_uuid(session, user)
+
+    title = (data.title or "").strip()
+    description = data.description
+    # Resolve title/description from ChampVault when the admin didn't supply them.
+    if not title:
+        try:
+            asset = await ChampVault().get_asset(data.asset_id)
+        except ChampVaultNotConfigured:
+            raise HTTPException(status_code=503, detail="ChampVault is not configured.")
+        except ChampVaultError as exc:
+            raise HTTPException(status_code=502, detail=f"ChampVault error: {exc}")
+        title = asset.title or f"ChampVault asset {data.asset_id}"
+        if description is None:
+            description = asset.description
+
+    content = await content_service.get_or_create_champvault_content(
+        session,
+        org_uuid,
+        data.asset_id,
+        title=title,
+        description=description,
+        created_by_user_id=user.user_id,
+    )
+    await session.commit()
+    await session.refresh(content)
+    return _content_response(
+        content, share_count=await _share_count(session, content.id), my_share=None
     )
 
 
@@ -253,20 +315,8 @@ async def update_content(
         content.is_archived = data.is_archived
     await session.commit()
     await session.refresh(content)
-    share_count = int((await session.execute(
-        select(func.count(ContentShare.id)).where(ContentShare.content_id == content.id)
-    )).scalar() or 0)
-    return ContentResponse(
-        id=str(content.id),
-        title=content.title,
-        description=content.description,
-        kind=content.kind,
-        canonical_url=content.canonical_url,
-        file_id=str(content.file_id) if content.file_id else None,
-        is_archived=content.is_archived,
-        created_at=iso_utc(content.created_at) or "",
-        share_count=share_count,
-        my_share=None,
+    return _content_response(
+        content, share_count=await _share_count(session, content.id), my_share=None
     )
 
 
@@ -319,16 +369,7 @@ async def my_shares(
 
     out: list[ContentResponse] = []
     for content, share in rows:
-        out.append(ContentResponse(
-            id=str(content.id),
-            title=content.title,
-            description=content.description,
-            kind=content.kind,
-            canonical_url=content.canonical_url,
-            file_id=str(content.file_id) if content.file_id else None,
-            is_archived=content.is_archived,
-            created_at=iso_utc(content.created_at) or "",
-            share_count=0,
-            my_share=await _build_my_share(session, share),
+        out.append(_content_response(
+            content, share_count=0, my_share=await _build_my_share(session, share)
         ))
     return out

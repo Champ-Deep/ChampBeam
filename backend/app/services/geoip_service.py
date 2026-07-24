@@ -1,15 +1,20 @@
-"""GeoIP lookup service with MaxMind GeoLite2 (primary) and ip-api.com (fallback).
+"""GeoIP lookup service — provider-agnostic, best-first fallback chain.
 
-MaxMind GeoLite2 uses local .mmdb database files for fast, unlimited lookups.
-- GeoLite2-City: geo data (country, region, city, lat/lon)
-- GeoLite2-ASN: ASN data for VPN/hosting detection (no more ip-api.com rate limits)
+`lookup_ip(ip)` returns a normalized dict (or None) and tries, in order:
+  1. MaxMind GeoLite2 local .mmdb (City + ASN) — instant, unlimited, $0.
+  2. MaxMind GeoIP2 web service / Insights — HTTPS, datacenter-safe, VPN traits.
+  3. IPinfo web service — HTTPS, datacenter-safe.
+  4. ip-api.com — free, HTTP, blocks datacenter IPs (last resort).
 
-Falls back to ip-api.com free API if the database files are not available.
+Each provider is independently configured and fails open (errors -> None so the
+chain continues; geo never breaks click tracking). Adding/swapping/removing a
+provider is documented in docs/GEO-PROVIDERS.md.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 import httpx
@@ -175,13 +180,157 @@ async def _lookup_ipapi(ip_address: str) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# IPinfo lookup (HTTPS, works from datacenters — unlike free ip-api.com)
+# ---------------------------------------------------------------------------
+async def _lookup_ipinfo(ip_address: str) -> Optional[dict]:
+    """Geo + ISP/VPN via IPinfo (reuses IPINFO_API_TOKEN from company intent).
+
+    Returns None when no token is set or the call fails. Country is the ISO code
+    (IPinfo doesn't return a full name on the base response); MaxMind supplies
+    full names when its local DB is installed.
+    """
+    token = settings.ipinfo_api_token
+    if not token:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"https://ipinfo.io/{ip_address}/json",
+                params={"token": token},
+                headers={"Accept": "application/json"},
+            )
+        if resp.status_code >= 400:
+            return None
+        data = resp.json()
+    except Exception as e:
+        logger.debug("ipinfo lookup failed for %s: %s", ip_address, e)
+        return None
+
+    if data.get("bogon"):
+        return None
+
+    loc = (data.get("loc") or "").split(",")
+    lat = float(loc[0]) if len(loc) == 2 and loc[0] else None
+    lng = float(loc[1]) if len(loc) == 2 and loc[1] else None
+
+    org = data.get("org")
+    asn_org = re.sub(r"^AS\d+\s+", "", org).strip() if org else None
+
+    privacy = data.get("privacy") or {}
+    if privacy:
+        is_vpn = bool(
+            privacy.get("vpn") or privacy.get("proxy") or privacy.get("tor") or privacy.get("hosting")
+        )
+    else:
+        # No privacy dataset on this plan — infer from the ASN owner.
+        is_vpn = _is_hosting_asn(asn_org)
+
+    cc = data.get("country")
+    return {
+        "country": cc,          # ISO code; MaxMind fills full names when present
+        "country_code": cc,
+        "region": data.get("region"),
+        "city": data.get("city"),
+        "latitude": lat,
+        "longitude": lng,
+        "is_vpn": is_vpn,
+        "asn_org": asn_org,
+    }
+
+
+# ---------------------------------------------------------------------------
+# MaxMind GeoIP2 web service (GeoIP Insights / City) — HTTPS, datacenter-safe
+# ---------------------------------------------------------------------------
+async def _lookup_maxmind_ws(ip_address: str) -> Optional[dict]:
+    """Geo + ISP/VPN via the MaxMind GeoIP2 web service (GeoIP Insights).
+
+    Unlike the local .mmdb readers this is an HTTPS REST call, so it works from
+    datacenters / any PaaS where ip-api.com's free tier is blocked — this is the
+    path that fixes "Unknown" geo in production. The Insights endpoint returns
+    anonymizer traits (VPN / proxy / hosting / Tor / residential proxy) for VPN
+    detection; the City endpoint returns geo + ASN but no anonymizer flags (we
+    fall back to ASN-owner inference there). Returns None when unconfigured or on
+    any error — geo must never break click tracking (fail open).
+    """
+    if not settings.maxmind_ws_configured:
+        return None
+    try:
+        import geoip2.webservice
+
+        account_id = int(str(settings.maxmind_account_id).strip())
+    except (ImportError, ValueError):
+        return None
+
+    endpoint = (settings.maxmind_ws_endpoint or "insights").lower()
+    try:
+        async with geoip2.webservice.AsyncClient(
+            account_id,
+            settings.maxmind_license_key,
+            host=settings.maxmind_ws_host or "geoip.maxmind.com",
+        ) as client:
+            if endpoint == "country":
+                resp = await client.country(ip_address)
+            elif endpoint == "city":
+                resp = await client.city(ip_address)
+            else:
+                resp = await client.insights(ip_address)
+    except Exception as e:  # noqa: BLE001 - AddressNotFound/auth/quota/network -> fail open
+        logger.debug("MaxMind web service lookup failed for %s: %s", ip_address, e)
+        return None
+
+    country = getattr(resp, "country", None)
+    subdivisions = getattr(resp, "subdivisions", None)
+    try:
+        region = subdivisions.most_specific.name if subdivisions else None
+    except Exception:  # noqa: BLE001 - empty subdivisions raises IndexError
+        region = None
+    location = getattr(resp, "location", None)
+    traits = getattr(resp, "traits", None)
+
+    asn_org = None
+    if traits is not None:
+        asn_org = (
+            getattr(traits, "isp", None)
+            or getattr(traits, "autonomous_system_organization", None)
+            or getattr(traits, "organization", None)
+        )
+
+    if endpoint == "insights" and traits is not None:
+        is_vpn = bool(
+            getattr(traits, "is_anonymous_vpn", False)
+            or getattr(traits, "is_public_proxy", False)
+            or getattr(traits, "is_tor_exit_node", False)
+            or getattr(traits, "is_hosting_provider", False)
+            or getattr(traits, "is_residential_proxy", False)
+            or getattr(traits, "is_anonymous", False)
+        )
+    else:
+        # City/Country endpoints carry no anonymizer flags — infer from the owner.
+        is_vpn = _is_hosting_asn(asn_org)
+
+    return {
+        "country": getattr(country, "name", None) or getattr(country, "iso_code", None),
+        "country_code": getattr(country, "iso_code", None),
+        "region": region,
+        "city": getattr(getattr(resp, "city", None), "name", None),
+        "latitude": getattr(location, "latitude", None) if location else None,
+        "longitude": getattr(location, "longitude", None) if location else None,
+        "is_vpn": is_vpn,
+        "asn_org": asn_org,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 async def lookup_ip(ip_address: str) -> Optional[dict]:
     """Look up geographic info for an IP address.
 
-    Uses MaxMind GeoLite2 local databases if available (instant, unlimited).
-    Falls back to ip-api.com free API otherwise (rate-limited, HTTP).
+    Provider order (each is optional and independently configured):
+      1. MaxMind GeoLite2 local databases (City + ASN) — instant, unlimited.
+      2. MaxMind GeoIP2 web service / Insights — HTTPS, datacenter-safe, VPN flags.
+      3. IPinfo web service — HTTPS, datacenter-safe.
+      4. ip-api.com free API — HTTP, blocks datacenter IPs (last resort).
 
     Returns dict with keys: country, country_code, region, city, latitude,
     longitude, is_vpn, asn_org.
@@ -206,8 +355,14 @@ async def lookup_ip(ip_address: str) -> Optional[dict]:
             result["asn_org"] = asn["asn_org"]
             result["is_vpn"] = _is_hosting_asn(asn["asn_org"])
             return result
-        # No local ASN data — top up ISP/VPN from ip-api (best-effort).
-        vpn_result = await _lookup_ipapi(ip_address)
+        # No local ASN data — top up ISP/VPN from a datacenter-safe web service:
+        # MaxMind GeoIP2 (Insights) first, then IPinfo, then ip-api as a last
+        # resort.
+        vpn_result = (
+            await _lookup_maxmind_ws(ip_address)
+            or await _lookup_ipinfo(ip_address)
+            or await _lookup_ipapi(ip_address)
+        )
         if vpn_result:
             result["asn_org"] = vpn_result.get("asn_org")
             result["is_vpn"] = vpn_result.get("is_vpn")
@@ -216,5 +371,11 @@ async def lookup_ip(ip_address: str) -> Optional[dict]:
             result.setdefault("is_vpn", None)
         return result
 
-    # No local databases produced anything: fall back to ip-api.com entirely.
-    return await _lookup_ipapi(ip_address)
+    # No local databases: use a datacenter-safe web service. MaxMind GeoIP2
+    # (Insights) is the chosen primary; IPinfo and the free ip-api.com (which
+    # blocks datacenter IPs) remain as ordered fallbacks.
+    return (
+        await _lookup_maxmind_ws(ip_address)
+        or await _lookup_ipinfo(ip_address)
+        or await _lookup_ipapi(ip_address)
+    )

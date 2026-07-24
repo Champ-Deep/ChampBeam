@@ -114,3 +114,25 @@ async def test_recent_clicks_timestamp_is_utc(monkeypatch):
     parsed = dt.fromisoformat(out.replace("Z", "+00:00"))
     assert parsed.astimezone(timezone.utc).replace(tzinfo=None) == naive
     assert iso_utc(None) is None
+
+
+def test_multi_platform_hosts_keep_old_links_alive():
+    """A comma-separated PLATFORM_REDIRECT_HOST lets the old public host keep
+    serving previously-issued links after the backend URL changes."""
+    from app.core.config import settings
+
+    old = settings.platform_redirect_host
+    try:
+        settings.platform_redirect_host = "champbeam.com, champbeam.up.railway.app"
+        hosts = settings.platform_redirect_hosts
+        assert "champbeam.com" in hosts and "champbeam.up.railway.app" in hosts
+        # The primary (for building new URLs) is the first entry.
+        assert settings.resolved_platform_redirect_host == "champbeam.com"
+        # Both old and new hosts resolve as platform-default (links keep working).
+        assert settings.is_platform_host("champbeam.com")
+        assert settings.is_platform_host("champbeam.up.railway.app")
+        assert settings.is_platform_host("")  # empty host => platform default
+        # A real customer BYOD host is NOT platform-default.
+        assert not settings.is_platform_host("track.acme.com")
+    finally:
+        settings.platform_redirect_host = old

@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Library, Users } from 'lucide-react';
+import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Library, Users, Radio } from 'lucide-react';
 
 import { clsx } from 'clsx';
+import { useQuery } from '@tanstack/react-query';
 import { Show, SignInButton, SignUpButton, UserButton, OrganizationSwitcher, useAuth } from '@clerk/react';
 import { Button } from '../ui/Button';
+import { LogoMark } from '../ui/Logo';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import { champvaultApi } from '../../api/champvault';
 
 interface NavLink {
   to: string;
@@ -15,16 +18,20 @@ interface NavLink {
   icon: typeof Link2;
   requiresAuth?: boolean;
   publicOnly?: boolean;
-  // 'member' shows for anyone with an active org; 'admin' only for org admins.
-  requiresOrg?: 'member' | 'admin';
+  // 'member' shows for anyone with an active org; 'admin' only for org admins;
+  // 'team' for the team-analytics tier (admins + leaders).
+  requiresOrg?: 'member' | 'admin' | 'team';
+  // Only shown when the ChampVault hub is configured on this deployment.
+  requiresVault?: boolean;
 }
 
 const navLinks: NavLink[] = [
   { to: '/', label: 'Generator', icon: Link2 },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
   { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
+  { to: '/vault', label: 'Vault', icon: Radio, requiresAuth: true, requiresVault: true },
   { to: '/library', label: 'Library', icon: Library, requiresAuth: true, requiresOrg: 'member' },
-  { to: '/team', label: 'Team', icon: Users, requiresAuth: true, requiresOrg: 'admin' },
+  { to: '/team', label: 'Team', icon: Users, requiresAuth: true, requiresOrg: 'team' },
   { to: '/analytics', label: 'Analytics', icon: BarChart3, requiresAuth: true },
   { to: '/settings', label: 'Settings', icon: Settings, requiresAuth: true },
 ];
@@ -32,8 +39,15 @@ const navLinks: NavLink[] = [
 export function Navigation() {
   const location = useLocation();
   const { isSignedIn } = useAuth();
-  const { inOrg, isAdmin } = useOrgContext();
+  const { inOrg, isAdmin, canManageTeam } = useOrgContext();
   const { recentClicks } = useClickNotifications(!!isSignedIn);
+  const { data: vaultConfig } = useQuery({
+    queryKey: ['champvault-config'],
+    queryFn: () => champvaultApi.config(),
+    enabled: !!isSignedIn,
+    staleTime: 5 * 60 * 1000,
+  });
+  const vaultEnabled = !!vaultConfig?.configured;
   const [showBell, setShowBell] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
@@ -57,6 +71,8 @@ export function Navigation() {
     if (link.requiresAuth && !isSignedIn) return false;
     if (link.requiresOrg === 'member' && !inOrg) return false;
     if (link.requiresOrg === 'admin' && !(inOrg && isAdmin)) return false;
+    if (link.requiresOrg === 'team' && !(inOrg && canManageTeam)) return false;
+    if (link.requiresVault && !vaultEnabled) return false;
     return true;
   });
 
@@ -65,9 +81,14 @@ export function Navigation() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2">
-            <Link2 className="h-7 w-7 text-brand-purple" />
-            <span className="text-xl font-bold text-slate-900">
-              Champ<span className="text-brand-purple">beam</span>
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-[9px]"
+              style={{ background: 'var(--cb-accent)' }}
+            >
+              <LogoMark size={18} color="#fff" />
+            </span>
+            <span className="font-display text-xl font-bold" style={{ color: 'var(--cb-ink)' }}>
+              Champ<span style={{ color: 'var(--cb-accent)' }}>beam</span>
             </span>
           </Link>
 

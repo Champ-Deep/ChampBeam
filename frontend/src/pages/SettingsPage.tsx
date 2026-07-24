@@ -9,6 +9,7 @@ import {
   Copy,
   Globe,
   Info,
+  Palette,
   Plus,
   RefreshCw,
   Search,
@@ -18,11 +19,17 @@ import {
   Zap,
 } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
+import { AppearanceSettings } from '../components/AppearanceSettings';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
 
-type SettingsTab = 'domains' | 'presets';
+type SettingsTab = 'domains' | 'presets' | 'appearance';
+
+function initialTab(param: string | null): SettingsTab {
+  if (param === 'presets' || param === 'appearance') return param;
+  return 'domains';
+}
 
 const STATUS_LABEL: Record<DomainStatus, string> = {
   pending_cname: 'Waiting on CNAME',
@@ -54,9 +61,7 @@ function validateSlug(slug: string): string | null {
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<SettingsTab>(
-    searchParams.get('tab') === 'presets' ? 'presets' : 'domains'
-  );
+  const [tab, setTab] = useState<SettingsTab>(initialTab(searchParams.get('tab')));
 
   const { data: config } = useQuery<DomainsConfig>({
     queryKey: ['domains-config'],
@@ -183,8 +188,21 @@ export function SettingsPage() {
             <BookmarkCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             Presets
           </button>
+          <button
+            onClick={() => setTab('appearance')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'appearance'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Palette className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Appearance
+          </button>
         </div>
       </div>
+
+      {tab === 'appearance' && <AppearanceSettings />}
 
       {tab === 'domains' && (
         <>
@@ -335,7 +353,7 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
           Add your own domain
         </CardTitle>
       </CardHeader>
-      <form onSubmit={handleSubmit} className="flex items-end gap-3">
+      <form onSubmit={handleSubmit} className="flex items-start gap-3">
         <div className="flex-1">
           <Input
             label="Domain"
@@ -345,7 +363,12 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
             helperText="Use a subdomain you control. You will add a CNAME record after this step."
           />
         </div>
-        <Button type="submit" isLoading={submitting} leftIcon={<Plus className="h-4 w-4" />}>
+        <Button
+          type="submit"
+          isLoading={submitting}
+          leftIcon={<Plus className="h-4 w-4" />}
+          className="mt-7 whitespace-nowrap"
+        >
           Add domain
         </Button>
       </form>
@@ -353,9 +376,9 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
         <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
           <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <span>
-            Custom certificate issuance is off on this environment. Add the CNAME shown
-            after you add the domain, then click Refresh. The domain is only marked Live
-            once it actually routes here, so it will not show Live until then.
+            After adding the domain, follow the CNAME steps shown below it, then click
+            Refresh. The domain is only marked Live once it actually routes here and its
+            certificate is issued, so it may take a few minutes to show Live.
           </span>
         </div>
       )}
@@ -459,25 +482,26 @@ function SetupInstructions({
   domain: Domain;
   config: DomainsConfig | undefined;
 }) {
-  if (!domain.cloudflare_managed && !config?.byod_enabled) {
+  // Prefer the domain-level target, then the platform config target. As long
+  // as a target is configured, show real setup steps -- the local-mode
+  // reachability check verifies the domain regardless of whether Cloudflare
+  // certificate automation is on.
+  const cname = domain.cname_target || config?.cname_target;
+  if (!cname) {
     return (
       <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
         <p className="font-medium mb-1">Pending verification</p>
         <p>
-          Certificate automation is off on this environment. Point this domain at the
-          backend (add a CNAME to this backend's host), then click "Refresh". It is only
-          marked Live once it actually routes here. For a quick local check, curl with a
-          spoofed Host header:
+          No CNAME target is configured on this environment. Point this domain at the
+          backend host, then click "Refresh". It is only marked Live once it actually
+          routes here.
         </p>
-        <pre className="text-xs mt-2 p-2 bg-white rounded font-mono whitespace-pre-wrap">
-          {`curl -i -H "Host: ${domain.hostname}" http://localhost:8000/r/<short_code>`}
-        </pre>
       </div>
     );
   }
-  // Prefer the domain-level target, then the platform config target, then a
-  // generic instruction to point at the platform host.
-  const cname = domain.cname_target || config?.cname_target || 'your platform host';
+  // The subdomain label ("beam" for beam.acme.com) -- registrar dashboards ask
+  // for the host/name field without the root domain.
+  const label = domain.hostname.split('.').slice(0, -2).join('.') || '@';
   return (
     <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700">
       <p className="font-medium text-slate-900 mb-2">Setup steps</p>
@@ -490,6 +514,14 @@ function SetupInstructions({
             <CopyableField label="Name" value={domain.hostname} />
             <CopyableField label="Value" value={cname} />
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Where to add it: <span className="font-medium">Namecheap</span> — Domain List
+            &rarr; Manage &rarr; Advanced DNS &rarr; Add New Record (Type: CNAME, Host:{' '}
+            <code className="font-mono">{label}</code>, Value: the target above).{' '}
+            <span className="font-medium">GoDaddy</span> — DNS &rarr; Add &rarr; CNAME.{' '}
+            <span className="font-medium">Cloudflare</span> — DNS &rarr; Add record (set
+            it to "DNS only" while verifying).
+          </p>
         </li>
         <li>Wait 1 to 5 minutes for DNS to propagate, then click "Refresh".</li>
         <li>We issue a TLS certificate; the status flips to Active automatically.</li>
@@ -551,7 +583,7 @@ function BuyDomainCard() {
           Get a new domain
         </CardTitle>
       </CardHeader>
-      <form onSubmit={handleSearch} className="flex items-end gap-3">
+      <form onSubmit={handleSearch} className="flex items-start gap-3">
         <div className="flex-1">
           <Input
             label="Search domains"
@@ -565,6 +597,7 @@ function BuyDomainCard() {
           type="submit"
           isLoading={searchMutation.isPending}
           leftIcon={<Search className="h-4 w-4" />}
+          className="mt-7 whitespace-nowrap"
         >
           Search
         </Button>

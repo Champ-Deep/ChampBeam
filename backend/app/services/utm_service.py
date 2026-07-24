@@ -6,6 +6,7 @@ Handles URL generation, bulk CSV processing, click tracking, and redirect record
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -314,6 +315,68 @@ class UTMService:
             )
             await session.commit()
 
+    async def consume_link_view(self, link_id: UUID, ip_address: Optional[str]) -> str:
+        """Atomic self-destruct gate + view counter for a link at redirect time.
+
+        Returns ``"ok"`` when the view is allowed (and counted), else a block
+        reason: ``"revoked" | "expired" | "maxed" | "gone"``.
+
+        The gate lives in the UPDATE's WHERE so the view cap is race-safe:
+        concurrent opens serialize on the row and only ``click_count < max_views``
+        passes, so ``click_count`` never exceeds ``max_views``. Uniqueness is a
+        best-effort pre-check, same as :meth:`bump_click_counter`.
+        """
+        from sqlalchemy import or_
+
+        now = datetime.utcnow()
+        async with async_session_maker() as session:
+            is_unique = True
+            if ip_address:
+                try:
+                    existing = await session.execute(
+                        select(ClickEvent.id).where(
+                            ClickEvent.link_id == link_id,
+                            ClickEvent.ip_address == ip_address,
+                        ).limit(1)
+                    )
+                    if existing.scalar_one_or_none() is not None:
+                        is_unique = False
+                except Exception:
+                    await session.rollback()
+
+            unique_inc = 1 if is_unique else 0
+            result = await session.execute(
+                sa_update(LinkClick)
+                .where(
+                    LinkClick.id == link_id,
+                    LinkClick.revoked_at.is_(None),
+                    or_(LinkClick.expires_at.is_(None), LinkClick.expires_at > now),
+                    or_(
+                        LinkClick.max_views.is_(None),
+                        func.coalesce(LinkClick.click_count, 0) < LinkClick.max_views,
+                    ),
+                )
+                .values(
+                    click_count=func.coalesce(LinkClick.click_count, 0) + 1,
+                    unique_clicks=func.coalesce(LinkClick.unique_clicks, 0) + unique_inc,
+                    last_clicked_at=now,
+                    first_clicked_at=func.coalesce(LinkClick.first_clicked_at, now),
+                )
+            )
+            await session.commit()
+            if result.rowcount and result.rowcount > 0:
+                return "ok"
+
+            # Blocked — classify for the expired-page message.
+            link = await session.get(LinkClick, link_id)
+            if link is None:
+                return "gone"
+            if link.revoked_at is not None:
+                return "revoked"
+            if link.expires_at is not None and link.expires_at <= now:
+                return "expired"
+            return "maxed"
+
     async def insert_click_event(
         self,
         link_id: UUID,
@@ -394,19 +457,39 @@ class UTMService:
         return event
 
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
-        """Background task: resolve GeoIP + VPN/ASN detection and update click event."""
+        """Background task: resolve GeoIP + VPN/ASN + company intent, then update
+        the click event. Geo and company enrichment are independent — either can
+        land on its own — so a missing/failed lookup for one never drops the other."""
+        from app.services.company_intel import resolve_company
         from app.services.geoip_service import lookup_ip
 
         geo = await lookup_ip(ip_address)
-        if not geo:
+        company = await resolve_company(ip_address)
+        if not geo and not company:
             return
 
         async with async_session_maker() as session:
-            result = await session.execute(
-                select(ClickEvent).where(ClickEvent.id == event_id)
-            )
-            event = result.scalar_one_or_none()
-            if event:
+            # Background tasks can run before the request's session has
+            # committed the event row (with a StreamingResponse, FastAPI closes
+            # yield-dependencies only after the whole response cycle, background
+            # tasks included). Retry briefly so the enrichment lands once the
+            # insert is visible instead of silently dropping it.
+            event = None
+            for attempt in range(6):
+                result = await session.execute(
+                    select(ClickEvent).where(ClickEvent.id == event_id)
+                )
+                event = result.scalar_one_or_none()
+                if event is not None:
+                    break
+                await asyncio.sleep(0.5 * (attempt + 1))
+            if event is None:
+                logger.warning(
+                    "resolve_geo_for_event: event %s never became visible, "
+                    "dropping geo enrichment for %s", event_id, ip_address,
+                )
+                return
+            if geo:
                 event.country = geo.get("country")
                 event.country_code = geo.get("country_code")
                 event.region = geo.get("region")
@@ -415,7 +498,13 @@ class UTMService:
                 event.longitude = geo.get("longitude")
                 event.is_vpn = bool(geo.get("is_vpn")) if geo.get("is_vpn") is not None else False
                 event.asn_org = geo.get("asn_org")
-                await session.commit()
+            if company:
+                event.company_name = company.get("name")
+                event.company_domain = company.get("domain")
+                event.company_industry = company.get("industry")
+                event.company_size = company.get("size")
+                event.company_type = company.get("type")
+            await session.commit()
 
     # ------------------------------------------------------------------
     # Bulk CSV processing

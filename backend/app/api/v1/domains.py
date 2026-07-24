@@ -111,7 +111,7 @@ def _normalize_hostname(raw: str) -> str:
 def _validate_hostname(hostname: str) -> None:
     if not _HOSTNAME_RE.match(hostname):
         raise HTTPException(status_code=400, detail="Invalid hostname format.")
-    if hostname == settings.resolved_platform_redirect_host:
+    if settings.is_platform_host(hostname):
         raise HTTPException(
             status_code=400,
             detail="This hostname is reserved by the platform.",

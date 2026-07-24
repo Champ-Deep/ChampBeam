@@ -88,6 +88,12 @@ class LinkClick(Base):
     anchor_text = Column(String(500), nullable=True)
     link_position = Column(Integer, nullable=True)
 
+    # When set, this link wraps a ChampVault asset: the redirect handler re-mints
+    # a fresh (short-lived) delivery URL from ChampVault on each open, so the beam
+    # never breaks when a previously-minted delivery URL expires. tracked_url
+    # holds the last-known delivery URL as a fallback.
+    champvault_asset_id = Column(String(64), nullable=True, index=True)
+
     # UTM attribution
     utm_source = Column(String(255), nullable=True)
     utm_medium = Column(String(255), nullable=True)
@@ -100,6 +106,20 @@ class LinkClick(Base):
     unique_clicks = Column(Integer, default=0)
     first_clicked_at = Column(DateTime, nullable=True)
     last_clicked_at = Column(DateTime, nullable=True)
+
+    # Access controls, enforced at redirect time (see app/api/redirect.py):
+    #  - expires_at : hard time expiry.
+    #  - max_views  : burn-after-N (the "remaining" meter reads max_views - click_count).
+    #  - revoked_at : manual kill.
+    #  - require_email : email gate — capture a lead before granting access.
+    #  - block_vpn  : refuse opens from VPNs / anonymizing proxies.
+    #  - branded    : render gate/expired pages with the sender's branding.
+    expires_at = Column(DateTime, nullable=True, index=True)
+    max_views = Column(Integer, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    require_email = Column(Boolean, nullable=False, default=False)
+    block_vpn = Column(Boolean, nullable=False, default=False)
+    branded = Column(Boolean, nullable=False, default=False)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -155,6 +175,15 @@ class ClickEvent(Base):
     # VPN/Proxy detection
     is_vpn = Column(Boolean, default=False, nullable=False)
     asn_org = Column(String(255), nullable=True)  # ISP/ASN organization name
+
+    # Company intent (reverse-IP firmographics), resolved async like geo. Only
+    # populated when a company-intel provider is configured; the "asn" provider
+    # leaves these NULL and analytics falls back to asn_org as a rough signal.
+    company_name = Column(String(255), nullable=True)
+    company_domain = Column(String(255), nullable=True, index=True)
+    company_industry = Column(String(128), nullable=True)
+    company_size = Column(String(64), nullable=True)      # employee range
+    company_type = Column(String(32), nullable=True)      # business|isp|hosting|education|…
 
     # Timestamp
     clicked_at = Column(DateTime, default=datetime.utcnow, nullable=False)

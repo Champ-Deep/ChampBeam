@@ -12,7 +12,7 @@ import time
 import pytest
 
 from app.core.config import settings
-from app.core.security import _extract_org_claims, _normalize_role
+from app.core.security import _azp_authorized, _extract_org_claims, _normalize_role
 from app.services import clerk_client
 
 
@@ -70,6 +70,73 @@ def test_authorized_parties_fallback_to_frontend_url():
         _restore("clerk_authorized_parties", old_parties)
         _restore("frontend_url", old_front)
         _restore("cors_allow_origins", old_cors)
+
+
+def test_azp_exact_match_in_allowlist():
+    """AUTH-1: an origin in the strict allowlist authorizes regardless of regex."""
+    old_parties, old_front, old_cors, old_rx = (
+        settings.clerk_authorized_parties,
+        settings.frontend_url,
+        settings.cors_allow_origins,
+        settings.cors_allow_origin_regex,
+    )
+    try:
+        settings.clerk_authorized_parties = "https://app.champbeam.com"
+        settings.frontend_url = ""
+        settings.cors_allow_origins = ""
+        settings.cors_allow_origin_regex = ""
+        assert _azp_authorized("https://app.champbeam.com/") is True
+        assert _azp_authorized("https://evil.example.com") is False
+    finally:
+        _restore("clerk_authorized_parties", old_parties)
+        _restore("frontend_url", old_front)
+        _restore("cors_allow_origins", old_cors)
+        _restore("cors_allow_origin_regex", old_rx)
+
+
+def test_azp_preview_origin_allowed_via_cors_regex():
+    """AUTH-2: a per-deploy Vercel preview origin not in the allowlist still
+    authenticates when it matches the operator-set CORS_ALLOW_ORIGIN_REGEX."""
+    old_parties, old_front, old_cors, old_rx = (
+        settings.clerk_authorized_parties,
+        settings.frontend_url,
+        settings.cors_allow_origins,
+        settings.cors_allow_origin_regex,
+    )
+    try:
+        settings.clerk_authorized_parties = "https://app.champbeam.com"
+        settings.frontend_url = ""
+        settings.cors_allow_origins = ""
+        settings.cors_allow_origin_regex = r"https://champbeam-[a-z0-9-]+\.vercel\.app"
+        assert _azp_authorized("https://champbeam-git-claude-abc123-projects.vercel.app") is True
+        assert _azp_authorized("https://champbeam-4zdm6dxf9-deep.vercel.app") is True
+        assert _azp_authorized("https://not-champbeam.vercel.app") is False
+    finally:
+        _restore("clerk_authorized_parties", old_parties)
+        _restore("frontend_url", old_front)
+        _restore("cors_allow_origins", old_cors)
+        _restore("cors_allow_origin_regex", old_rx)
+
+
+def test_azp_no_regex_configured_is_strict():
+    """AUTH-3: with no regex set, only the exact allowlist authorizes (unchanged)."""
+    old_parties, old_front, old_cors, old_rx = (
+        settings.clerk_authorized_parties,
+        settings.frontend_url,
+        settings.cors_allow_origins,
+        settings.cors_allow_origin_regex,
+    )
+    try:
+        settings.clerk_authorized_parties = "https://app.champbeam.com"
+        settings.frontend_url = ""
+        settings.cors_allow_origins = ""
+        settings.cors_allow_origin_regex = ""
+        assert _azp_authorized("https://champbeam-preview.vercel.app") is False
+    finally:
+        _restore("clerk_authorized_parties", old_parties)
+        _restore("frontend_url", old_front)
+        _restore("cors_allow_origins", old_cors)
+        _restore("cors_allow_origin_regex", old_rx)
 
 
 def test_normalize_role_strips_org_prefix():
