@@ -74,11 +74,13 @@ Then set on the Coolify app (and restart):
 
 - Platform share host: `champbeam-api.64.227.154.215.sslip.io`
   (`REDIRECT_BASE_URL` on the Coolify app).
-- Customer BYOD domains work today without Cloudflare (verified live with
-  beam.deependhq.com): the customer adds a CNAME to the platform host, and we
-  provision the cert on the VPS with
-  `/root/deepify-add-domain.sh app <hostname> glqeabg3bi 8000`
-  (nginx server block + certbot + auto-heal registration, idempotent). The
-  app's Settings → Domains "Refresh" button flips the domain to Active once it
-  routes here with a valid cert. With Cloudflare-for-SaaS (3a above) this
-  per-domain VPS step disappears entirely.
+- Customer BYOD domains work without Cloudflare and are now **fully
+  self-serve**: the customer adds a domain in Settings and points a CNAME at
+  `BYOD_CNAME_TARGET` (a DNS-only hostname resolving to the VPS IP). The
+  backend's DNS pre-check advances the domain to `pending_ssl`, and a systemd
+  timer on the VPS (`deploy/provisioner/`, wrapping the proven
+  `/root/deepify-add-domain.sh app <hostname> glqeabg3bi 8000`) issues the
+  nginx vhost + cert and flips the domain to Active — no manual script runs.
+  Backend env: `PLATFORM_IPV4`, `BYOD_CNAME_TARGET`, `PROVISIONER_TOKEN`
+  (see deploy/provisioner/README.md for the one-time install). With
+  Cloudflare-for-SaaS (3a above) the VPS provisioning disappears entirely.

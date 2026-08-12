@@ -14,13 +14,15 @@ Production hardening over a bare signature check:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import BaseModel
@@ -232,12 +234,92 @@ async def _resolve_user(payload: dict[str, Any]) -> TokenData:
         )
 
 
+# --- API-key authentication ------------------------------------------------
+# External integrations authenticate with "cb_live_..." keys (X-API-Key header
+# or Bearer). The prefix cleanly discriminates keys from Clerk JWTs ("eyJ...").
+
+API_KEY_RATE_LIMIT_PER_MINUTE = 120
+_LAST_USED_TOUCH_SECONDS = 60.0
+
+
+def _presented_api_key(
+    credentials: HTTPAuthorizationCredentials | None, x_api_key: Optional[str]
+) -> Optional[str]:
+    from app.models.api_key import API_KEY_PREFIX
+
+    if x_api_key and x_api_key.strip():
+        return x_api_key.strip()
+    if credentials is not None and credentials.credentials.startswith(API_KEY_PREFIX):
+        return credentials.credentials
+    return None
+
+
+async def _enforce_api_key_rate_limit(key_id: str) -> None:
+    """Fixed-window per-key limit in Redis; fail-open when Redis is down."""
+    from app.db.redis import redis_client
+
+    window = int(time.time() // 60)
+    count = await redis_client.incr_with_ttl(f"api_rl:{key_id}:{window}", ttl=60)
+    if count is not None and count > API_KEY_RATE_LIMIT_PER_MINUTE:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"API key rate limit exceeded ({API_KEY_RATE_LIMIT_PER_MINUTE} requests/minute)",
+        )
+
+
+async def _resolve_api_key(raw_key: str) -> TokenData:
+    """Resolve a presented API key to its owning user, or 401.
+
+    A presented-but-invalid key always raises — it must never fall through to
+    the anonymous branch of optional-auth endpoints (which would e.g. silently
+    create untracked links).
+    """
+    from app.db.postgres import async_session_maker
+    from app.models.api_key import API_KEY_PREFIX, ApiKey
+    from app.models.user import User
+    from sqlalchemy import select
+
+    if not raw_key.startswith(API_KEY_PREFIX):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    digest = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    async with async_session_maker() as session:
+        result = await session.execute(select(ApiKey).where(ApiKey.key_hash == digest))
+        api_key = result.scalar_one_or_none()
+        if api_key is None or not api_key.is_active:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        await _enforce_api_key_rate_limit(str(api_key.id))
+
+        user = await session.get(User, api_key.user_id)
+        if user is None or user.is_active is False:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        now = datetime.utcnow()
+        if (
+            api_key.last_used_at is None
+            or (now - api_key.last_used_at).total_seconds() > _LAST_USED_TOUCH_SECONDS
+        ):
+            api_key.last_used_at = now
+            await session.commit()
+
+        return TokenData(
+            user_id=str(user.id),
+            email=user.email or "",
+            clerk_user_id=user.clerk_id,
+        )
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ) -> TokenData | None:
-    if credentials is None:
+    api_key = _presented_api_key(credentials, x_api_key)
+    if api_key is None and credentials is None:
         return None
     try:
+        if api_key is not None:
+            return await _resolve_api_key(api_key)
         payload = await _verify_clerk_token(credentials.credentials)
         return await _resolve_user(payload)
     except HTTPException:
@@ -255,14 +337,18 @@ async def get_current_user(
 
 async def require_auth(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ) -> TokenData:
-    if credentials is None:
+    api_key = _presented_api_key(credentials, x_api_key)
+    if api_key is None and credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
+        if api_key is not None:
+            return await _resolve_api_key(api_key)
         payload = await _verify_clerk_token(credentials.credentials)
         return await _resolve_user(payload)
     except HTTPException:
@@ -276,6 +362,23 @@ async def require_auth(
     except Exception as exc:  # noqa: BLE001
         logger.exception("auth: unexpected error in require_auth")
         raise HTTPException(status_code=500, detail="Internal authentication error") from exc
+
+
+async def require_clerk_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+) -> TokenData:
+    """Require an interactive Clerk session; API keys are explicitly rejected.
+
+    Used by the key-management endpoints so a leaked key can't mint or revoke
+    other keys.
+    """
+    if _presented_api_key(credentials, x_api_key) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys cannot access this endpoint; sign in required",
+        )
+    return await require_auth(credentials=credentials, x_api_key=None)
 
 
 async def require_org_member(user: TokenData = Depends(require_auth)) -> TokenData:

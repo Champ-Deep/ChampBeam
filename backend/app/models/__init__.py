@@ -7,9 +7,11 @@ from app.models.file_asset import FileAsset
 from app.models.org import Organization, OrganizationMembership
 from app.models.content import Content, ContentShare
 from app.models.room import Room, RoomRecipient, RoomLink, RoomEvent
+from app.models.api_key import ApiKey
 
 __all__ = [
     "User",
+    "ApiKey",
     "UTMPreset",
     "LinkClick",
     "Project",

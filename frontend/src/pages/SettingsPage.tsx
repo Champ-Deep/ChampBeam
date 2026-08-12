@@ -9,6 +9,7 @@ import {
   Copy,
   Globe,
   Info,
+  KeyRound,
   Palette,
   Plus,
   RefreshCw,
@@ -20,14 +21,15 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
+import { ApiKeysSettings } from '../components/ApiKeysSettings';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
 
-type SettingsTab = 'domains' | 'presets' | 'appearance';
+type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance';
 
 function initialTab(param: string | null): SettingsTab {
-  if (param === 'presets' || param === 'appearance') return param;
+  if (param === 'presets' || param === 'appearance' || param === 'apikeys') return param;
   return 'domains';
 }
 
@@ -189,6 +191,17 @@ export function SettingsPage() {
             Presets
           </button>
           <button
+            onClick={() => setTab('apikeys')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'apikeys'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <KeyRound className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            API keys
+          </button>
+          <button
             onClick={() => setTab('appearance')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'appearance'
@@ -251,6 +264,8 @@ export function SettingsPage() {
           </Card>
         </>
       )}
+
+      {tab === 'apikeys' && <ApiKeysSettings />}
 
       {tab === 'presets' && <PresetsManager />}
     </div>

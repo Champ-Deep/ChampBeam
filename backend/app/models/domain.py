@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -53,6 +53,12 @@ class Domain(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     verified_at = Column(DateTime, nullable=True)
     last_checked_at = Column(DateTime, nullable=True)
+
+    # --- Self-hosted provisioning (non-Cloudflare BYOD path) ------------------
+    # Set when DNS verification passed and the host-side provisioner was asked
+    # to issue the vhost + certificate for this hostname.
+    provision_requested_at = Column(DateTime, nullable=True)
+    provision_attempts = Column(Integer, default=0, nullable=False)
 
     # --- Domain procurement (bought through the platform) ---------------------
     # NULL when the domain was brought by the user (BYOD). Set to the registrar

@@ -94,6 +94,18 @@ class Settings(BaseSettings):
     # The CNAME target customers point their domain at. e.g. cname.champbeam.com
     cloudflare_cname_target: str = ""
 
+    # Self-hosted BYOD auto-provisioning (the non-Cloudflare path). When a
+    # customer's CNAME resolves to PLATFORM_IPV4, the domain advances to
+    # pending_ssl and a host-side provisioner (deploy/provisioner/) issues the
+    # nginx vhost + certificate, then reports back through the internal API.
+    #   PLATFORM_IPV4        the VPS's public IPv4 customers must resolve to
+    #   BYOD_CNAME_TARGET    DNS-only hostname customers point their CNAME at
+    #                        (must NOT be proxied, or resolution shows edge IPs)
+    #   PROVISIONER_TOKEN    shared secret for the internal provisioning API
+    platform_ipv4: str = ""
+    byod_cname_target: str = ""
+    provisioner_token: str = ""
+
     # Cloudflare account id, required for the (account-scoped) Registrar API that
     # powers in-app domain procurement: search names, check price/availability,
     # and register. When the account id + a token with Registrar write scope are
@@ -235,6 +247,11 @@ class Settings(BaseSettings):
     @property
     def cloudflare_configured(self) -> bool:
         return bool(self.cloudflare_api_token and self.cloudflare_zone_id)
+
+    @property
+    def local_byod_enabled(self) -> bool:
+        """True when the self-hosted (non-Cloudflare) BYOD path is configured."""
+        return bool(self.platform_ipv4 and self.byod_cname_target)
 
     @property
     def cloudflare_registrar_configured(self) -> bool:

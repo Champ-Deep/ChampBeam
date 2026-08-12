@@ -26,7 +26,7 @@ from app.models.domain import (
     STATUS_PENDING_SSL,
 )
 from app.models.utm import LinkClick
-from app.services import cloudflare, cloudflare_registrar
+from app.services import cloudflare, cloudflare_registrar, domain_provisioning
 
 logger = logging.getLogger(__name__)
 
@@ -121,19 +121,8 @@ def _validate_hostname(hostname: str) -> None:
         raise HTTPException(status_code=400, detail="Hostname must include a domain.")
 
 
-def _is_platform_subdomain(hostname: str) -> bool:
-    """True when hostname is a single-label subdomain of the platform's wildcard
-    base (for example acme.deependhq.com when the base is deependhq.com). Those
-    are covered by the platform wildcard DNS + cert, so they need no per-host
-    certificate provisioning (the Netlify-style path)."""
-    base = (settings.platform_subdomain_base or "").lower().strip().lstrip(".")
-    if not base:
-        return False
-    suffix = "." + base
-    if hostname == base or not hostname.endswith(suffix):
-        return False
-    label = hostname[: -len(suffix)]
-    return bool(label) and "." not in label
+# Shared with the background provision loop (services/domain_provisioning).
+_is_platform_subdomain = domain_provisioning.is_platform_subdomain
 
 
 def _to_response(domain: Domain) -> DomainResponse:
@@ -147,7 +136,7 @@ def _to_response(domain: Domain) -> DomainResponse:
         created_at=iso_utc(domain.created_at) or "",
         verified_at=iso_utc(domain.verified_at),
         last_checked_at=iso_utc(domain.last_checked_at),
-        cname_target=settings.cloudflare_cname_target or None,
+        cname_target=settings.cloudflare_cname_target or settings.byod_cname_target or None,
         cloudflare_managed=bool(domain.cf_custom_hostname_id),
         procured=domain.procured,
         registrar=domain.registrar,
@@ -200,51 +189,8 @@ async def _apply_cf_status(domain: Domain) -> None:
         domain.verified_at = datetime.utcnow()
 
 
-async def _verify_reachable(hostname: str) -> bool:
-    """Best-effort live check that the hostname actually routes to this backend.
-
-    Fetches https://<hostname>/health and confirms our health signature. Used so
-    a domain is not marked live until DNS points here and a valid cert exists.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
-            resp = await client.get(
-                f"https://{hostname}/health",
-                headers={"User-Agent": "Champbeam-DomainVerify"},
-            )
-    except Exception:
-        return False
-    if resp.status_code != 200:
-        return False
-    try:
-        return (resp.json() or {}).get("status") == "healthy"
-    except Exception:
-        return False
-
-
-async def _apply_local_status(domain: Domain) -> None:
-    """Resolve status for non-Cloudflare domains. A platform subdomain is live
-    immediately (the wildcard DNS + cert cover it); any other custom domain is
-    only marked active once a live reachability check confirms it routes here."""
-    domain.last_checked_at = datetime.utcnow()
-    if _is_platform_subdomain(domain.hostname):
-        domain.status = STATUS_ACTIVE
-        domain.ssl_status = "active"
-        if domain.verified_at is None:
-            domain.verified_at = datetime.utcnow()
-        domain.verification_errors = None
-        return
-    if await _verify_reachable(domain.hostname):
-        domain.status = STATUS_ACTIVE
-        domain.ssl_status = "active"
-        if domain.verified_at is None:
-            domain.verified_at = datetime.utcnow()
-        domain.verification_errors = None
-    else:
-        domain.status = STATUS_PENDING_CNAME
-        domain.verification_errors = {
-            "message": "Not reachable yet. Add the CNAME record, wait for DNS and the certificate to finish, then refresh."
-        }
+_verify_reachable = domain_provisioning.verify_reachable
+_apply_local_status = domain_provisioning.apply_local_status
 
 
 # ============================================================================
@@ -271,8 +217,8 @@ async def domains_config(user: TokenData = Depends(require_auth)):
     return {
         "subdomain_enabled": bool(base),
         "platform_subdomain_base": base or None,
-        "byod_enabled": settings.cloudflare_configured,
-        "cname_target": settings.cloudflare_cname_target or None,
+        "byod_enabled": settings.cloudflare_configured or settings.local_byod_enabled,
+        "cname_target": settings.cloudflare_cname_target or settings.byod_cname_target or None,
         "procurement_enabled": settings.cloudflare_registrar_configured,
     }
 

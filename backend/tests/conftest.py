@@ -94,6 +94,13 @@ async def app_client() -> AsyncGenerator[AsyncClient, None]:
     original_sessionmaker = utm_service_module.async_session_maker
     utm_service_module.async_session_maker = test_sessionmaker
 
+    # API-key auth (app.core.security._resolve_api_key) opens its own session
+    # via a lazy `from app.db.postgres import async_session_maker`, which reads
+    # the module attribute at call time — point it at the test database too.
+    postgres_module = importlib.import_module("app.db.postgres")
+    original_pg_sessionmaker = postgres_module.async_session_maker
+    postgres_module.async_session_maker = test_sessionmaker
+
     app.dependency_overrides[get_db_session] = override_get_db
 
     transport = ASGITransport(app=app)
@@ -102,4 +109,5 @@ async def app_client() -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides.clear()
     utm_service_module.async_session_maker = original_sessionmaker
+    postgres_module.async_session_maker = original_pg_sessionmaker
     await sqlite_engine.dispose()

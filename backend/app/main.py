@@ -26,10 +26,11 @@ from app.middleware.rate_limit import setup_rate_limiting
 # Import routers
 from app.api.v1 import auth, health, projects, utm, short_links, domains, qr
 from app.api.v1 import files as files_v1
-from app.api.v1 import webhooks, org, content, champvault, rooms
+from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
 from app.services.file_expiry import expiry_sweeper_loop
+from app.services.domain_provisioning import domain_provision_loop
 
 
 @asynccontextmanager
@@ -73,17 +74,21 @@ async def lifespan(app: FastAPI):
 
     # Background sweeper that reclaims expired anonymous file uploads.
     sweeper_task = asyncio.create_task(expiry_sweeper_loop())
+    # Background loop that auto-advances pending BYOD domains (DNS check ->
+    # pending_ssl -> active). Exits immediately when local BYOD is unconfigured.
+    provision_task = asyncio.create_task(domain_provision_loop())
 
     logger.info("Ready in %.1fs", time.time() - startup_start)
 
     yield
 
     # Shutdown
-    sweeper_task.cancel()
-    try:
-        await sweeper_task
-    except asyncio.CancelledError:
-        pass
+    for task in (sweeper_task, provision_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     await redis_client.close()
     await close_db()
     logger.info("Shutdown complete")
@@ -196,6 +201,8 @@ app.include_router(org.router, prefix=settings.api_v1_prefix)
 app.include_router(content.router, prefix=settings.api_v1_prefix)
 app.include_router(champvault.router, prefix=settings.api_v1_prefix)
 app.include_router(rooms.router, prefix=settings.api_v1_prefix)
+app.include_router(api_keys.router, prefix=settings.api_v1_prefix)
+app.include_router(internal_provisioning.router, prefix=settings.api_v1_prefix)
 app.include_router(short_links.router)
 
 

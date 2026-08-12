@@ -1,0 +1,7 @@
+[Unit]
+Description=ChampBeam BYOD domain provisioner (one shot)
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/root/champbeam-provisioner.sh

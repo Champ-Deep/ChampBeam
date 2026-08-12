@@ -337,10 +337,13 @@ async def generate_utm_link(
         short_code = link.short_code
         redirect_url = _build_redirect_url(link.short_code, domain, request=request)
         if link.short_code:
-            # Short URL mirrors the redirect URL's host when a custom domain is
-            # used; otherwise it falls back to the request's own base URL.
+            # Short URL mirrors the redirect URL's host precedence: custom
+            # domain → configured redirect base (canonical public host, which
+            # server-to-server API callers may not be hitting) → request host.
             if domain is not None:
                 short_url = f"https://{domain.hostname}/s/{link.short_code}"
+            elif settings.redirect_base_url:
+                short_url = f"{settings.redirect_base_url.rstrip('/')}/s/{link.short_code}"
             else:
                 short_url = str(request.base_url) + f"s/{link.short_code}"
 

@@ -77,6 +77,23 @@ class RedisClient:
         except Exception:
             pass
 
+    async def incr_with_ttl(self, key: str, ttl: int) -> Optional[int]:
+        """Increment a counter, setting its TTL on first increment.
+
+        Returns the post-increment count, or None when Redis is unavailable
+        (callers treat None as "no limit enforced").
+        """
+        try:
+            client = await self._get_client()
+            if client is None:
+                return None
+            count = await client.incr(key)
+            if count == 1:
+                await client.expire(key, ttl)
+            return count
+        except Exception:
+            return None
+
     async def get_json(self, key: str) -> Optional[dict]:
         """Get and deserialize JSON value."""
         raw = await self.get(key)
