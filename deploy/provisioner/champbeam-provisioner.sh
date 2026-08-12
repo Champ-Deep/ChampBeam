@@ -9,7 +9,7 @@
 # Config: /root/champbeam-provisioner.env (mode 600) must define:
 #   PROVISIONER_TOKEN=<same value as the backend's PROVISIONER_TOKEN env>
 # Optional overrides:
-#   BACKEND_URL=http://127.0.0.1:8100        # published app port, loopback only
+#   BACKEND_URL=https://champbeam-api.64.227.154.215.sslip.io  # nginx-served app host
 #   ADD_DOMAIN_SCRIPT=/root/deepify-add-domain.sh
 #   APP_NAME=app  APP_UUID_PREFIX=glqeabg3bi  APP_PORT=8000
 
@@ -19,7 +19,7 @@ ENV_FILE="/root/champbeam-provisioner.env"
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
 : "${PROVISIONER_TOKEN:?PROVISIONER_TOKEN not set (put it in $ENV_FILE)}"
-BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8100}"
+BACKEND_URL="${BACKEND_URL:-https://champbeam-api.64.227.154.215.sslip.io}"
 ADD_DOMAIN_SCRIPT="${ADD_DOMAIN_SCRIPT:-/root/deepify-add-domain.sh}"
 APP_NAME="${APP_NAME:-app}"
 APP_UUID_PREFIX="${APP_UUID_PREFIX:-glqeabg3bi}"
