@@ -496,6 +496,36 @@
           ]
         },
         {
+          "name": "Update file in place (same link)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "text/plain" }],
+            "body": { "mode": "raw", "raw": "Hello again — updated by the ChampBeam API docs (v2)" },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files/{{file_id}}/content",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "files", "{{file_id}}", "content"],
+              "query": [{ "key": "filename", "value": "", "disabled": true, "description": "Optional new display filename" }]
+            },
+            "description": "Replace a file's bytes while keeping its link: `short_code`, serve URL and QR code stay **exactly the same**, so a link you've already emailed now serves the new version. Send the new bytes as the raw body with the correct `Content-Type`. The swap is atomic — the old version keeps serving until the new bytes have fully landed — and view history is preserved.\n\nPerfect for pages/documents you revise on a schedule (weekly plan, live dashboard, price sheet)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('replaced, same short code', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const d = pm.response.json();",
+                  "  pm.expect(d.short_code).to.eql(pm.environment.get('file_short_code'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
           "name": "List files",
           "request": {
             "method": "GET",

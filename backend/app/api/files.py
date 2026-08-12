@@ -48,9 +48,11 @@ router = APIRouter(tags=["File Serve"])
 _HTML_CSP = (
     "default-src 'self' data:; "
     "img-src 'self' data: blob:; "
-    "style-src 'self' 'unsafe-inline'; "
+    # Google Fonts is the one external dependency hosted pages routinely need
+    # (stylesheet from fonts.googleapis.com, woff2 from fonts.gstatic.com).
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "script-src 'self' 'unsafe-inline'; "
-    "font-src 'self' data:; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
     "connect-src 'self'; "
     "frame-ancestors 'none'; "
     "form-action 'self'; "

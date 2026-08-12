@@ -628,6 +628,93 @@ async def upload_blob(
     return Response(status_code=204)
 
 
+@router.put("/{file_id}/content", response_model=FileFinalizeResponse)
+async def replace_content(
+    file_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    filename: Optional[str] = Query(
+        default=None, description="Optional new display filename; unchanged when omitted."
+    ),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Update a file in place: replace its bytes, keep its link.
+
+    The short_code, serve URL and QR code stay exactly the same — send the new
+    bytes as the raw request body (with the correct Content-Type header) and
+    every existing link now serves the new version. The swap is atomic: the old
+    bytes keep serving until the new upload has fully landed, so the link never
+    breaks mid-update. View history is preserved.
+    """
+    _ensure_storage()
+    try:
+        fid = _UUID(file_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file_id.")
+
+    result = await session.execute(
+        select(FileAsset).where(FileAsset.id == fid, FileAsset.user_id == user.user_id)
+    )
+    asset = result.scalar_one_or_none()
+    if asset is None or asset.status == STATUS_DELETED:
+        raise HTTPException(status_code=404, detail="File not found.")
+    if asset.status != STATUS_ACTIVE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot replace content from status '{asset.status}'; finalize the original upload first.",
+        )
+
+    content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip()
+    if not content_type:
+        raise HTTPException(status_code=400, detail="Content-Type header is required.")
+    kind = _classify(content_type)
+    cap = _KIND_CAP_BYTES[kind]
+
+    new_filename = (filename or asset.filename).strip()[:255]
+    # Versioned key so the live blob keeps serving until the swap below; the
+    # random prefix also prevents colliding with the current key when the
+    # filename is unchanged.
+    new_key = _storage_key(user.user_id, asset.id, f"{uuid4().hex[:8]}-{new_filename}")
+
+    try:
+        written = await storage.write_stream(new_key, request.stream(), cap)
+    except storage.StorageFileTooLarge:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Replacement exceeds the {cap // (1024 * 1024)} MB limit for this file type.",
+        )
+    except storage.StorageNotConfigured:
+        raise HTTPException(status_code=503, detail="File storage is not configured.")
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=f"Storage error: {exc}")
+    if written <= 0:
+        raise HTTPException(status_code=400, detail="Empty request body.")
+
+    old_key = asset.storage_key
+    asset.storage_key = new_key
+    asset.filename = new_filename
+    asset.mime_type = content_type
+    asset.kind = kind
+    asset.size_bytes = written
+    asset.sha256 = None
+    asset.serve_mode = _KIND_SERVE_MODE[kind] if storage.backend_is_s3() else SERVE_STREAM
+    await session.commit()
+
+    if old_key != new_key:
+        background_tasks.add_task(_delete_blob_quiet, old_key)
+    background_tasks.add_task(_compute_sha256_async, asset.id, new_key)
+
+    return await _to_response(session, asset)
+
+
+async def _delete_blob_quiet(key: str) -> None:
+    try:
+        await storage.delete_object(key)
+    except Exception:  # noqa: BLE001, best-effort cleanup of the replaced blob
+        logger.exception("replace_content: failed deleting old blob %s", key)
+
+
 @router.get("/{file_id}/status", response_model=FileStatusResponse)
 async def file_status(
     file_id: str,
