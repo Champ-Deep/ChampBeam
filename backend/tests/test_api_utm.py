@@ -50,9 +50,11 @@ async def test_redirect_endpoint_mocked():
     app.dependency_overrides[get_db_session] = override_get_db
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # /s/ is a full alias of /r/: unknown codes redirect home rather than
+        # 404ing, so short codes can't be enumerated.
         response = await client.get("/s/nonexistent")
-        assert response.status_code == 404
-        assert response.json()["detail"] == "Short link not found"
+        assert response.status_code == 302
+        assert response.headers["location"] == "/"
 
     app.dependency_overrides.clear()
 
