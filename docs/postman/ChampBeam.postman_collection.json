@@ -570,6 +570,75 @@
       ]
     },
     {
+      "name": "Pages (persistent hosted pages)",
+      "description": "Publish a single-file HTML page (checklist, dashboard, campaign plan) behind a **permanent trackable link** in one call, then revise it forever without the URL changing. Inline `<script>`/`<style>` and `localStorage` work untouched; every open records geo + device analytics. Optional `domain_id` serves the page from your custom domain. 10 MB cap.",
+      "item": [
+        {
+          "name": "Publish page",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Onboarding checklist\",\n  \"html\": \"<html><body><h1>Checklist</h1><ul><li>Step one</li></ul><script>document.body.dataset.loaded='1'</script></body></html>\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/api/v1/pages", "host": ["{{base_url}}"], "path": ["api", "v1", "pages"] },
+            "description": "One call: send the HTML, get back `url` — the permanent shareable link (also QR-able via the QR endpoint)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('published', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  const d = pm.response.json();",
+                  "  pm.expect(d.url).to.include(d.short_code);",
+                  "  pm.environment.set('page_id', d.page_id);",
+                  "  pm.environment.set('page_url', d.url);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update page (same URL forever)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"html\": \"<html><body><h1>Checklist v2</h1><ul><li>Step one</li><li>Step two</li></ul></body></html>\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/api/v1/pages/{{page_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "pages", "{{page_id}}"] },
+            "description": "Atomic in-place revision: links already sent now serve the new version; view history preserved."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('updated', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+            }
+          ]
+        },
+        {
+          "name": "Delete demo page",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/api/v1/files/{{page_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "files", "{{page_id}}"] },
+            "description": "Pages are file assets under the hood — manage them (delete, access controls, analytics) via the Files endpoints with the same id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"], "type": "text/javascript" }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Analytics",
       "description": "Everything a click or file view records — geography (city/country), device, referrer, UTM attribution, company intent — queryable per link, per campaign, or account-wide. All time windows accept `days` (default 30) or explicit `start_date`/`end_date` (ISO 8601).",
       "item": [

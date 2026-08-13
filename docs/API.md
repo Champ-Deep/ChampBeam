@@ -83,6 +83,23 @@ File views are tracked like clicks, including per-page reading time for document
 | Near-real-time feed | `GET /api/v1/utm/analytics/clicks/recent?since=<iso>` |
 | CSV export | `GET /api/v1/utm/analytics/export/events` |
 
+## Pages: persistent hosted pages (checklists, dashboards)
+
+Publish a single-file HTML page behind a permanent trackable link in **one call** — no upload dance:
+
+```bash
+curl -s -X POST "$BASE/api/v1/pages" \
+  -H "X-API-Key: $CHAMPBEAM_API_KEY" -H "Content-Type: application/json" \
+  -d '{"title": "Onboarding checklist", "html": "<html>...</html>"}'
+# -> {"page_id": "...", "url": "https://<host>/f/<code>", ...}
+```
+
+Revise it any time with `PUT /api/v1/pages/{page_id}` `{"html": "..."}` — the URL and QR **never change**, the swap is atomic, and view history is preserved. Inline `<script>`, `<style>` and `localStorage` work untouched (CSP allows inline + Google Fonts); every open records geo + device analytics. Optional `domain_id` serves the page from your own domain. 10 MB cap.
+
+## Service keys (trusted backend integrations)
+
+Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env, e.g. for the agent workspace) resolves to a dedicated org-scoped service identity and is accepted **only** on a write allowlist — register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `app/core/service_auth.py`.
+
 ## Limits & errors
 
 - **429** — over the per-key limit (120 requests/minute) or the per-IP limit (100/minute). Back off and retry.

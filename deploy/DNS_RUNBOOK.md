@@ -30,6 +30,11 @@ ssh root@64.227.154.215 /root/deepify-add-domain.sh app share.lakeb2b.com glqeab
 
 # b) Point the platform back at the branded host (Coolify env) and restart:
 #    REDIRECT_BASE_URL=https://share.lakeb2b.com
+#    PLATFORM_REDIRECT_HOST=share.lakeb2b.com,champbeam-api.64.227.154.215.sslip.io
+#    (order matters: the FIRST host is what new links/pages/shares are minted on.
+#    Pre-cutover it is deliberately sslip-first so API/workspace-minted URLs are
+#    live immediately; at cutover flip it back so new URLs carry the brand host.
+#    Old sslip-minted URLs keep working — both hosts stay in the platform set.)
 #    (Coolify app uuid: glqeabg3bi476iam4cgbg01g)
 
 # c) Verify:
