@@ -73,7 +73,9 @@ class UTMPresetResponse(BaseModel):
 
 
 class GenerateLinkRequest(BaseModel):
-    base_url: str
+    base_url: Optional[str] = None
+    # Accepted alias for base_url (integration clients commonly send "url").
+    url: Optional[str] = None
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
     utm_campaign: Optional[str] = None
@@ -289,6 +291,11 @@ async def generate_utm_link(
     Works without authentication for public use.
     Authenticated users can use preset_id and get links tracked.
     """
+    base_url = (data.base_url or data.url or "").strip()
+    if not base_url:
+        raise HTTPException(status_code=422, detail="base_url (or url) is required.")
+    data.base_url = base_url
+
     utm_params: dict = {}
 
     # If preset_id provided, load preset values as base

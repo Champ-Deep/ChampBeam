@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     byod_cname_target: str = ""
     provisioner_token: str = ""
 
+    # Service-key lane for trusted backend integrations (e.g. the agent
+    # workspace). Comma-separated "name:key" pairs; requests present the key in
+    # an X-Service-Key header and resolve to the pre-provisioned service user
+    # service+{name}@championsmail.com. Keys are only accepted on an explicit
+    # route allowlist (see app.core.service_auth) — never on reads.
+    service_api_keys: str = ""
+
     # Cloudflare account id, required for the (account-scoped) Registrar API that
     # powers in-app domain procurement: search names, check price/availability,
     # and register. When the account id + a token with Registrar write scope are
@@ -252,6 +259,22 @@ class Settings(BaseSettings):
     def local_byod_enabled(self) -> bool:
         """True when the self-hosted (non-Cloudflare) BYOD path is configured."""
         return bool(self.platform_ipv4 and self.byod_cname_target)
+
+    @property
+    def service_key_digest_map(self) -> dict[str, str]:
+        """sha256(key) hexdigest -> service name, parsed from SERVICE_API_KEYS."""
+        import hashlib as _hashlib
+
+        out: dict[str, str] = {}
+        for pair in (self.service_api_keys or "").split(","):
+            pair = pair.strip()
+            if not pair or ":" not in pair:
+                continue
+            name, key = pair.split(":", 1)
+            name, key = name.strip(), key.strip()
+            if name and key:
+                out[_hashlib.sha256(key.encode()).hexdigest()] = name
+        return out
 
     @property
     def cloudflare_registrar_configured(self) -> bool:

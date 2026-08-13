@@ -336,16 +336,20 @@ async def delete_content(
 @router.post("/{content_id}/share", response_model=ShareResponse, status_code=201)
 async def share_content(
     content_id: str,
-    data: ShareRequest,
+    data: Optional[ShareRequest] = None,
     user: TokenData = Depends(require_org_member),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Share a library item: mints the caller's own link/file and records it."""
+    """Share a library item: mints the caller's own link/file and records it.
+
+    The body is optional (integration clients often POST an empty body).
+    """
     org_uuid = await _org_uuid(session, user)
     content = await _get_org_content(session, content_id, org_uuid)
     if content.is_archived:
         raise HTTPException(status_code=409, detail="This content is archived.")
-    share, url = await content_service.mint_share(session, content, user.user_id, data.domain_id)
+    domain_id = data.domain_id if data else None
+    share, url = await content_service.mint_share(session, content, user.user_id, domain_id)
     await session.commit()
     return ShareResponse(share_id=str(share.id), content_id=str(content.id), share_url=url)
 

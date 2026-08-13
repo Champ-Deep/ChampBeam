@@ -22,11 +22,12 @@ from app.core.config import settings
 from app.db.postgres import init_db, close_db
 from app.db.redis import redis_client
 from app.middleware.rate_limit import setup_rate_limiting
+from app.core.service_auth import service_key_gate
 
 # Import routers
 from app.api.v1 import auth, health, projects, utm, short_links, domains, qr
 from app.api.v1 import files as files_v1
-from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning
+from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning, pages
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
 from app.services.file_expiry import expiry_sweeper_loop
@@ -142,6 +143,11 @@ app.add_middleware(
 # Rate limiting
 setup_rate_limiting(app)
 
+# Service-key lane (X-Service-Key): validates the key, enforces the write-only
+# route allowlist (403 off-list), and applies the per-key rate limit — all
+# before routing, so scope lives in exactly one place (app/core/service_auth.py).
+app.middleware("http")(service_key_gate)
+
 
 # Belt-and-suspenders: if anything escapes the route handlers, make sure the
 # 500 response still carries the CORS header the browser needs. Without this,
@@ -203,6 +209,7 @@ app.include_router(champvault.router, prefix=settings.api_v1_prefix)
 app.include_router(rooms.router, prefix=settings.api_v1_prefix)
 app.include_router(api_keys.router, prefix=settings.api_v1_prefix)
 app.include_router(internal_provisioning.router, prefix=settings.api_v1_prefix)
+app.include_router(pages.router, prefix=settings.api_v1_prefix)
 app.include_router(short_links.router)
 
 

@@ -313,11 +313,18 @@ async def _resolve_api_key(raw_key: str) -> TokenData:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    x_service_key: Optional[str] = Header(default=None, alias="X-Service-Key"),
 ) -> TokenData | None:
     api_key = _presented_api_key(credentials, x_api_key)
-    if api_key is None and credentials is None:
+    if api_key is None and credentials is None and not x_service_key:
         return None
     try:
+        if x_service_key:
+            # Scope (route allowlist) is enforced by the service_key_gate
+            # middleware before routing; here we only resolve identity.
+            from app.core.service_auth import resolve_service_identity
+
+            return await resolve_service_identity(x_service_key.strip())
         if api_key is not None:
             return await _resolve_api_key(api_key)
         payload = await _verify_clerk_token(credentials.credentials)
@@ -338,15 +345,20 @@ async def get_current_user(
 async def require_auth(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    x_service_key: Optional[str] = Header(default=None, alias="X-Service-Key"),
 ) -> TokenData:
     api_key = _presented_api_key(credentials, x_api_key)
-    if api_key is None and credentials is None:
+    if api_key is None and credentials is None and not x_service_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
+        if x_service_key:
+            from app.core.service_auth import resolve_service_identity
+
+            return await resolve_service_identity(x_service_key.strip())
         if api_key is not None:
             return await _resolve_api_key(api_key)
         payload = await _verify_clerk_token(credentials.credentials)
