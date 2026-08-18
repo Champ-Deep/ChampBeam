@@ -28,6 +28,20 @@ origin cert exists — set Cloudflare SSL/TLS mode to **Full (strict)** if so.
 #    pointed at the current app container across Coolify redeploys):
 ssh root@64.227.154.215 /root/deepify-add-domain.sh app share.lakeb2b.com glqeabg3bi 8000
 
+# a0) BEFORE the flip: final resync from Railway (production keeps taking writes
+#     until DNS moves, so the last sync must be immediately pre-cutover).
+#     Railway's proxy host/port/password ROTATE — always re-read them first:
+#       railway link --project ChampBeam --environment production --service Postgres
+#       railway variables --service Postgres      # RAILWAY_TCP_PROXY_DOMAIN/PORT, PGPASSWORD
+#       railway variables --service MongoDB       # same, for the GridFS blobs
+#     Cached copies live in ~/Celsus/Other/.secrets/champbeam_railway_{db,mongo}_url.
+#
+#     !! The resync TRUNCATEs and reloads the app tables, which CASCADES into
+#     api_keys and the service-key identity. After every resync, re-provision:
+#       - user  service+champ-workspace@championsmail.com  + its org membership
+#       - any API keys issued from Settings (they must be re-created by the user)
+#     Otherwise the agent-workspace integration and all cb_live_ keys break.
+
 # b) Point the platform back at the branded host (Coolify env) and restart:
 #    REDIRECT_BASE_URL=https://share.lakeb2b.com
 #    PLATFORM_REDIRECT_HOST=share.lakeb2b.com,champbeam-api.64.227.154.215.sslip.io
