@@ -54,6 +54,25 @@ Deep
 
 ---
 
+## Keeping the old system reachable after the flip
+
+The old (Railway) system is **not** decommissioned by this change — it keeps
+running with all of its data:
+
+| What | How to reach it after the flip |
+|---|---|
+| Old app / API | `https://champutm-production.up.railway.app` |
+| Old database | credentials cached in `~/Celsus/Other/.secrets/champbeam_railway_db_url` (Railway rotates these — re-read with `railway variables --service Postgres`) |
+| Old file blobs | `~/Celsus/Other/.secrets/champbeam_railway_mongo_url` (GridFS) |
+| Full rollback | revert the DNS record; everything returns to exactly today's behaviour |
+
+Serving old `/r/` and `/f/` links on the Railway URL additionally needs
+`PLATFORM_REDIRECT_HOST=share.lakeb2b.com,champutm-production.up.railway.app`
+on the Railway service — the variable is already set and applies whenever
+Railway's deploy queue clears. It is not needed for rollback (which restores the
+`share.lakeb2b.com` hostname), and every link and file is in any case already
+served by the new system.
+
 ## Notes for us (do not send)
 
 - The old Railway backend stays running after the flip as a rollback target.
