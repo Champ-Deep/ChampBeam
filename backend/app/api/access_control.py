@@ -24,10 +24,27 @@ logger = logging.getLogger(__name__)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+# Headers the CDN sets to the true visitor IP, most authoritative first.
+# CF-Connecting-IP is written by Cloudflare itself on every proxied request and
+# cannot be forged by the visitor, unlike X-Forwarded-For. Preferring it matters
+# because a proxy chain (Cloudflare -> platform edge -> app) can leave the CDN's
+# own egress IP at the front of X-Forwarded-For, which would attribute every
+# open to a Cloudflare datacenter instead of the recipient.
+#
+# X-Real-IP is deliberately NOT consulted: our own nginx sets it to $remote_addr,
+# which behind Cloudflare is the Cloudflare edge, not the visitor.
+_CLIENT_IP_HEADERS = ("CF-Connecting-IP", "True-Client-IP")
+
+
 def client_ip(request: Request) -> Optional[str]:
-    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    if ip:
-        return ip
+    """Best-effort true client IP, for geo enrichment and VPN gating."""
+    for header in _CLIENT_IP_HEADERS:
+        value = (request.headers.get(header) or "").strip()
+        if value:
+            return value
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
     return request.client.host if request.client else None
 
 
