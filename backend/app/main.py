@@ -30,6 +30,7 @@ from app.api.v1 import files as files_v1
 from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning, pages
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
+from app.api.page_state import router as page_state_router
 from app.services.file_expiry import expiry_sweeper_loop
 from app.services.domain_provisioning import domain_provision_loop
 
@@ -196,6 +197,7 @@ async def root():
 app.include_router(health.router)
 app.include_router(redirect_router)  # /r/{short_code}, top-level, no prefix
 app.include_router(files_serve_router)  # /f/{short_code}, top-level, no prefix
+app.include_router(page_state_router)  # /api/pages/{ident}/…, public token auth, same-origin with pages
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(utm.router, prefix=settings.api_v1_prefix)
 app.include_router(projects.router, prefix=settings.api_v1_prefix)

@@ -90,6 +90,12 @@ class FileAsset(Base):
     # sha256 of the raw owner token handed to an anonymous uploader (once).
     owner_token_hash = Column(String(64), nullable=True)
 
+    # Beam Pages: page-scoped public token for the Beam State API (stored in
+    # clear — it is printed into the served HTML by design; rotate to revoke),
+    # and the keyed HMAC of the optional 4–8 digit access code.
+    state_token = Column(String(64), nullable=True)
+    access_code_hash = Column(String(64), nullable=True)
+
     # Optional organizational grouping (folders). Mirrors LinkClick.project_id.
     project_id = Column(
         UUID(as_uuid=True),

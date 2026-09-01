@@ -98,3 +98,80 @@ async def capture_lead(
         email=email.strip()[:320], ip_address=(ip or None), link_id=link_id, file_id=file_id,
     ))
     await session.flush()
+
+
+# --- Access-code gate (Beam Pages) --------------------------------------------
+# A 4–8 digit code is a 10^4–10^8 space: offline-brute-forceable under any
+# unkeyed hash, so bcrypt buys nothing a DB-dump attacker cares about while
+# costing ~100 ms per public POST. A keyed HMAC makes a dump useless without the
+# server secret, is constant-time and free; attempt limiting is the real defence.
+
+import hashlib as _hashlib
+import hmac as _hmac
+import time as _time
+
+ACCESS_CODE_RE = re.compile(r"^\d{4,8}$")
+CODE_ATTEMPTS_PER_WINDOW = 5
+CODE_WINDOW_SECONDS = 600
+
+
+def _code_secret() -> bytes:
+    from app.core.config import settings
+
+    secret = (
+        getattr(settings, "resolved_upload_secret", None)
+        or getattr(settings, "storage_upload_secret", None)
+        or settings.clerk_secret_key
+        or "champbeam-access-code"
+    )
+    return str(secret).encode()
+
+
+def hash_access_code(page_id, code: str) -> str:
+    return _hmac.new(_code_secret(), f"{page_id}:{code}".encode(), _hashlib.sha256).hexdigest()
+
+
+def set_access_code(asset, code: Optional[str]) -> None:
+    """Set (validated) or clear (``None``/empty) a page's access code."""
+    if code is None or str(code).strip() == "":
+        asset.access_code_hash = None
+        return
+    code = str(code).strip()
+    if not ACCESS_CODE_RE.match(code):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail="Access code must be 4–8 digits.")
+    asset.access_code_hash = hash_access_code(asset.id, code)
+
+
+def verify_access_code(asset, code: str) -> bool:
+    if not asset.access_code_hash or not ACCESS_CODE_RE.match((code or "").strip()):
+        return False
+    return _hmac.compare_digest(hash_access_code(asset.id, code.strip()), asset.access_code_hash)
+
+
+def code_cookie_name(short_code: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9]", "", short_code)[:32]
+    return f"cbcode_{safe}"
+
+
+def code_cookie_value(asset) -> str:
+    # Derived from the current hash, so changing the code invalidates cookies.
+    return _hashlib.sha256(f"{asset.id}:{asset.access_code_hash}".encode()).hexdigest()[:32]
+
+
+def has_code_cookie(request: Request, asset) -> bool:
+    if not asset.access_code_hash:
+        return True
+    return request.cookies.get(code_cookie_name(asset.short_code)) == code_cookie_value(asset)
+
+
+async def code_attempt_limited(ip: Optional[str], page_id) -> bool:
+    """True when this IP has exhausted its attempts for this page (fails open)."""
+    from app.db.redis import redis_client
+
+    window = int(_time.time() // CODE_WINDOW_SECONDS)
+    count = await redis_client.incr_with_ttl(
+        f"code_rl:{page_id}:{ip or '-'}:{window}", ttl=CODE_WINDOW_SECONDS
+    )
+    return count is not None and count > CODE_ATTEMPTS_PER_WINDOW

@@ -633,3 +633,200 @@ async def page_analytics(
         "last_viewed_at": iso_utc(asset.last_viewed_at),
         "created_at": iso_utc(asset.created_at),
     }
+
+
+# ---------------------------------------------------------------------------
+# Beam State — owner moderation + timeline
+# ---------------------------------------------------------------------------
+
+from app.models.page_state import PageComment, PageEvent, PageState  # noqa: E402
+from app.services import page_state as _ps  # noqa: E402
+
+
+@router.get("/{page_id}/comments")
+async def owner_list_comments(
+    page_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    asset = await _get_owned_page(page_id, user, session)
+    rows = (
+        await session.execute(
+            select(PageComment)
+            .where(PageComment.page_id == asset.id)
+            .order_by(PageComment.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "author": c.author,
+            "body": c.body,
+            "visitor_id": c.visitor_id,
+            "ip": c.ip,
+            "created_at": iso_utc(c.created_at),
+        }
+        for c in rows
+    ]
+
+
+@router.delete("/{page_id}/comments/{comment_id}", status_code=204)
+async def owner_delete_comment(
+    page_id: str,
+    comment_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    asset = await _get_owned_page(page_id, user, session)
+    try:
+        cid = _UUID(comment_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid comment id.")
+    row = (
+        await session.execute(
+            select(PageComment).where(PageComment.id == cid, PageComment.page_id == asset.id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Comment not found.")
+    await session.delete(row)
+    await session.commit()
+
+
+@router.get("/{page_id}/state")
+async def owner_get_state(
+    page_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    asset = await _get_owned_page(page_id, user, session)
+    rows = (
+        await session.execute(select(PageState).where(PageState.page_id == asset.id).order_by(PageState.key))
+    ).scalars().all()
+    return {"state": {r.key: r.value for r in rows}, "count": len(rows)}
+
+
+@router.delete("/{page_id}/state", status_code=204)
+async def owner_clear_state(
+    page_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    asset = await _get_owned_page(page_id, user, session)
+    rows = (await session.execute(select(PageState).where(PageState.page_id == asset.id))).scalars().all()
+    for r in rows:
+        await session.delete(r)
+    await session.commit()
+
+
+@router.delete("/{page_id}/state/{key}", status_code=204)
+async def owner_delete_state_key(
+    page_id: str,
+    key: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    asset = await _get_owned_page(page_id, user, session)
+    row = (
+        await session.execute(
+            select(PageState).where(PageState.page_id == asset.id, PageState.key == key)
+        )
+    ).scalar_one_or_none()
+    if row is not None:
+        await session.delete(row)
+        await session.commit()
+
+
+@router.post("/{page_id}/state-token/rotate")
+async def rotate_state_token(
+    page_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Mint a new public token; the old one is rejected immediately. Open tabs
+    pick the new token up on their next page load."""
+    asset = await _get_owned_page(page_id, user, session)
+    token = _ps.rotate_state_token(asset)
+    await session.commit()
+    return {"state_token": token}
+
+
+@router.get("/{page_id}/events")
+async def page_events_timeline(
+    page_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=1000),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Merged page timeline: views (with revisits flagged) plus comment, state
+    and gate events, newest first."""
+    asset = await _get_owned_page(page_id, user, session)
+    start, end = _date_range(days, start_date, end_date)
+
+    views = (
+        await session.execute(
+            select(ClickEvent)
+            .where(
+                ClickEvent.file_id == asset.id,
+                ClickEvent.clicked_at >= start,
+                ClickEvent.clicked_at <= end,
+            )
+            .order_by(ClickEvent.clicked_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    others = (
+        await session.execute(
+            select(PageEvent)
+            .where(
+                PageEvent.page_id == asset.id,
+                PageEvent.created_at >= start,
+                PageEvent.created_at <= end,
+            )
+            .order_by(PageEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    timeline = [
+        {
+            "type": "revisit" if e.is_revisit else "view",
+            "ts": iso_utc(e.clicked_at),
+            "_sort": e.clicked_at,
+            "ip": e.ip_address,
+            "visitor_id": e.visitor_id,
+            "ref": None,
+            "country": e.country,
+            "city": e.city,
+            "device_type": e.device_type,
+            "browser": e.browser,
+            "os": e.os,
+            "is_vpn": e.is_vpn or False,
+        }
+        for e in views
+    ] + [
+        {
+            "type": p.event_type,
+            "ts": iso_utc(p.created_at),
+            "_sort": p.created_at,
+            "ip": p.ip,
+            "visitor_id": p.visitor_id,
+            "ref": p.ref,
+            "country": None,
+            "city": None,
+            "device_type": None,
+            "browser": None,
+            "os": None,
+            "is_vpn": False,
+        }
+        for p in others
+    ]
+    timeline.sort(key=lambda x: x["_sort"] or datetime.min, reverse=True)
+    for item in timeline:
+        item.pop("_sort", None)
+    return timeline[:limit]

@@ -301,7 +301,37 @@ async def current_version_no(session: AsyncSession, asset: FileAsset) -> int:
     return int(row or 0)
 
 
-def state_snippet_js(asset: FileAsset) -> str:  # pragma: no cover - replaced in Part B
-    """Extra JS appended inside the tracking IIFE (Beam State helper). Empty until
-    the state token/service lands."""
-    return ""
+
+# Beam State helper exposed to the page as window.beam (see docs/API.md). Runs
+# inside the tracking IIFE; promise-based (no async/await) for older engines.
+_STATE_JS = (
+    "window.__BEAM__={page:%(page)s,token:%(token)s,api:'/api/pages'};"
+    "(function(){var B=window.__BEAM__,H={'Content-Type':'application/json','X-Beam-Token':B.token};"
+    "function u(p){return B.api+'/'+encodeURIComponent(B.page)+p}"
+    "function j(m,p,b){return fetch(u(p),{method:m,headers:H,credentials:'same-origin',body:b===undefined?undefined:JSON.stringify(b)})"
+    ".then(function(r){if(r.status===410){window.beam.dead=true;throw new Error('page disabled')}"
+    "if(!r.ok)throw new Error('beam '+r.status);return r.status===204?null:r.json()})}"
+    "window.beam={dead:false,"
+    "comments:{list:function(a){return j('GET','/comments'+(a?'?after='+encodeURIComponent(a):''))},"
+    "add:function(author,body){return j('POST','/comments',{author:author,body:body})}},"
+    "state:{get:function(k){return j('GET','/state/'+encodeURIComponent(k)).then(function(x){return x.value})},"
+    "set:function(k,v){return j('PUT','/state/'+encodeURIComponent(k),v)},"
+    "all:function(){return j('GET','/state').then(function(x){return x.state})}},"
+    "poll:function(ms,cb){ms=Math.max(ms||8000,3000);var t=setInterval(function(){"
+    "Promise.all([window.beam.state.all(),window.beam.comments.list()]).then(function(r){cb(r[0],r[1].comments)}).catch(function(){})},ms);"
+    "return function(){clearInterval(t)}}};})();"
+)
+
+
+def state_snippet_js(asset: FileAsset) -> str:
+    """Extra JS appended inside the tracking IIFE: the Beam State helper.
+    Empty when the page has no token yet (never for served pages: the serve
+    path mints one before rendering)."""
+    token = getattr(asset, "state_token", None)
+    if not token:
+        return ""
+    ident = asset.slug or asset.short_code
+    return _STATE_JS % {
+        "page": _json_for_script({"i": ident})[5:-1],   # bare JSON string literal
+        "token": _json_for_script({"t": token})[5:-1],
+    }

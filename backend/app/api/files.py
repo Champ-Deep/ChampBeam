@@ -19,7 +19,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import access_control as ac
-from app.api.access_pages import blocked_page, email_gate_page
+from app.api.access_pages import blocked_page, code_gate_page, email_gate_page
 from app.core.config import settings
 from app.db.postgres import get_db_session
 from app.models.page_engagement import PageEngagement  # noqa: F401  (register table)
@@ -160,6 +160,10 @@ async def _serve_asset(
     ip_address = ac.client_ip(request)
 
     # --- Access gates (before serving / counting a view) -----------------
+    # Access-code gate first: authorize before identify, so uninvited visitors
+    # are never asked for (and never leak) an email.
+    if getattr(asset, "access_code_hash", None) and not ac.has_code_cookie(request, asset):
+        return code_gate_page(action=f"/f/{short_code}/unlock-code", brand=brand)
     # Email gate: capture a lead before access.
     if asset.require_email and not ac.has_gate_cookie(request, short_code):
         return email_gate_page(action=f"/f/{short_code}/unlock", brand=brand)
@@ -191,6 +195,13 @@ async def _serve_asset(
 
     user_agent = request.headers.get("User-Agent")
     referrer = request.headers.get("Referer")
+
+    # Beam State: hosted pages get a page-scoped public token (minted lazily,
+    # persisted with the view below) that the injected helper uses.
+    if asset.kind == KIND_HTML:
+        from app.services.page_state import ensure_state_token
+
+        ensure_state_token(asset)
 
     event = await utm_service.record_file_view_event(
         file=asset,
@@ -398,3 +409,70 @@ async def unlock_file(
         max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax",
     )
     return resp
+
+
+async def _unlock_code(
+    request: Request,
+    session: AsyncSession,
+    *,
+    short_code: Optional[str] = None,
+    slug: Optional[str] = None,
+    code: str = "",
+):
+    host = _request_host(request)
+    domain = await _resolve_domain(host, session)
+    if host and domain is None and not settings.is_platform_host(host):
+        return Response(status_code=404, content="Page not found.")
+    asset = await _lookup_asset(session, domain, short_code=short_code, slug=slug)
+    if asset is None:
+        return Response(status_code=404, content="Page not found.")
+    brand = domain.hostname if (asset.branded and domain) else None
+    back = f"/p/{asset.slug}" if asset.slug else f"/f/{asset.short_code}"
+    action = f"/f/{asset.short_code}/unlock-code"
+
+    if not asset.access_code_hash:
+        return RedirectResponse(url=back, status_code=303)
+
+    ip = ac.client_ip(request)
+    if await ac.code_attempt_limited(ip, asset.id):
+        return code_gate_page(action=action, brand=brand, error="too_many")
+
+    if not ac.verify_access_code(asset, code):
+        from app.models.page_state import EVENT_GATE_FAILED
+        from app.services.page_state import record_page_event
+
+        record_page_event(
+            session, asset.id, EVENT_GATE_FAILED, ref="code",
+            visitor_id=pages_service.valid_visitor_id(request.cookies.get(pages_service.VISITOR_COOKIE)),
+            ip=ip,
+        )
+        await session.commit()
+        return code_gate_page(action=action, brand=brand, error="wrong")
+
+    resp = RedirectResponse(url=back, status_code=303)
+    resp.set_cookie(
+        ac.code_cookie_name(asset.short_code), ac.code_cookie_value(asset),
+        max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax", secure=_is_https(request), path="/",
+    )
+    return resp
+
+
+@router.post("/f/{short_code}/unlock-code")
+async def unlock_code_by_code(
+    short_code: str,
+    request: Request,
+    code: str = Form(default=""),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Access-code gate submit (Beam Pages): verify, set cookie, re-enter the page."""
+    return await _unlock_code(request, session, short_code=short_code, code=code)
+
+
+@router.post("/p/{slug}/unlock-code")
+async def unlock_code_by_slug(
+    slug: str,
+    request: Request,
+    code: str = Form(default=""),
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await _unlock_code(request, session, slug=slug.strip().lower(), code=code)

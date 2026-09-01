@@ -62,3 +62,30 @@ def email_gate_page(*, action: str, brand: str | None = None, error: bool = Fals
         '<button type="submit">View</button></form>'
     )
     return _shell("Enter your email to view", body, status=200, brand=brand)
+
+
+def code_gate_page(
+    *, action: str, brand: str | None = None, error: str | None = None
+) -> HTMLResponse:
+    """The 'enter the access code' gate for Beam Pages.
+
+    ``error`` is None, "wrong" (re-render with a message) or "too_many"
+    (429, no form — attempts are exhausted for a while).
+    """
+    if error == "too_many":
+        body = (
+            "<h1>Too many attempts</h1>"
+            "<p>Please wait a few minutes before trying the access code again.</p>"
+        )
+        return _shell("Too many attempts", body, status=429, brand=brand)
+    err = '<p style="color:#f87171">That code isn’t right.</p>' if error == "wrong" else ""
+    body = (
+        "<h1>Enter the access code</h1>"
+        "<p>The sender protected this page with a code.</p>"
+        f"{err}"
+        f'<form method="post" action="{html.escape(action)}">'
+        '<input type="text" name="code" inputmode="numeric" pattern="[0-9]{4,8}" '
+        'autocomplete="one-time-code" placeholder="Access code" required autofocus>'
+        '<button type="submit">View</button></form>'
+    )
+    return _shell("Enter the access code", body, status=200, brand=brand)
