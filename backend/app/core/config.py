@@ -113,6 +113,15 @@ class Settings(BaseSettings):
     # route allowlist (see app.core.service_auth) — never on reads.
     service_api_keys: str = ""
 
+    # Beam Pages (hosted single-file HTML). The size cap is separate from the
+    # general file cap; HTML above the inject cap is served untouched (no
+    # tracking snippet); old versions are kept for rollback; a return by the
+    # same visitor after the revisit window counts as a revisit.
+    pages_max_bytes: int = 2 * 1024 * 1024
+    pages_inject_max_bytes: int = 5 * 1024 * 1024
+    pages_versions_keep: int = 10
+    pages_revisit_window_s: int = 1800
+
     # Cloudflare account id, required for the (account-scoped) Registrar API that
     # powers in-app domain procurement: search names, check price/availability,
     # and register. When the account id + a token with Registrar write scope are

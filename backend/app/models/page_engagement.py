@@ -29,6 +29,8 @@ class PageEngagement(Base):
     )
     # Client-generated per-view session id, so repeat views don't merge.
     session_id = Column(String(64), nullable=False, index=True)
+    # Beam Pages: first-party visitor id (cb_vid), for unique-visitor rollups.
+    visitor_id = Column(String(32), nullable=True, index=True)
     page = Column(Integer, nullable=False)          # page no (PDF) / section (HTML)
     dwell_ms = Column(Integer, nullable=False)      # ms the page was visible
     ip_address = Column(String(45), nullable=True)

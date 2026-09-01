@@ -31,7 +31,7 @@ from app.models.file_asset import (
     SERVE_REDIRECT,
     STATUS_ACTIVE,
 )
-from app.services import storage
+from app.services import pages_service, storage
 from app.services.file_expiry import expire_asset
 from app.services.utm_service import utm_service
 
@@ -97,37 +97,28 @@ def _common_headers(asset: FileAsset) -> dict[str, str]:
     return headers
 
 
-@router.get("/f/{short_code}")
-@router.get("/f/{short_code}/{slug}")
-async def serve_file(
-    short_code: str,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    slug: Optional[str] = None,  # noqa: ARG001, slug is cosmetic
-    session: AsyncSession = Depends(get_db_session),
-):
-    host = _request_host(request)
-    domain = await _resolve_domain(host, session)
+async def _lookup_asset(
+    session: AsyncSession,
+    domain: Optional[Domain],
+    *,
+    short_code: Optional[str] = None,
+    slug: Optional[str] = None,
+) -> Optional[FileAsset]:
+    """Find the active asset for ``short_code`` OR ``slug`` in the host's namespace.
 
-    if host and domain is None and not settings.is_platform_host(host):
-        # Custom hostname that isn't registered or isn't active, refuse rather
-        # than fall through to the platform-default bucket.
-        return Response(status_code=404, content="File not found.")
-
-    stmt = select(FileAsset).where(
-        FileAsset.short_code == short_code,
-        FileAsset.status == STATUS_ACTIVE,
-    )
+    Platform host → ``domain_id IS NULL``. A custom domain serves its owner's
+    whole library: assets explicitly assigned to this domain AND the owner's
+    platform-bucket assets (domain_id NULL), because serve URLs are minted on
+    the user's PRIMARY domain even for assets created before that domain
+    existed. Exact domain match wins when both buckets hold the same code.
+    """
+    if (short_code is None) == (slug is None):
+        raise ValueError("pass exactly one of short_code / slug")
+    ident = FileAsset.short_code == short_code if short_code is not None else FileAsset.slug == slug
+    stmt = select(FileAsset).where(ident, FileAsset.status == STATUS_ACTIVE)
     if domain is None:
         stmt = stmt.where(FileAsset.domain_id.is_(None))
     else:
-        # A custom domain serves its owner's whole library: files explicitly
-        # assigned to this domain AND the owner's platform-bucket files
-        # (domain_id NULL). The latter matters because serve URLs are minted on
-        # the user's PRIMARY domain (see v1/files._serve_host) even for assets
-        # created before that domain existed -- without this, setting a primary
-        # domain would 404 every pre-existing file link. Prefer the exact
-        # domain match if both buckets hold the same short code.
         stmt = (
             stmt.where(
                 or_(
@@ -141,21 +132,39 @@ async def serve_file(
             .order_by((FileAsset.domain_id == domain.id).desc())
             .limit(1)
         )
+    return (await session.execute(stmt)).scalars().first()
 
-    result = await session.execute(stmt)
-    asset = result.scalars().first()
-    if asset is None:
-        return Response(status_code=404, content="File not found.")
 
+def _is_https(request: Request) -> bool:
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "").lower()
+    return proto.split(",")[0].strip() == "https"
+
+
+async def _read_blob(storage_key: str) -> bytes:
+    chunks: list[bytes] = []
+    async for chunk in storage.stream_object(storage_key):
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _serve_asset(
+    asset: FileAsset,
+    domain: Optional[Domain],
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession,
+):
+    """Gates → count the view → serve. Shared by /f/{code} and /p/{slug}."""
+    short_code = asset.short_code
     brand = domain.hostname if (asset.branded and domain) else None
-    ip_early = ac.client_ip(request)
+    ip_address = ac.client_ip(request)
 
     # --- Access gates (before serving / counting a view) -----------------
     # Email gate: capture a lead before access.
     if asset.require_email and not ac.has_gate_cookie(request, short_code):
         return email_gate_page(action=f"/f/{short_code}/unlock", brand=brand)
     # VPN/proxy block.
-    if asset.block_vpn and await ac.is_vpn_ip(ip_early):
+    if asset.block_vpn and await ac.is_vpn_ip(ip_address):
         return blocked_page("vpn", brand=brand)
     # Manual kill.
     if asset.revoked_at is not None:
@@ -168,10 +177,18 @@ async def serve_file(
     if asset.max_views is not None and (asset.view_count or 0) >= asset.max_views:
         return blocked_page("maxed", brand=brand)
 
-    # Extract visitor info, same pattern as /r/{code}.
-    ip_address = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    if not ip_address:
-        ip_address = request.client.host if request.client else None
+    # --- Visitor identity + revisit detection ----------------------------
+    visitor_id = pages_service.valid_visitor_id(request.cookies.get(pages_service.VISITOR_COOKIE))
+    is_new_visitor = visitor_id is None
+    if is_new_visitor:
+        visitor_id = pages_service.new_visitor_id()
+    is_revisit = False
+    if not is_new_visitor:
+        last = await utm_service.last_file_view_at(session, asset.id, visitor_id)
+        if last is not None:
+            gap = (datetime.utcnow() - last).total_seconds()
+            is_revisit = gap >= settings.pages_revisit_window_s
+
     user_agent = request.headers.get("User-Agent")
     referrer = request.headers.get("Referer")
 
@@ -182,6 +199,8 @@ async def serve_file(
         referrer=referrer,
         session=session,
         domain_id=domain.id if domain else None,
+        visitor_id=visitor_id,
+        is_revisit=is_revisit,
     )
     # Commit NOW, not at dependency teardown: with a StreamingResponse the
     # yield-dependency (and its commit) only closes after the whole response
@@ -209,16 +228,89 @@ async def serve_file(
             return Response(status_code=502, content="Storage error.")
         return RedirectResponse(url=url, status_code=302)
 
-    # Stream mode, bytes proxied through Railway.
     try:
-        return StreamingResponse(
-            storage.stream_object(asset.storage_key),
-            status_code=200,
-            headers=_common_headers(asset),
-            media_type=asset.mime_type,
-        )
+        if asset.kind == KIND_HTML and (asset.size_bytes or 0) <= settings.pages_inject_max_bytes:
+            # Beam Pages: inject the tracking snippet at serve time. The stored
+            # blob is never modified; the body is per-visitor so it is not cached.
+            payload = await _read_blob(asset.storage_key)
+            snippet = pages_service.tracking_snippet(
+                visitor_id=visitor_id,
+                page_id=str(asset.id),
+                beacon_url=f"/f/{short_code}/page-events",
+                extra_js=pages_service.state_snippet_js(asset),
+            )
+            headers = _common_headers(asset)
+            headers["Cache-Control"] = "no-store"
+            resp: Response = Response(
+                content=pages_service.inject_snippet(payload, snippet),
+                status_code=200,
+                headers=headers,
+                media_type=asset.mime_type,
+            )
+        else:
+            # Stream mode, bytes proxied through the API.
+            resp = StreamingResponse(
+                storage.stream_object(asset.storage_key),
+                status_code=200,
+                headers=_common_headers(asset),
+                media_type=asset.mime_type,
+            )
     except storage.StorageNotConfigured:
         return Response(status_code=503, content="Storage not configured.")
+
+    resp.set_cookie(
+        pages_service.VISITOR_COOKIE,
+        visitor_id,
+        max_age=pages_service.VISITOR_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=_is_https(request),
+        path="/",
+    )
+    return resp
+
+
+@router.get("/f/{short_code}")
+@router.get("/f/{short_code}/{slug}")
+async def serve_file(
+    short_code: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    slug: Optional[str] = None,  # noqa: ARG001, slug is cosmetic
+    session: AsyncSession = Depends(get_db_session),
+):
+    host = _request_host(request)
+    domain = await _resolve_domain(host, session)
+
+    if host and domain is None and not settings.is_platform_host(host):
+        # Custom hostname that isn't registered or isn't active, refuse rather
+        # than fall through to the platform-default bucket.
+        return Response(status_code=404, content="File not found.")
+
+    asset = await _lookup_asset(session, domain, short_code=short_code)
+    if asset is None:
+        return Response(status_code=404, content="File not found.")
+    return await _serve_asset(asset, domain, request, background_tasks, session)
+
+
+@router.get("/p/{slug}")
+async def serve_page(
+    slug: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Beam Pages: serve a hosted page by its editable slug (same gates and
+    tracking as /f/{code}; the page's legacy /f/ URL keeps working too)."""
+    host = _request_host(request)
+    domain = await _resolve_domain(host, session)
+    if host and domain is None and not settings.is_platform_host(host):
+        return Response(status_code=404, content="Page not found.")
+
+    asset = await _lookup_asset(session, domain, slug=slug.strip().lower())
+    if asset is None or asset.kind != KIND_HTML:
+        return Response(status_code=404, content="Page not found.")
+    return await _serve_asset(asset, domain, request, background_tasks, session)
 
 
 class _PageEvent(BaseModel):
@@ -226,8 +318,14 @@ class _PageEvent(BaseModel):
     dwell_ms: int = Field(ge=0, le=86_400_000)  # cap a single page at 24h
 
 
+# A single heartbeat can never claim more than this; the snippet reports every
+# 15 s, so anything larger is a stalled tab or a forged payload.
+_MAX_DWELL_PER_REPORT_MS = 60_000
+
+
 class PageEventsRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=64)
+    visitor_id: Optional[str] = Field(default=None, max_length=32)
     events: list[_PageEvent] = Field(max_length=1000)
 
 
@@ -245,22 +343,27 @@ async def ingest_page_events(
     """
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
-    stmt = select(FileAsset).where(
-        FileAsset.short_code == short_code,
-        FileAsset.status == STATUS_ACTIVE,
-    )
-    stmt = stmt.where(FileAsset.domain_id.is_(None)) if domain is None else stmt.where(
-        FileAsset.domain_id == domain.id
-    )
-    asset = (await session.execute(stmt)).scalar_one_or_none()
+    if host and domain is None and not settings.is_platform_host(host):
+        return Response(status_code=404, content="File not found.")
+    asset = await _lookup_asset(session, domain, short_code=short_code)
     if asset is None:
         return Response(status_code=404, content="File not found.")
 
     ip = ac.client_ip(request)
     sid = data.session_id[:64]
+    # Trust the cookie over the body; fall back to the body for beacons sent
+    # without credentials.
+    visitor_id = pages_service.valid_visitor_id(
+        request.cookies.get(pages_service.VISITOR_COOKIE)
+    ) or pages_service.valid_visitor_id(data.visitor_id)
     for e in data.events:
         session.add(PageEngagement(
-            file_id=asset.id, session_id=sid, page=e.page, dwell_ms=e.dwell_ms, ip_address=ip,
+            file_id=asset.id,
+            session_id=sid,
+            visitor_id=visitor_id,
+            page=e.page,
+            dwell_ms=min(e.dwell_ms, _MAX_DWELL_PER_REPORT_MS),
+            ip_address=ip,
         ))
     await session.commit()
     return Response(status_code=204)
@@ -276,14 +379,9 @@ async def unlock_file(
     """Email-gate submit for a hosted file: capture the lead, set cookie, re-enter /f."""
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
-    stmt = select(FileAsset).where(
-        FileAsset.short_code == short_code,
-        FileAsset.status == STATUS_ACTIVE,
-    )
-    stmt = stmt.where(FileAsset.domain_id.is_(None)) if domain is None else stmt.where(
-        FileAsset.domain_id == domain.id
-    )
-    asset = (await session.execute(stmt)).scalar_one_or_none()
+    if host and domain is None and not settings.is_platform_host(host):
+        return Response(status_code=404, content="File not found.")
+    asset = await _lookup_asset(session, domain, short_code=short_code)
     if asset is None:
         return Response(status_code=404, content="File not found.")
 

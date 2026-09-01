@@ -8,6 +8,7 @@ from app.models.org import Organization, OrganizationMembership
 from app.models.content import Content, ContentShare
 from app.models.room import Room, RoomRecipient, RoomLink, RoomEvent
 from app.models.api_key import ApiKey
+from app.models.file_version import FileVersion
 
 __all__ = [
     "User",
@@ -18,6 +19,7 @@ __all__ = [
     "ClickEvent",
     "Domain",
     "FileAsset",
+    "FileVersion",
     "Organization",
     "OrganizationMembership",
     "Content",

@@ -139,7 +139,9 @@ async def test_pages_publish_and_update(app_client, service_key_env, tmp_path, m
     )
     assert pub.status_code == 201, pub.text
     page = pub.json()
-    assert page["url"].endswith(f"/f/{page['short_code']}")
+    # Pages now serve on an editable slug; the short-code URL stays as legacy_url.
+    assert page["url"].endswith(f"/p/{page['slug']}")
+    assert page["legacy_url"].endswith(f"/f/{page['short_code']}")
 
     served = await app_client.get(f"/f/{page['short_code']}")
     assert served.status_code == 200 and "Checklist v1" in served.text

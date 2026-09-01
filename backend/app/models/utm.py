@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from sqlalchemy.orm import relationship
 
@@ -153,6 +153,12 @@ class ClickEvent(Base):
 
     # Custom domain that served this click. NULL = platform-default host.
     domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Beam Pages: first-party visitor id (cb_vid cookie) and whether this view
+    # is a return by the same visitor after the revisit window. One row per
+    # view, so open counts stay correct; revisit is an attribute, not a row.
+    visitor_id = Column(String(32), nullable=True)
+    is_revisit = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     # Visitor information
     ip_address = Column(String(45), nullable=True)

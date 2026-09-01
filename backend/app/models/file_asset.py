@@ -57,6 +57,9 @@ class FileAsset(Base):
     domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="SET NULL"), nullable=True, index=True)
 
     short_code = Column(String(20), nullable=False, index=True)
+    # Beam Pages: editable, URL-safe slug served at /p/{slug}. Unique within the
+    # same domain namespace as short_code (partial indexes in migration 024).
+    slug = Column(String(80), nullable=True, index=True)
 
     filename = Column(String(255), nullable=False)
     kind = Column(String(16), nullable=False)

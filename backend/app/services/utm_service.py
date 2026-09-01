@@ -423,6 +423,8 @@ class UTMService:
         referrer: Optional[str],
         session: AsyncSession,
         domain_id: Optional[UUID] = None,
+        visitor_id: Optional[str] = None,
+        is_revisit: bool = False,
     ) -> ClickEvent:
         """Record a view against a FileAsset, mirroring ``record_click_event``.
 
@@ -446,6 +448,8 @@ class UTMService:
             device_type=ua_info["device_type"],
             browser=ua_info["browser"],
             os=ua_info["os"],
+            visitor_id=visitor_id,
+            is_revisit=bool(is_revisit),
         )
         session.add(event)
 
@@ -455,6 +459,17 @@ class UTMService:
 
         await session.flush()
         return event
+
+    async def last_file_view_at(
+        self, session: AsyncSession, file_id: UUID, visitor_id: str
+    ) -> Optional[datetime]:
+        """Most recent view of ``file_id`` by ``visitor_id`` (for revisit detection)."""
+        row = await session.execute(
+            select(func.max(ClickEvent.clicked_at)).where(
+                ClickEvent.file_id == file_id, ClickEvent.visitor_id == visitor_id
+            )
+        )
+        return row.scalar_one_or_none()
 
     async def resolve_geo_for_event(self, event_id: UUID, ip_address: str) -> None:
         """Background task: resolve GeoIP + VPN/ASN + company intent, then update
