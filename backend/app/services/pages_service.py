@@ -289,6 +289,30 @@ async def prune_versions(
     return keys
 
 
+async def ensure_slug(session: AsyncSession, asset: FileAsset, title: str) -> bool:
+    """Give a pre-Beam-Pages HTML upload a slug on first sight so it gets a
+    readable /p/ URL. Returns True when the row changed (caller commits)."""
+    if asset.slug:
+        return False
+    asset.slug = await unique_slug(session, title, asset.domain_id)
+    return True
+
+
+async def snapshot_if_unversioned(session: AsyncSession, asset: FileAsset) -> Optional[FileVersion]:
+    """Uploads that predate version history have no v1. Before the first
+    replace, record the bytes currently being served so they stay rollback-able."""
+    if await next_version_no(session, asset) != 1:
+        return None
+    return await record_version(
+        session,
+        asset,
+        storage_key=asset.storage_key,
+        size_bytes=asset.size_bytes or 0,
+        sha256=asset.sha256,
+        filename=asset.filename,
+    )
+
+
 async def current_version_no(session: AsyncSession, asset: FileAsset) -> int:
     row = (
         await session.execute(

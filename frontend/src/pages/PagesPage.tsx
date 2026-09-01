@@ -361,7 +361,9 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-sm text-slate-900 truncate">{page.title}</span>
               {statusBadge(page)}
-              <Badge variant="default" size="sm">v{page.current_version}</Badge>
+              {page.current_version > 0 && (
+                <Badge variant="default" size="sm">v{page.current_version}</Badge>
+              )}
             </div>
             <div className="text-xs text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
               <span>{formatBytes(page.size_bytes)}</span>
@@ -379,8 +381,12 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
               <QrButton value={page.url} filename={`${page.slug ?? page.short_code}.svg`} />
             </div>
             <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2 flex-wrap">
-              <span>legacy {page.legacy_url}</span>
-              <span>·</span>
+              {page.legacy_url !== page.url && (
+                <>
+                  <span>legacy {page.legacy_url}</span>
+                  <span>·</span>
+                </>
+              )}
               <span>
                 Beam State: on ·{' '}
                 <a href={BEAM_STATE_DOCS_URL} target="_blank" rel="noreferrer" className="underline hover:text-slate-600">

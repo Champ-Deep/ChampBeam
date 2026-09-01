@@ -294,3 +294,36 @@ async def test_non_html_file_is_not_injected(app_client, local_storage):
     assert r.status_code == 200 and r.text == content
     assert r.headers["cache-control"] == "private, max-age=300"
     assert "cb_vid=" in r.headers.get("set-cookie", "")
+
+
+@pytest.mark.asyncio
+async def test_legacy_upload_gets_slug_and_keeps_original_rollbackable(app_client, local_storage):
+    """HTML uploaded before Beam Pages has no slug and no version history.
+    Listing it mints a slug; the first replace snapshots the served bytes as v1."""
+    from app.db import postgres
+    from app.models.file_asset import FileAsset
+    from app.models.file_version import FileVersion
+    from sqlalchemy import delete, update
+
+    headers, _ = await _key(app_client)
+    page = await _publish(app_client, headers)
+    pid = page["page_id"]
+    async with postgres.async_session_maker() as s:  # turn it into a pre-Beam-Pages upload
+        await s.execute(delete(FileVersion).where(FileVersion.file_id == pid))
+        await s.execute(update(FileAsset).where(FileAsset.id == pid).values(slug=None))
+        await s.commit()
+
+    listed = (await app_client.get("/api/v1/pages", headers=headers)).json()[0]
+    assert listed["slug"] == "pallab-north-star" and listed["url"].endswith("/p/pallab-north-star")
+    assert listed["current_version"] == 0
+    assert (await app_client.get("/p/pallab-north-star")).status_code == 200
+
+    r = await app_client.put(f"/api/v1/pages/{pid}", json={"html": "<html><head></head><body>v2</body></html>"}, headers=headers)
+    assert r.status_code == 200 and r.json()["current_version"] == 2
+    versions = (await app_client.get(f"/api/v1/pages/{pid}/versions", headers=headers)).json()
+    assert [v["version_no"] for v in versions] == [2, 1]
+
+    rb = await app_client.post(f"/api/v1/pages/{pid}/versions/1/rollback", headers=headers)
+    assert rb.status_code == 200 and rb.json()["current_version"] == 3
+    served = await app_client.get("/p/pallab-north-star")
+    assert "hello" in served.text and "v2" not in served.text

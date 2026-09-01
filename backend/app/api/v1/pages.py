@@ -364,6 +364,8 @@ async def list_pages(
             .order_by(FileAsset.created_at.desc())
         )
     ).scalars().all()
+    if any([await pages_service.ensure_slug(session, a, _title_from_filename(a.filename)) for a in rows]):
+        await session.commit()
     return [await _page_response(session, a) for a in rows]
 
 
@@ -374,6 +376,8 @@ async def get_page(
     session: AsyncSession = Depends(get_db_session),
 ):
     asset = await _get_owned_page(page_id, user, session)
+    if await pages_service.ensure_slug(session, asset, _title_from_filename(asset.filename)):
+        await session.commit()
     return await _page_response(session, asset)
 
 
@@ -426,6 +430,7 @@ async def update_page(
     new_key = _storage_key(user.user_id, asset.id, f"{uuid4().hex[:8]}-{filename}")
     await _write_blob(new_key, payload)
 
+    await pages_service.snapshot_if_unversioned(session, asset)
     asset.storage_key = new_key
     asset.filename = filename
     asset.size_bytes = len(payload)
