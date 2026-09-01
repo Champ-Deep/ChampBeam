@@ -102,6 +102,8 @@ Or upload the file: `POST /api/v1/pages/upload` (multipart `file`, optional `tit
 
 **Update in place.** `PUT /api/v1/pages/{id}` `{"html": "..."}` swaps the content atomically; the URL, slug and QR never change and view history is kept. Every publish/update is retained as a version: `GET /api/v1/pages/{id}/versions`, `POST /api/v1/pages/{id}/versions/{n}/rollback` (the rollback is itself a new version, so history stays linear). The last 10 versions are kept.
 
+**Existing HTML uploads.** Single-file HTML uploaded through the Files API before Pages existed shows up in `GET /api/v1/pages` too: it receives a slug (and `/p/` URL) the first time it is listed, its `/f/` link keeps working, and its first `PUT` snapshots the bytes currently being served as version 1 before swapping — so the original stays rollback-able.
+
 **Settings.** `PATCH /api/v1/pages/{id}` with any of `slug` (3–60 chars, lowercase/digits/hyphens; 409 if taken), `title`, `enabled` (`false` = kill switch: every URL and API route returns 410 immediately), `domain_id`, `access_code` (4–8 digits; `null` clears). `DELETE` removes the page and every version blob.
 
 **Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates — rename the delimiter).
