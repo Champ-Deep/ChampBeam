@@ -16,14 +16,16 @@ import {
   Share2,
   Trash2,
 } from 'lucide-react';
-import { Badge, Button, Card, CardHeader, CardTitle, EmptyState, Input, LoadingSpinner } from '../components/ui';
+import { Badge, Button, Card, CardHeader, CardTitle, EmptyState, Input, LoadingSpinner, useConfirm } from '../components/ui';
 import { contentApi, type ContentItem } from '../api/org';
 import { champvaultApi, type VaultAsset } from '../api/champvault';
 import { utmApi, type Domain } from '../api/utm';
 import { filesApi, type FileAsset } from '../api/files';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { apiErrorDetail } from '../api/_shared';
 
 export function ContentLibraryPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const { isAdmin } = useOrgContext();
   const [shareDomain, setShareDomain] = useState<string>('');
@@ -48,7 +50,7 @@ export function ContentLibraryPage() {
       queryClient.invalidateQueries({ queryKey: ['content'] });
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const msg = apiErrorDetail(err);
       toast.error(msg ?? 'Could not create a share link.');
     },
   });
@@ -158,8 +160,8 @@ export function ContentLibraryPage() {
                 onArchive={() =>
                   archiveMutation.mutate({ id: c.id, is_archived: !c.is_archived })
                 }
-                onDelete={() => {
-                  if (window.confirm(`Remove "${c.title}" from the library?`)) {
+                onDelete={async () => {
+                  if (await confirm({ message: `Remove "${c.title}" from the library?`, confirmLabel: 'Remove' })) {
                     deleteMutation.mutate(c.id);
                   }
                 }}
@@ -348,7 +350,7 @@ function NewContentCard() {
       queryClient.invalidateQueries({ queryKey: ['content'] });
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const msg = apiErrorDetail(err);
       toast.error(msg ?? 'Could not add content.');
     },
   });
@@ -473,7 +475,7 @@ function ChampVaultPicker() {
       queryClient.invalidateQueries({ queryKey: ['content'] });
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const msg = apiErrorDetail(err);
       toast.error(msg ?? 'Could not add from ChampVault.');
     },
   });

@@ -79,7 +79,11 @@ export function GeoChart({ data, onLevelChange, level = 'country', height = 320 
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
                 formatter={(value) => [Number(value).toLocaleString(), 'Clicks']}
-                labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || ''}
+                labelFormatter={(_, payload) => {
+                  const item: unknown = payload?.[0]?.payload;
+                  const name = typeof item === 'object' && item !== null ? (item as { fullName?: unknown }).fullName : undefined;
+                  return typeof name === 'string' ? name : '';
+                }}
                 cursor={{ fill: 'rgba(59, 130, 246, 0.06)' }}
               />
               <Bar

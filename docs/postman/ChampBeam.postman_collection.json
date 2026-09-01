@@ -8,13 +8,28 @@
   "auth": {
     "type": "apikey",
     "apikey": [
-      { "key": "key", "value": "X-API-Key", "type": "string" },
-      { "key": "value", "value": "{{api_key}}", "type": "string" },
-      { "key": "in", "value": "header", "type": "string" }
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
     ]
   },
   "variable": [
-    { "key": "base_url", "value": "https://champbeam-api.64.227.154.215.sslip.io" }
+    {
+      "key": "base_url",
+      "value": "https://champbeam-api.64.227.154.215.sslip.io"
+    }
   ],
   "item": [
     {
@@ -24,9 +39,19 @@
         {
           "name": "Health check",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] },
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
             "description": "Liveness + database connectivity. Returns `{\"status\": \"healthy\", \"database\": \"connected\"}`."
           },
           "event": [
@@ -47,15 +72,30 @@
         {
           "name": "API root",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "url": { "raw": "{{base_url}}/", "host": ["{{base_url}}"], "path": [""] },
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
             "description": "Service name, version, and links to the interactive OpenAPI docs (`/docs`, `/redoc`)."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -69,12 +109,28 @@
           "name": "Generate trackable link",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"base_url\": \"https://example.com/creative-plan\",\n  \"utm_source\": \"agent-workspace\",\n  \"utm_medium\": \"api\",\n  \"utm_campaign\": \"postman-docs\"\n}"
             },
-            "url": { "raw": "{{base_url}}/api/v1/utm/generate", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "generate"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/generate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "generate"
+              ]
+            },
             "description": "The core endpoint. Give it a destination `base_url` plus optional UTM parameters (`utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`), and optionally `project_id` (folder), `preset_id` (saved UTM defaults) or `domain_id` (serve from your own domain).\n\nResponse fields:\n- `short_url` — the shareable link (`https://<host>/s/<code>`)\n- `redirect_url` — same link on the `/r/` path\n- `tracked_url` — the destination with UTM parameters appended\n- `link_id` — use for analytics and management calls\n\nWithout a `domain_id`, links use your primary active domain, falling back to the platform host. Identical URL+UTM+domain combos return the existing link (idempotent)."
           },
           "event": [
@@ -101,12 +157,28 @@
           "name": "Generate link on your custom domain",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"base_url\": \"https://example.com/creative-plan\",\n  \"utm_source\": \"agent-workspace\",\n  \"utm_medium\": \"api\",\n  \"utm_campaign\": \"byod-demo\",\n  \"domain_id\": \"{{domain_id}}\"\n}"
             },
-            "url": { "raw": "{{base_url}}/api/v1/utm/generate", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "generate"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/generate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "generate"
+              ]
+            },
             "description": "Same as Generate, but pins the link to one of your **active** custom domains — the returned `short_url` is served from that hostname. Returns 404 `Active domain not found` if the domain isn't yours or isn't active yet.\n\nSet the `domain_id` environment variable to one of your active domain ids (see Domains → List domains); this request is skipped in automated runs when it's unset."
           },
           "event": [
@@ -139,15 +211,40 @@
           "name": "Update link (move to project)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"project_id\": null\n}" },
-            "url": { "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "links", "{{link_id}}"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_id\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "links",
+                "{{link_id}}"
+              ]
+            },
             "description": "Reassign a link to a project (folder), or `null` to unfile it."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -155,18 +252,41 @@
           "name": "Set link access controls",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"max_views\": 500,\n  \"require_email\": false,\n  \"block_vpn\": false\n}"
             },
-            "url": { "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}/access", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "links", "{{link_id}}", "access"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}/access",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "links",
+                "{{link_id}}",
+                "access"
+              ]
+            },
             "description": "Security console for a link. Only fields you send are applied:\n- `expires_in_hours` — self-destruct timer (0 clears)\n- `max_views` — view cap (0 clears)\n- `require_email` — email gate before redirecting (captured leads: see Get link leads)\n- `block_vpn` — refuse VPN/anonymizer visitors\n- `revoked` — kill switch (true/false)"
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -174,13 +294,31 @@
           "name": "Get link access controls",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}/access", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "links", "{{link_id}}", "access"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}/access",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "links",
+                "{{link_id}}",
+                "access"
+              ]
+            },
             "description": "Current access-control state for a link."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -188,13 +326,31 @@
           "name": "Get link leads (email gate captures)",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}/leads", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "links", "{{link_id}}", "leads"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}/leads",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "links",
+                "{{link_id}}",
+                "leads"
+              ]
+            },
             "description": "Emails captured by the `require_email` gate on this link."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -202,13 +358,30 @@
           "name": "Bulk CSV template",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/bulk/template", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "bulk", "template"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/bulk/template",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "bulk",
+                "template"
+              ]
+            },
             "description": "Download the CSV template for bulk generation: a required `url` column plus optional per-row `utm_*` columns."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -219,21 +392,46 @@
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "file", "type": "file", "src": "", "description": "CSV with a 'url' column (see Bulk CSV template)" }
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "description": "CSV with a 'url' column (see Bulk CSV template)"
+                }
               ]
             },
             "url": {
               "raw": "{{base_url}}/api/v1/utm/bulk/generate",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "utm", "bulk", "generate"],
-              "query": [{ "key": "preset_id", "value": "", "disabled": true, "description": "Optional saved-preset id supplying default UTM values" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "bulk",
+                "generate"
+              ],
+              "query": [
+                {
+                  "key": "preset_id",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Optional saved-preset id supplying default UTM values"
+                }
+              ]
             },
             "description": "Upload a CSV (multipart field `file`) and get every row back as a persisted, trackable short link. Optional `preset_id` query parameter applies a saved UTM preset as row defaults.\n\nSkipped in automated runs (needs a local file attached)."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -247,7 +445,18 @@
           "name": "Config (CNAME target)",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/domains/config", "host": ["{{base_url}}"], "path": ["api", "v1", "domains", "config"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/domains/config",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "domains",
+                "config"
+              ]
+            },
             "description": "Which domain features this deployment offers, and — crucially — `cname_target`: the hostname your customers point their CNAME records at."
           },
           "event": [
@@ -269,13 +478,28 @@
           "name": "List domains",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/domains", "host": ["{{base_url}}"], "path": ["api", "v1", "domains"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/domains",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "domains"
+              ]
+            },
             "description": "Your domains with status, setup instructions (`cname_target`) and primary flag. Use an `active` domain's `id` as `domain_id` in link generation."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -283,9 +507,27 @@
           "name": "Add domain",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"hostname\": \"links-{{$timestamp}}.example.com\"\n}" },
-            "url": { "raw": "{{base_url}}/api/v1/domains", "host": ["{{base_url}}"], "path": ["api", "v1", "domains"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"hostname\": \"links-{{$timestamp}}.example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/domains",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "domains"
+              ]
+            },
             "description": "Register a hostname you own (e.g. `links.acme.com`). Returns the domain in `pending_cname` with setup instructions. Your first domain automatically becomes primary. Hostnames are globally unique (409 if already claimed)."
           },
           "event": [
@@ -311,17 +553,39 @@
           "name": "Refresh domain status",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{base_url}}/api/v1/domains/{{created_domain_id}}/refresh", "host": ["{{base_url}}"], "path": ["api", "v1", "domains", "{{created_domain_id}}", "refresh"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/domains/{{created_domain_id}}/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "domains",
+                "{{created_domain_id}}",
+                "refresh"
+              ]
+            },
             "description": "Re-runs verification now (DNS check → certificate → reachability). Optional — ChampBeam re-checks pending domains every minute on its own; this exists so a UI can offer a manual refresh."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (!pm.environment.get('created_domain_id') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (!pm.environment.get('created_domain_id') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             },
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -329,17 +593,39 @@
           "name": "Set primary domain",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{base_url}}/api/v1/domains/{{domain_id}}/set-primary", "host": ["{{base_url}}"], "path": ["api", "v1", "domains", "{{domain_id}}", "set-primary"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/domains/{{domain_id}}/set-primary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "domains",
+                "{{domain_id}}",
+                "set-primary"
+              ]
+            },
             "description": "Make an **active** domain the default for new links (used when no `domain_id` is passed to generate). Skipped in automated runs when `domain_id` is unset."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (!pm.environment.get('domain_id') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (!pm.environment.get('domain_id') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             },
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -353,9 +639,27 @@
           "name": "Create project",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"API docs demo\",\n  \"description\": \"Created by the Postman collection\"\n}" },
-            "url": { "raw": "{{base_url}}/api/v1/projects", "host": ["{{base_url}}"], "path": ["api", "v1", "projects"] }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API docs demo\",\n  \"description\": \"Created by the Postman collection\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects"
+              ]
+            }
           },
           "event": [
             {
@@ -376,13 +680,28 @@
           "name": "List projects",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/projects", "host": ["{{base_url}}"], "path": ["api", "v1", "projects"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects"
+              ]
+            },
             "description": "Projects with per-project link counts and total clicks."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -390,14 +709,38 @@
           "name": "Update project",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"API docs demo (renamed)\"\n}" },
-            "url": { "raw": "{{base_url}}/api/v1/projects/{{project_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "projects", "{{project_id}}"] }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"API docs demo (renamed)\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}"
+              ]
+            }
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -405,13 +748,29 @@
           "name": "Delete project",
           "request": {
             "method": "DELETE",
-            "url": { "raw": "{{base_url}}/api/v1/projects/{{project_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "projects", "{{project_id}}"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/projects/{{project_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "projects",
+                "{{project_id}}"
+              ]
+            },
             "description": "Deletes the folder; links inside it are unfiled, not deleted."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -425,12 +784,27 @@
           "name": "1. Init upload",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"filename\": \"hello-from-api.txt\",\n  \"content_type\": \"text/plain\",\n  \"size_bytes\": 33\n}"
             },
-            "url": { "raw": "{{base_url}}/api/v1/files", "host": ["{{base_url}}"], "path": ["api", "v1", "files"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files"
+              ]
+            },
             "description": "Declares the file. `size_bytes` must match what you'll upload. Optional `domain_id` serves the file link from your custom domain. Response's `presigned_put_url` is where step 2 PUTs the bytes (origin-relative for this deployment: prepend the API origin)."
           },
           "event": [
@@ -455,17 +829,37 @@
         {
           "name": "2. Upload bytes",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "text/plain" }],
-            "body": { "mode": "raw", "raw": "Hello from the ChampBeam API docs" },
-            "url": { "raw": "{{upload_url}}", "host": ["{{upload_url}}"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "Hello from the ChampBeam API docs"
+            },
+            "url": {
+              "raw": "{{upload_url}}",
+              "host": [
+                "{{upload_url}}"
+              ]
+            },
             "description": "PUT the raw file bytes to the URL from step 1. Send the same `Content-Type` you declared; no API key needed (the URL itself is signed and single-purpose)."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('uploaded', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('uploaded', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -473,9 +867,29 @@
           "name": "3. Finalize",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{}" },
-            "url": { "raw": "{{base_url}}/api/v1/files/{{file_id}}/finalize", "host": ["{{base_url}}"], "path": ["api", "v1", "files", "{{file_id}}", "finalize"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files/{{file_id}}/finalize",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files",
+                "{{file_id}}",
+                "finalize"
+              ]
+            },
             "description": "Verifies the uploaded bytes and activates the link. The response's `serve_url` is the shareable trackable URL (`https://<host>/f/<code>`)."
           },
           "event": [
@@ -499,13 +913,36 @@
           "name": "Update file in place (same link)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "text/plain" }],
-            "body": { "mode": "raw", "raw": "Hello again — updated by the ChampBeam API docs (v2)" },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "Hello again — updated by the ChampBeam API docs (v2)"
+            },
             "url": {
               "raw": "{{base_url}}/api/v1/files/{{file_id}}/content",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "files", "{{file_id}}", "content"],
-              "query": [{ "key": "filename", "value": "", "disabled": true, "description": "Optional new display filename" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files",
+                "{{file_id}}",
+                "content"
+              ],
+              "query": [
+                {
+                  "key": "filename",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Optional new display filename"
+                }
+              ]
             },
             "description": "Replace a file's bytes while keeping its link: `short_code`, serve URL and QR code stay **exactly the same**, so a link you've already emailed now serves the new version. Send the new bytes as the raw body with the correct `Content-Type`. The swap is atomic — the old version keeps serving until the new bytes have fully landed — and view history is preserved.\n\nPerfect for pages/documents you revise on a schedule (weekly plan, live dashboard, price sheet)."
           },
@@ -529,13 +966,28 @@
           "name": "List files",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/files", "host": ["{{base_url}}"], "path": ["api", "v1", "files"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files"
+              ]
+            },
             "description": "Your hosted files with view counts and serve URLs."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -543,13 +995,30 @@
           "name": "File status",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/files/{{file_id}}/status", "host": ["{{base_url}}"], "path": ["api", "v1", "files", "{{file_id}}", "status"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files/{{file_id}}/status",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files",
+                "{{file_id}}",
+                "status"
+              ]
+            },
             "description": "Lightweight polling endpoint: view count, last viewed, seen flag."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -557,33 +1026,65 @@
           "name": "File engagement summary",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/files/{{file_id}}/summary", "host": ["{{base_url}}"], "path": ["api", "v1", "files", "{{file_id}}", "summary"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files/{{file_id}}/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files",
+                "{{file_id}}",
+                "summary"
+              ]
+            },
             "description": "Aggregate engagement for the file: views, unique viewers, read-through metrics for paginated documents."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
       ]
     },
     {
-      "name": "Pages (persistent hosted pages)",
-      "description": "Publish a single-file HTML page (checklist, dashboard, campaign plan) behind a **permanent trackable link** in one call, then revise it forever without the URL changing. Inline `<script>`/`<style>` and `localStorage` work untouched; every open records geo + device analytics. Optional `domain_id` serves the page from your custom domain. 10 MB cap.",
+      "name": "Pages (Beam Pages: hosted, tracked HTML)",
+      "description": "Publish a single-file HTML page behind a permanent trackable link at /p/{slug}. Every open records geo, device, a first-party visitor id, revisits and dwell time; the stored file is served byte-identical with a tracking snippet injected per response. Update in place forever (versions + rollback), optional access code, kill switch, and Beam State (comments + shared key-value state) built in. 2 MB cap; server-side code is rejected.",
       "item": [
         {
-          "name": "Publish page",
+          "name": "Publish page (JSON)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages"
+              ]
+            },
+            "description": "One call: send the HTML, get back `url` (`/p/{slug}`). `slug` is optional (derived from the title); `domain_id` serves it from your custom domain.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Onboarding checklist\",\n  \"html\": \"<html><body><h1>Checklist</h1><ul><li>Step one</li></ul><script>document.body.dataset.loaded='1'</script></body></html>\"\n}"
-            },
-            "url": { "raw": "{{base_url}}/api/v1/pages", "host": ["{{base_url}}"], "path": ["api", "v1", "pages"] },
-            "description": "One call: send the HTML, get back `url` — the permanent shareable link (also QR-able via the QR endpoint)."
+              "raw": "{\n  \"title\": \"Onboarding checklist\",\n  \"slug\": \"onboarding-{{$timestamp}}\",\n  \"html\": \"<!doctype html><html><head><title>Checklist</title></head><body><h1>Checklist</h1><ul><li>Step one</li></ul><script>localStorage.done='1'</script></body></html>\"\n}"
+            }
           },
           "event": [
             {
@@ -593,8 +1094,9 @@
                   "pm.test('published', () => {",
                   "  pm.response.to.have.status(201);",
                   "  const d = pm.response.json();",
-                  "  pm.expect(d.url).to.include(d.short_code);",
+                  "  pm.expect(d.url).to.include('/p/' + d.slug);",
                   "  pm.environment.set('page_id', d.page_id);",
+                  "  pm.environment.set('page_slug', d.slug);",
                   "  pm.environment.set('page_url', d.url);",
                   "});"
                 ],
@@ -604,35 +1106,564 @@
           ]
         },
         {
-          "name": "Update page (same URL forever)",
+          "name": "Open the page (records a view)",
           "request": {
-            "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"html\": \"<html><body><h1>Checklist v2</h1><ul><li>Step one</li><li>Step two</li></ul></body></html>\"\n}"
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/p/{{page_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "p",
+                "{{page_slug}}"
+              ]
             },
-            "url": { "raw": "{{base_url}}/api/v1/pages/{{page_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "pages", "{{page_id}}"] },
-            "description": "Atomic in-place revision: links already sent now serve the new version; view history preserved."
+            "description": "What recipients hit. Returns the HTML with the tracking snippet in <head>, sets the `cb_vid` visitor cookie, and records a geo/device-enriched view. Also exposes `window.__BEAM__` (state token) and `window.beam`.",
+            "auth": {
+              "type": "noauth"
+            }
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('updated', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('served with snippet', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.text()).to.include('window.__BEAM__');",
+                  "  const m = pm.response.text().match(/token:\"([^\"]+)\"/);",
+                  "  if (m) pm.environment.set('beam_token', m[1]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
         {
-          "name": "Delete demo page",
+          "name": "Get page",
           "request": {
-            "method": "DELETE",
-            "url": { "raw": "{{base_url}}/api/v1/files/{{page_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "files", "{{page_id}}"] },
-            "description": "Pages are file assets under the hood — manage them (delete, access controls, analytics) via the Files endpoints with the same id."
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}"
+              ]
+            },
+            "description": "Page metadata, counters and current version."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List pages",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages"
+              ]
+            },
+            "description": "Your pages, newest first."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update in place (same URL)",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}"
+              ]
+            },
+            "description": "Atomic content swap; URL/slug/QR unchanged; retained as a new version.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"html\": \"<!doctype html><html><head><title>Checklist v2</title></head><body><h1>Checklist v2</h1></body></html>\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('updated', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().current_version).to.be.at.least(2);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change settings (slug / title / enabled / access code)",
+          "request": {
+            "method": "PATCH",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}"
+              ]
+            },
+            "description": "Any subset of: `slug` (409 if taken), `title`, `enabled` (false = 410 kill switch), `domain_id`, `access_code` (4–8 digits, null clears).",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Onboarding checklist (renamed)\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Versions",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}/versions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}",
+                "versions"
+              ]
+            },
+            "description": "Retained versions, newest first; `current` marks the live one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('has versions', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().length).to.be.at.least(2);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Roll back to version 1",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}/versions/1/rollback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}",
+                "versions",
+                "1",
+                "rollback"
+              ]
+            },
+            "description": "Makes an older version current, recorded as a new version so history stays linear."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('rolled back', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Analytics",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}/analytics",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}",
+                "analytics"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": "Views, unique visitors, revisits, total/median/avg dwell for the window."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.property('unique_visitors');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Event timeline",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}",
+                "events"
+              ]
+            },
+            "description": "Merged timeline: view / revisit / comment_added / state_changed / gate_failed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Beam State (public, page-token auth)",
+      "description": "Comments + shared key-value state for a hosted page, so checklists/boards need no external backend. These are the routes `window.beam` calls from inside the page; here they're exercised directly with the page's public token (captured by 'Open the page' above). Same-origin with the page; 410 on every route once the page is disabled.",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "Put state key",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{base_url}}/api/pages/{{page_slug}}/state/check:1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pages",
+                "{{page_slug}}",
+                "state",
+                "check:1"
+              ]
+            },
+            "description": "Last-writer-wins JSON value (any JSON; 16 KB cap, 200 keys per page).",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"done\": true, \"by\": \"Sonali\"}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.request.headers.add({key:'X-Beam-Token', value: pm.environment.get('beam_token')});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get all state",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/pages/{{page_slug}}/state",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pages",
+                "{{page_slug}}",
+                "state"
+              ]
+            },
+            "description": "Every key for the page.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.request.headers.add({key:'X-Beam-Token', value: pm.environment.get('beam_token')});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('has key', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().state).to.have.property('check:1');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add comment",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/pages/{{page_slug}}/comments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pages",
+                "{{page_slug}}",
+                "comments"
+              ]
+            },
+            "description": "Append-only (4000 chars). Fires a `comment_added` event into the page timeline.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"author\": \"Deep\", \"body\": \"Looks good — ship it.\"}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.request.headers.add({key:'X-Beam-Token', value: pm.environment.get('beam_token')});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('201', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.environment.set('comment_id', pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List comments",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/pages/{{page_slug}}/comments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pages",
+                "{{page_slug}}",
+                "comments"
+              ]
+            },
+            "description": "Ascending; pass `after=<comment id>` to poll for newer ones.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.request.headers.add({key:'X-Beam-Token', value: pm.environment.get('beam_token')});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong token is rejected",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/pages/{{page_slug}}/state",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "pages",
+                "{{page_slug}}",
+                "state"
+              ]
+            },
+            "description": "The token only ever addresses its own page.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.request.headers.add({key:'X-Beam-Token', value: 'not-the-token'});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -648,16 +1679,34 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/v1/utm/analytics/overview?days=30",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "utm", "analytics", "overview"],
-              "query": [{ "key": "days", "value": "30" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "overview"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
             },
             "description": "Account-wide totals: tracked links, clicks, unique visitors, top sources."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -667,11 +1716,26 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/v1/utm/analytics/breakdown?group_by=source&days=30",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "utm", "analytics", "breakdown"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "breakdown"
+              ],
               "query": [
-                { "key": "group_by", "value": "source", "description": "source | medium | campaign | content | term" },
-                { "key": "days", "value": "30" }
+                {
+                  "key": "group_by",
+                  "value": "source",
+                  "description": "source | medium | campaign | content | term"
+                },
+                {
+                  "key": "days",
+                  "value": "30"
+                }
               ]
             },
             "description": "Clicks grouped by a UTM dimension. Optional `project_id`/`project_name` filters."
@@ -679,7 +1743,12 @@
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -689,16 +1758,34 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/v1/utm/analytics/links?days=365",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "utm", "analytics", "links"],
-              "query": [{ "key": "days", "value": "365" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "links"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
             },
             "description": "Every tracked link with click and unique-visitor counts — also the way to enumerate your links and their `link_id`s."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -706,13 +1793,32 @@
           "name": "Per-link click events",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/analytics/links/{{link_id}}/events", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "analytics", "links", "{{link_id}}", "events"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/analytics/links/{{link_id}}/events",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "links",
+                "{{link_id}}",
+                "events"
+              ]
+            },
             "description": "The raw click stream for one link: timestamp, city/country, device, browser, referrer, VPN flag."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -720,13 +1826,32 @@
           "name": "Per-link geography",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/analytics/links/{{link_id}}/geo", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "analytics", "links", "{{link_id}}", "geo"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/analytics/links/{{link_id}}/geo",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "links",
+                "{{link_id}}",
+                "geo"
+              ]
+            },
             "description": "Clicks bucketed by country and city for one link."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -734,13 +1859,32 @@
           "name": "Per-link devices",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/analytics/links/{{link_id}}/devices", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "analytics", "links", "{{link_id}}", "devices"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/analytics/links/{{link_id}}/devices",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "links",
+                "{{link_id}}",
+                "devices"
+              ]
+            },
             "description": "Device / browser / OS split for one link."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -748,13 +1892,30 @@
           "name": "Campaigns",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/utm/analytics/campaigns", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "analytics", "campaigns"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/analytics/campaigns",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "campaigns"
+              ]
+            },
             "description": "Per-campaign rollups (links, clicks, uniques). Drill in via `/campaigns/{campaign_name}`, `/campaigns/{name}/geo`, `/devices`, `/links`, `/timeline`, or compare with `/campaigns/compare?campaigns=a,b`."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -764,16 +1925,37 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/v1/utm/analytics/clicks/recent",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "utm", "analytics", "clicks", "recent"],
-              "query": [{ "key": "since", "value": "", "disabled": true, "description": "ISO timestamp; only clicks after this moment" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "clicks",
+                "recent"
+              ],
+              "query": [
+                {
+                  "key": "since",
+                  "value": "",
+                  "disabled": true,
+                  "description": "ISO timestamp; only clicks after this moment"
+                }
+              ]
             },
             "description": "Near-real-time click feed for notifications: poll with `since` set to your last seen timestamp."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -783,16 +1965,35 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/v1/utm/analytics/export/events?days=30",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "utm", "analytics", "export", "events"],
-              "query": [{ "key": "days", "value": "30" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "analytics",
+                "export",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
             },
             "description": "Full click-event export as CSV. Also available: `/export/campaign-summary` and `/export/link-performance`."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -804,13 +2005,26 @@
         {
           "name": "QR code for a short link",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/api/v1/qr.svg?data={{short_url}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "qr.svg"],
-              "query": [{ "key": "data", "value": "{{short_url}}" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "qr.svg"
+              ],
+              "query": [
+                {
+                  "key": "data",
+                  "value": "{{short_url}}"
+                }
+              ]
             },
             "description": "Renders an SVG QR code for any URL — point it at a `short_url` and scans are tracked exactly like clicks (there is no separate QR tracking; the QR simply encodes the permanent short link, so it never breaks). Hotlinkable, no auth."
           },
@@ -836,24 +2050,50 @@
       "description": "Managing keys requires an interactive sign-in (Clerk session Bearer token) — **API keys cannot mint or revoke keys** (403), so a leaked key can't escalate. Normally you do this in the app UI (Settings → API keys); these endpoints exist for completeness. To try them here, set `clerk_session_token` (grab one from the app: DevTools → `await window.Clerk.session.getToken()`). Note Clerk session tokens expire after ~1 minute.",
       "auth": {
         "type": "bearer",
-        "bearer": [{ "key": "token", "value": "{{clerk_session_token}}", "type": "string" }]
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{clerk_session_token}}",
+            "type": "string"
+          }
+        ]
       },
       "item": [
         {
           "name": "List API keys",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/api/v1/api-keys", "host": ["{{base_url}}"], "path": ["api", "v1", "api-keys"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/api-keys",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "api-keys"
+              ]
+            },
             "description": "Your keys: name, display prefix, created / last-used timestamps. Full key values are never shown again after creation."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (!pm.environment.get('clerk_session_token') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (!pm.environment.get('clerk_session_token') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             },
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -861,19 +2101,47 @@
           "name": "Create API key",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My integration\"\n}" },
-            "url": { "raw": "{{base_url}}/api/v1/api-keys", "host": ["{{base_url}}"], "path": ["api", "v1", "api-keys"] },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My integration\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/api-keys",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "api-keys"
+              ]
+            },
             "description": "Returns the full `api_key` (`cb_live_...`) **once** — store it in your secret manager. Limit: 10 active keys."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (!pm.environment.get('clerk_session_token') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (!pm.environment.get('clerk_session_token') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             },
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('201', () => pm.response.to.have.status(201));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -881,13 +2149,36 @@
           "name": "Revoke API key",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{base_url}}/api/v1/api-keys/:key_id/revoke", "host": ["{{base_url}}"], "path": ["api", "v1", "api-keys", ":key_id", "revoke"], "variable": [{ "key": "key_id", "value": "" }] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/api-keys/:key_id/revoke",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "api-keys",
+                ":key_id",
+                "revoke"
+              ],
+              "variable": [
+                {
+                  "key": "key_id",
+                  "value": ""
+                }
+              ]
+            },
             "description": "Immediately kills the key (requests using it 401 from the next call). Revoked keys stay listed for the audit trail."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -899,48 +2190,100 @@
       "item": [
         {
           "name": "Short link redirect (/s/)",
-          "protocolProfileBehavior": { "followRedirects": false },
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "url": { "raw": "{{base_url}}/s/{{short_code}}", "host": ["{{base_url}}"], "path": ["s", "{{short_code}}"] },
+            "url": {
+              "raw": "{{base_url}}/s/{{short_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "s",
+                "{{short_code}}"
+              ]
+            },
             "description": "302 → the tracked destination. This is the path `short_url` uses."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('redirects', () => pm.expect(pm.response.code).to.be.oneOf([301, 302, 307]));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('redirects', () => pm.expect(pm.response.code).to.be.oneOf([301, 302, 307]));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
         {
           "name": "Tracked redirect (/r/)",
-          "protocolProfileBehavior": { "followRedirects": false },
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "url": { "raw": "{{base_url}}/r/{{short_code}}", "host": ["{{base_url}}"], "path": ["r", "{{short_code}}"] },
+            "url": {
+              "raw": "{{base_url}}/r/{{short_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "r",
+                "{{short_code}}"
+              ]
+            },
             "description": "Same link on the `/r/` path (`redirect_url` in the generate response). Email-gated or revoked links render an interstitial instead of redirecting."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('responds', () => pm.expect(pm.response.code).to.be.below(500));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('responds', () => pm.expect(pm.response.code).to.be.below(500));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
         {
           "name": "Hosted file (/f/)",
           "request": {
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "url": { "raw": "{{base_url}}/f/{{file_short_code}}", "host": ["{{base_url}}"], "path": ["f", "{{file_short_code}}"] },
+            "url": {
+              "raw": "{{base_url}}/f/{{file_short_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "f",
+                "{{file_short_code}}"
+              ]
+            },
             "description": "Streams the hosted file (or renders the viewer for documents) and records the view with geo + device."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('200', () => pm.response.to.have.status(200));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         }
@@ -954,13 +2297,30 @@
           "name": "Delete demo link",
           "request": {
             "method": "DELETE",
-            "url": { "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "utm", "links", "{{link_id}}"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/utm/links/{{link_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "utm",
+                "links",
+                "{{link_id}}"
+              ]
+            },
             "description": "Deleting a link also removes its click history. The short code stops resolving."
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -968,12 +2328,28 @@
           "name": "Delete demo file",
           "request": {
             "method": "DELETE",
-            "url": { "raw": "{{base_url}}/api/v1/files/{{file_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "files", "{{file_id}}"] }
+            "url": {
+              "raw": "{{base_url}}/api/v1/files/{{file_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files",
+                "{{file_id}}"
+              ]
+            }
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ],
+                "type": "text/javascript"
+              }
             }
           ]
         },
@@ -981,13 +2357,29 @@
           "name": "Delete demo domain",
           "request": {
             "method": "DELETE",
-            "url": { "raw": "{{base_url}}/api/v1/domains/{{created_domain_id}}", "host": ["{{base_url}}"], "path": ["api", "v1", "domains", "{{created_domain_id}}"] },
+            "url": {
+              "raw": "{{base_url}}/api/v1/domains/{{created_domain_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "domains",
+                "{{created_domain_id}}"
+              ]
+            },
             "description": "Refuses (409) if links were generated on the domain; pass `?force=true` to delete anyway."
           },
           "event": [
             {
               "listen": "prerequest",
-              "script": { "exec": ["if (!pm.environment.get('created_domain_id') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"], "type": "text/javascript" }
+              "script": {
+                "exec": [
+                  "if (!pm.environment.get('created_domain_id') && pm.execution && pm.execution.skipRequest) pm.execution.skipRequest();"
+                ],
+                "type": "text/javascript"
+              }
             },
             {
               "listen": "test",
@@ -995,6 +2387,36 @@
                 "exec": [
                   "pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));",
                   "pm.environment.unset('created_domain_id');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete demo page",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}/api/v1/pages/{{page_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pages",
+                "{{page_id}}"
+              ]
+            },
+            "description": "Removes the page and every version blob; the URL 404s immediately."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('deleted', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
                 ],
                 "type": "text/javascript"
               }

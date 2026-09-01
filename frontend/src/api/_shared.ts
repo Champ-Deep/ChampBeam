@@ -10,7 +10,7 @@ import type { DateRangeOpts } from './utm';
 type FastApiDetail = string | Array<{ msg?: string; loc?: unknown[] }> | undefined;
 
 interface AxiosLikeError {
-  response?: { status?: number; data?: { detail?: FastApiDetail } | unknown };
+  response?: { status?: number; data?: unknown };
   message?: string;
 }
 

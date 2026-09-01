@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, createElement } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Copy, FileText, Film, Image as ImageIcon, Inbox, Radio, Search, Send, Star } from 'lucide-react';
@@ -8,6 +8,7 @@ import { champvaultApi, type VaultAsset } from '../api/champvault';
 import { assignmentsApi, orgApi, type Assignment, type MemberStats } from '../api/org';
 import { utmApi, type Domain } from '../api/utm';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { apiErrorDetail } from '../api/_shared';
 
 const TYPE_ICON: Record<string, typeof FileText> = {
   video: Film,
@@ -19,7 +20,7 @@ function iconFor(type: string) {
 }
 
 function errDetail(err: unknown): string | undefined {
-  return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+  return apiErrorDetail(err);
 }
 
 export function VaultPage() {
@@ -119,7 +120,7 @@ export function VaultPage() {
           {inOrg && assignments.length > 0 && (
             <AssignedShelf
               assignments={assignments}
-              beamingId={beamMutation.isPending ? (beamMutation.variables as string) : null}
+              beamingId={beamMutation.isPending ? (beamMutation.variables) : null}
               onSend={(assetId) => beamMutation.mutate(assetId)}
             />
           )}
@@ -285,13 +286,12 @@ function AssetRow({
   onToggleAssign: () => void;
   onAssigned: () => void;
 }) {
-  const Icon = iconFor(asset.type);
   return (
     <div className="px-6 py-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <Icon className="h-4 w-4 text-slate-400" />
+            {createElement(iconFor(asset.type), { className: 'h-4 w-4 text-slate-400' })}
             <span className="font-medium text-slate-900">{asset.title}</span>
             <Badge variant="default" size="sm">{asset.type}</Badge>
             {asset.storage === 'stream' && asset.duration_s ? (

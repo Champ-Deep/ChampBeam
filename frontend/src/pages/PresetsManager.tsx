@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Plus, Trash2, Pencil, Star, Save, X, Tag } from 'lucide-react';
-import { Card, CardHeader, CardTitle, Button, Badge, Input, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, CardHeader, CardTitle, Button, Badge, Input, LoadingSpinner, EmptyState, useConfirm } from '../components/ui';
 import { utmApi } from '../api/utm';
 import type { UTMPreset, UTMPresetCreate } from '../api/utm';
 
@@ -21,6 +21,7 @@ const EMPTY_FORM: UTMPresetCreate = {
  * react-query invalidation / refetch on the generator the next time it mounts.
  */
 export function PresetsManager() {
+  const confirm = useConfirm();
   const [presets, setPresets] = useState<UTMPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -81,7 +82,7 @@ export function PresetsManager() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this preset?')) return;
+    if (!(await confirm({ message: 'Delete this preset?', confirmLabel: 'Delete' }))) return;
     try {
       await utmApi.deletePreset(id);
       toast.success('Preset deleted');

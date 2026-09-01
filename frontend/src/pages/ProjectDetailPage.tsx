@@ -266,7 +266,7 @@ export function ProjectDetailPage() {
                           </span>
                           <button
                             type="button"
-                            onClick={() => copyToClipboard(link.redirect_url!)}
+                            onClick={() => copyToClipboard(link.redirect_url ?? '')}
                             className="text-slate-400 hover:text-brand-purple transition-colors flex-shrink-0"
                             title="Copy redirect URL"
                           >

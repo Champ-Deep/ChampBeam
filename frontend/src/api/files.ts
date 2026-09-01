@@ -1,6 +1,7 @@
 import axios from 'axios';
 import api from './client';
 import type { ClickEvent, GeoBreakdownItem, DeviceBreakdown, DateRangeOpts } from './utm';
+import { appendQuery as _appendQuery, asArray as _arr, dateParams as _dateParams } from './_shared';
 
 // ============================================================
 // Types
@@ -78,26 +79,6 @@ export type FileDeviceBreakdown = DeviceBreakdown;
 // ============================================================
 // Helpers
 // ============================================================
-
-function _arr<T>(data: unknown): T[] {
-  return Array.isArray(data) ? (data as T[]) : [];
-}
-
-function _dateParams(opts?: DateRangeOpts): URLSearchParams {
-  const params = new URLSearchParams();
-  if (opts?.startDate && opts?.endDate) {
-    params.append('start_date', opts.startDate);
-    params.append('end_date', opts.endDate);
-  } else if (opts?.days) {
-    params.append('days', opts.days.toString());
-  }
-  return params;
-}
-
-function _appendQuery(base: string, params: URLSearchParams): string {
-  const q = params.toString();
-  return q ? `${base}?${q}` : base;
-}
 
 /** Resolve a backend-relative upload path against the API origin.
  *  api.defaults.baseURL already ends in /api/v1, so we take only its origin

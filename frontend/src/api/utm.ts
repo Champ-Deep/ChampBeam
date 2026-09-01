@@ -1,4 +1,5 @@
 import api from './client';
+import { appendQuery as _appendQuery, asArray as _arr, dateParams as _dateParams } from './_shared';
 
 // ============================================================
 // Types
@@ -268,21 +269,7 @@ export interface DateRangeOpts {
 // Helpers
 // ============================================================
 
-function _dateParams(opts?: DateRangeOpts): URLSearchParams {
-  const params = new URLSearchParams();
-  if (opts?.startDate && opts?.endDate) {
-    params.append('start_date', opts.startDate);
-    params.append('end_date', opts.endDate);
-  } else if (opts?.days) {
-    params.append('days', opts.days.toString());
-  }
-  return params;
-}
 
-function _appendQuery(base: string, params: URLSearchParams): string {
-  const q = params.toString();
-  return q ? `${base}?${q}` : base;
-}
 
 function _downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -299,9 +286,6 @@ function _downloadBlob(blob: Blob, filename: string) {
 // (null, an unexpected object, an HTML error page, etc.) can't take a
 // page down via `.map`. All list-returning endpoints below go through
 // this. Pages are still expected to handle empty arrays gracefully.
-function _arr<T>(data: unknown): T[] {
-  return Array.isArray(data) ? (data as T[]) : [];
-}
 
 // ============================================================
 // UTM API
@@ -328,7 +312,7 @@ export const utmApi = {
     const formData = new FormData();
     formData.append('file', file);
     const params = presetId ? `?preset_id=${presetId}` : '';
-    const response = await api.post(`/utm/bulk/generate${params}`, formData, {
+    const response = await api.post<Blob>(`/utm/bulk/generate${params}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       responseType: 'blob',
     });
@@ -336,7 +320,7 @@ export const utmApi = {
   },
 
   async downloadTemplate(): Promise<Blob> {
-    const response = await api.get('/utm/bulk/template', { responseType: 'blob' });
+    const response = await api.get<Blob>('/utm/bulk/template', { responseType: 'blob' });
     return response.data;
   },
 
@@ -551,7 +535,7 @@ export const utmApi = {
     const params = _dateParams(opts);
     if (opts?.projectId) params.append('project_id', opts.projectId);
     if (opts?.campaign) params.append('campaign', opts.campaign);
-    const response = await api.get(
+    const response = await api.get<Blob>(
       _appendQuery('/utm/analytics/export/events', params),
       { responseType: 'blob' }
     );
@@ -560,7 +544,7 @@ export const utmApi = {
 
   async exportCampaignSummary(opts?: DateRangeOpts): Promise<void> {
     const params = _dateParams(opts);
-    const response = await api.get(
+    const response = await api.get<Blob>(
       _appendQuery('/utm/analytics/export/campaign-summary', params),
       { responseType: 'blob' }
     );
@@ -570,7 +554,7 @@ export const utmApi = {
   async exportLinkPerformance(opts?: DateRangeOpts & { projectId?: string }): Promise<void> {
     const params = _dateParams(opts);
     if (opts?.projectId) params.append('project_id', opts.projectId);
-    const response = await api.get(
+    const response = await api.get<Blob>(
       _appendQuery('/utm/analytics/export/link-performance', params),
       { responseType: 'blob' }
     );

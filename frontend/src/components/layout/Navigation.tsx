@@ -63,9 +63,12 @@ export function Navigation() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
+  // Close the mobile menu on navigation (adjust-state-during-render, no effect).
+  const [lastPath, setLastPath] = useState(location.pathname);
+  if (lastPath !== location.pathname) {
+    setLastPath(location.pathname);
     setMobileMenuOpen(false);
-  }, [location.pathname]);
+  }
 
   const visibleLinks = navLinks.filter((link) => {
     if (link.publicOnly) return !isSignedIn;

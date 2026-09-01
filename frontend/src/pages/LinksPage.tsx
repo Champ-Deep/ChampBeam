@@ -6,7 +6,7 @@ import {
   Link2, Copy, BarChart3, Trash2, FolderOpen, Save, X,
   GripVertical, CheckSquare,
 } from 'lucide-react';
-import { Card, Button, Input, Badge, LoadingSpinner, EmptyState, QrButton, FolderChips } from '../components/ui';
+import { Card, Button, Input, Badge, LoadingSpinner, EmptyState, QrButton, FolderChips, useConfirm } from '../components/ui';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, Project, ProjectCreate } from '../api/utm';
 
@@ -27,6 +27,7 @@ interface DragPayload {
 }
 
 export function LinksPage() {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -235,7 +236,7 @@ export function LinksPage() {
 
     // No-op guard: dropping onto the folder the links already live in.
     const destProjectId = targetId === DROP_UNFILED ? null : targetId;
-    const draggedLinks = links.filter((l) => payload!.linkIds.includes(l.link_id));
+    const draggedLinks = links.filter((l) => payload.linkIds.includes(l.link_id));
     const allAlreadyThere =
       draggedLinks.length > 0 &&
       draggedLinks.every((l) => (l.project_id ?? null) === destProjectId);
@@ -256,7 +257,7 @@ export function LinksPage() {
   // ---------------------------------------------------------------
 
   const handleDelete = async (linkId: string, url: string) => {
-    if (!window.confirm(`Delete link for "${url}"?\n\nThis will also delete all click tracking data.`)) return;
+    if (!(await confirm({ message: `Delete link for "${url}"?\n\nThis will also delete all click tracking data.`, confirmLabel: 'Delete' }))) return;
     try {
       await utmApi.deleteLink(linkId);
       setSelectedIds((prev) => {
@@ -312,7 +313,7 @@ export function LinksPage() {
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (!window.confirm('Delete this project? Links will be unassigned but not deleted.')) return;
+    if (!(await confirm({ message: 'Delete this project? Links will be unassigned but not deleted.', confirmLabel: 'Delete' }))) return;
     try {
       await utmApi.deleteProject(id);
       toast.success('Project deleted');
@@ -625,7 +626,7 @@ export function LinksPage() {
                                   {link.redirect_url}
                                 </span>
                                 <button
-                                  onClick={() => copyToClipboard(link.redirect_url!)}
+                                  onClick={() => copyToClipboard(link.redirect_url ?? '')}
                                   className="text-slate-400 hover:text-brand-purple transition-colors flex-shrink-0"
                                   title="Copy redirect URL"
                                 >

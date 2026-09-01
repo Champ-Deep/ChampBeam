@@ -52,8 +52,8 @@ export function FileUploadZone({
       setIsDragOver(false);
 
       const files = e.dataTransfer.files;
-      if (files.length > 0) {
-        const file = files[0];
+      const file = files[0];
+      if (file) {
         if (!acceptCsvOnly) {
           onFileSelected(file);
           return;

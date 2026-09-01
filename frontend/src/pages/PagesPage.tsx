@@ -30,6 +30,7 @@ import {
   Input,
   LoadingSpinner,
   QrButton,
+  useConfirm
 } from '../components/ui';
 import { pagesApi } from '../api/pages';
 import type { BeamPage, PagePatch, PageVersion } from '../api/pages';
@@ -59,6 +60,7 @@ function publishErrorMessage(err: unknown): string {
 }
 
 export function PagesPage() {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -163,8 +165,8 @@ export function PagesPage() {
                 onAnalytics={() => navigate(`/pages/${page.page_id}/analytics`)}
                 onReplace={(html) => replaceMutation.mutate({ id: page.page_id, html })}
                 onPatch={(data) => patchMutation.mutateAsync({ id: page.page_id, data })}
-                onDelete={() => {
-                  if (window.confirm(`Remove "${page.title}"? Its URL will stop working.`)) {
+                onDelete={async () => {
+                  if (await confirm({ message: `Remove "${page.title}"? Its URL will stop working.`, confirmLabel: 'Remove' })) {
                     deleteMutation.mutate(page.page_id);
                   }
                 }}
@@ -534,6 +536,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
 // ---------------------------------------------------------------------------
 
 function VersionsPanel({ page, onRollback }: { page: BeamPage; onRollback: (version: number) => void }) {
+  const confirm = useConfirm();
   const { data: versions = [], isLoading } = useQuery<PageVersion[]>({
     queryKey: ['pages', page.page_id, 'versions'],
     queryFn: () => pagesApi.versions(page.page_id),
@@ -558,8 +561,8 @@ function VersionsPanel({ page, onRollback }: { page: BeamPage; onRollback: (vers
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    if (window.confirm(`Roll back to v${v.version_no}? The link will serve that content immediately.`)) {
+                  onClick={async () => {
+                    if (await confirm({ title: 'Roll back', message: `Roll back to v${v.version_no}? The link will serve that content immediately.`, confirmLabel: 'Roll back', destructive: false })) {
                       onRollback(v.version_no);
                     }
                   }}

@@ -14,7 +14,8 @@ function normalizeApiUrl(raw: string | undefined): string {
   return url;
 }
 
-const API_URL = normalizeApiUrl(import.meta.env.VITE_API_URL);
+const rawApiUrl: unknown = import.meta.env.VITE_API_URL;
+const API_URL = normalizeApiUrl(typeof rawApiUrl === 'string' ? rawApiUrl : undefined);
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -39,7 +40,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error: unknown) => Promise.reject(error instanceof Error ? error : new Error(String(error)))
 );
 
 api.interceptors.response.use(

@@ -38,7 +38,7 @@ export interface PageVersion {
 export type PageEventType = 'view' | 'revisit' | 'comment_added' | 'state_changed' | 'gate_failed';
 
 export interface PageTimelineEvent {
-  type: PageEventType | string;
+  type: PageEventType | (string & {});
   ts: string | null;
   ip: string | null;
   visitor_id: string | null;

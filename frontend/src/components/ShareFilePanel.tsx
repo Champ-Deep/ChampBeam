@@ -16,6 +16,7 @@ import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloa
 import { FileUploadZone } from './ui/FileUploadZone';
 import { UPLOAD_ACCEPT, UPLOAD_HINT_COMPACT, UPLOAD_HINT_GUEST, UPLOAD_LABEL } from '../config/uploadLimits';
 import { filesApi } from '../api/files';
+import { apiErrorDetail } from '../api/_shared';
 
 const FILE_HISTORY_KEY = 'champbeam_file_history';
 
@@ -33,7 +34,7 @@ function loadHistory(): SharedFile[] {
   try {
     const raw = localStorage.getItem(FILE_HISTORY_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as SharedFile[]) : [];
   } catch {
     localStorage.removeItem(FILE_HISTORY_KEY);
@@ -234,7 +235,7 @@ export function useFileShareHistory() {
       navigator.clipboard.writeText(finalized.serve_url).catch(() => undefined);
       toast.success('File is live. Link copied to clipboard.');
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const detail = apiErrorDetail(err);
       toast.error(detail ?? 'Upload failed.');
     } finally {
       setIsUploading(false);

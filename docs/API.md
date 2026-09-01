@@ -83,18 +83,47 @@ File views are tracked like clicks, including per-page reading time for document
 | Near-real-time feed | `GET /api/v1/utm/analytics/clicks/recent?since=<iso>` |
 | CSV export | `GET /api/v1/utm/analytics/export/events` |
 
-## Pages: persistent hosted pages (checklists, dashboards)
+## Pages: hosted, tracked HTML pages (Beam Pages)
 
-Publish a single-file HTML page behind a permanent trackable link in **one call** — no upload dance:
+Publish a single-file HTML page (a checklist, dashboard, proposal microsite) behind a **permanent trackable link** — one call, no upload dance:
 
 ```bash
 curl -s -X POST "$BASE/api/v1/pages" \
   -H "X-API-Key: $CHAMPBEAM_API_KEY" -H "Content-Type: application/json" \
-  -d '{"title": "Onboarding checklist", "html": "<html>...</html>"}'
-# -> {"page_id": "...", "url": "https://<host>/f/<code>", ...}
+  -d '{"title": "Pallab North Star", "html": "<!doctype html>…", "slug": "pallab-northstar"}'
+# -> {"page_id": "...", "slug": "pallab-northstar", "url": "https://<host>/p/pallab-northstar", "legacy_url": "https://<host>/f/<code>", ...}
 ```
 
-Revise it any time with `PUT /api/v1/pages/{page_id}` `{"html": "..."}` — the URL and QR **never change**, the swap is atomic, and view history is preserved. Inline `<script>`, `<style>` and `localStorage` work untouched (CSP allows inline + Google Fonts); every open records geo + device analytics. Optional `domain_id` serves the page from your own domain. 10 MB cap.
+Or upload the file: `POST /api/v1/pages/upload` (multipart `file`, optional `title`, `slug`, `domain_id`).
+
+**Serving.** Pages live at `/p/{slug}` (readable, editable) and also at their `/f/{code}` legacy URL; on a custom domain, at that hostname. The stored file is served **byte-identical** — inline `<script>`, `<style>` and `localStorage` work untouched (CSP allows inline code and Google Fonts; other external calls are blocked). A tracking snippet is injected into `<head>` *per response*, never into the stored bytes.
+
+**What is recorded per open:** geo (city/region/country), device, browser, referrer, ISP/VPN flag, a first-party visitor id, whether the open is a **revisit** (same visitor after 30 minutes), and **dwell** (visible time, reported every 15 s and on hide). Read it back with `GET /api/v1/pages/{id}/analytics` (views, unique visitors, revisits, total/median/avg dwell) and `GET /api/v1/pages/{id}/events` (merged timeline: `view`, `revisit`, `comment_added`, `state_changed`, `gate_failed`).
+
+**Update in place.** `PUT /api/v1/pages/{id}` `{"html": "..."}` swaps the content atomically; the URL, slug and QR never change and view history is kept. Every publish/update is retained as a version: `GET /api/v1/pages/{id}/versions`, `POST /api/v1/pages/{id}/versions/{n}/rollback` (the rollback is itself a new version, so history stays linear). The last 10 versions are kept.
+
+**Settings.** `PATCH /api/v1/pages/{id}` with any of `slug` (3–60 chars, lowercase/digits/hyphens; 409 if taken), `title`, `enabled` (`false` = kill switch: every URL and API route returns 410 immediately), `domain_id`, `access_code` (4–8 digits; `null` clears). `DELETE` removes the page and every version blob.
+
+**Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates — rename the delimiter).
+
+**Access codes.** With `access_code` set, visitors see a branded code gate *before* any email gate (authorize before identify). 5 wrong attempts per 10 minutes → a 429 "too many attempts" page; each failure is a `gate_failed` event. The code cookie is derived from the code, so changing the code re-gates everyone.
+
+### Beam State: comments + shared state for pages
+
+Simple interactive pages (checklists, boards, sign-offs) need zero external backend. The served page gets a **page-scoped public token** and a helper on `window.beam`:
+
+```js
+// inside your page — no fetch boilerplate needed
+await window.beam.state.set('check:step-1', { done: true, by: 'Sonali' });
+const all = await window.beam.state.all();            // {"check:step-1": {...}}
+await window.beam.comments.add('Deep', 'Looks good.'); // append-only
+const { comments } = await window.beam.comments.list(); // ascending; pass a comment id to `list(afterId)`
+const stop = window.beam.poll(8000, (state, comments) => render(state, comments)); // no websockets; 5–10 s is right
+```
+
+Under the hood: `GET/POST /api/pages/{slug}/comments`, `GET/PUT/DELETE /api/pages/{slug}/state[/{key}]` with an `X-Beam-Token` header. Same-origin with the page on every host, so it works on custom domains. Limits: 4000-char comments, 16 KB values, 200 keys and 5000 comments per page, 30 writes/min per visitor. The token only ever addresses its own page; rotate it with `POST /api/v1/pages/{id}/state-token/rotate`. When a page is disabled, every state route returns 410 (`window.beam.dead` flips to `true`). Owners moderate via `GET/DELETE /api/v1/pages/{id}/comments[/{cid}]` and `GET/DELETE /api/v1/pages/{id}/state[/{key}]`.
+
+It is a JSON store with a comment stream, not a database: no queries, no per-user auth, no schemas. A page needing more brings its own backend (its own API origin must then be allowed for that page's CSP — ask before relying on it).
 
 ## Service keys (trusted backend integrations)
 

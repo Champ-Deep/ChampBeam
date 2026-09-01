@@ -56,7 +56,7 @@ function loadHistory(): HistoryItem[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return [];
-    const parsed = JSON.parse(stored);
+    const parsed: unknown = JSON.parse(stored);
     if (Array.isArray(parsed)) return parsed as HistoryItem[];
     localStorage.removeItem(STORAGE_KEY);
     return [];

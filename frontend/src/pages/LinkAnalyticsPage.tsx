@@ -250,7 +250,7 @@ export function LinkAnalyticsPage() {
               </p>
             </div>
             <div className="w-12 h-12 bg-amber-200 rounded-lg flex items-center justify-center">
-              <DeviceIcon type={topDevice} className="w-6 h-6 text-amber-600" />
+              <DeviceIcon type={topDevice ?? null} className="w-6 h-6 text-amber-600" />
             </div>
           </div>
         </Card>

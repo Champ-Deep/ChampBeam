@@ -97,9 +97,12 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', onAway);
   }, []);
 
-  useEffect(() => {
+  // Close the mobile rail on navigation (adjust-state-during-render, no effect).
+  const [lastPath, setLastPath] = useState(location.pathname);
+  if (lastPath !== location.pathname) {
+    setLastPath(location.pathname);
     setMobileOpen(false);
-  }, [location.pathname]);
+  }
 
   const items: NavItem[] = [
     { to: '/', label: 'Generator', icon: Zap, end: true },

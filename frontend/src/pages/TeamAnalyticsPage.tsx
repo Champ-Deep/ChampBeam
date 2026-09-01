@@ -13,6 +13,7 @@ import {
   type OrgContext,
 } from '../api/org';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { apiErrorDetail } from '../api/_shared';
 
 function isAdminRole(role: string) {
   return role.toLowerCase().endsWith('admin');
@@ -219,7 +220,7 @@ function MembersCard({ members, canAssignLeaders }: { members: MemberStats[]; ca
     },
     onError: (err: unknown) =>
       toast.error(
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        apiErrorDetail(err) ??
           'Could not update the team.',
       ),
   });

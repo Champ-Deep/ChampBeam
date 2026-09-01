@@ -127,7 +127,8 @@ export function AnalyticsPage() {
     );
     const map = new Map<string, UTMOverview>();
     results.forEach((r, i) => {
-      if (r.status === 'fulfilled') map.set(projects[i].id, r.value);
+      const project = projects[i];
+      if (r.status === 'fulfilled' && project) map.set(project.id, r.value);
     });
     setProjectOverviews(map);
     setProjectsTabLoaded(true);

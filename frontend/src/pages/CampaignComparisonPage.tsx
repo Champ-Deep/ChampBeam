@@ -49,7 +49,8 @@ export function CampaignComparisonPage() {
   if (initialLoading) return <div className="max-w-6xl mx-auto py-8 px-4"><LoadingSpinner /></div>;
 
   // Build merged timeline data for comparison chart
-  const timelineData: Record<string, Record<string, number>>[] = [];
+  // One row per date: the label plus one numeric series per campaign.
+  const timelineData: Record<string, string | number>[] = [];
   if (comparison) {
     const dateMap = new Map<string, Record<string, number>>();
     comparison.forEach((c) => {
@@ -61,7 +62,7 @@ export function CampaignComparisonPage() {
     });
     const sorted = [...dateMap.entries()].sort(([a], [b]) => a.localeCompare(b));
     sorted.forEach(([date, values]) => {
-      timelineData.push({ date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), ...values } as any);
+      timelineData.push({ date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), ...values });
     });
   }
 

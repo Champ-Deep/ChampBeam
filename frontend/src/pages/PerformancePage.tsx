@@ -2,13 +2,14 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, ExternalLink, Copy, BarChart3, Trash2, FolderInput } from 'lucide-react';
 import { toast } from 'sonner';
-import { Card, Button, Badge, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, Button, Badge, LoadingSpinner, EmptyState, useConfirm } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, Project, DateRangeOpts } from '../api/utm';
 
 export function PerformancePage() {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [links, setLinks] = useState<LinkPerformanceItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +40,7 @@ export function PerformancePage() {
   useEffect(() => { loadLinks(); }, [loadLinks]);
 
   const handleDelete = async (linkId: string, url: string) => {
-    if (!window.confirm(`Delete link for "${url}"?\n\nThis will also delete all click tracking data for this link.`)) {
+    if (!(await confirm({ message: `Delete link for "${url}"?\n\nThis will also delete all click tracking data for this link.`, confirmLabel: 'Delete' }))) {
       return;
     }
     try {
@@ -180,7 +181,7 @@ export function PerformancePage() {
                           </span>
                           <button
                             onClick={() => {
-                              navigator.clipboard.writeText(link.redirect_url!);
+                              void navigator.clipboard.writeText(link.redirect_url ?? '');
                               toast.success('Redirect URL copied');
                             }}
                             className="text-gray-400 hover:text-brand-purple flex-shrink-0"

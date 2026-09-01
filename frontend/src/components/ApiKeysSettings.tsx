@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Ban, Copy, KeyRound, Plus, ShieldCheck } from 'lucide-react';
-import { Badge, Button, Card, CardHeader, CardTitle, Input } from './ui';
+import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from './ui';
 import { apiKeysApi } from '../api/apiKeys';
 import type { ApiKeyCreated, ApiKeySummary } from '../api/apiKeys';
+import { apiErrorDetail } from '../api/_shared';
 
 function formatDate(iso: string | null): string {
   if (!iso) return 'Never';
@@ -13,6 +14,7 @@ function formatDate(iso: string | null): string {
 }
 
 export function ApiKeysSettings() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
@@ -31,7 +33,7 @@ export function ApiKeysSettings() {
     },
     onError: (err: unknown) => {
       const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        apiErrorDetail(err) ??
         'Could not create API key.';
       toast.error(msg);
     },
@@ -55,9 +57,9 @@ export function ApiKeysSettings() {
     createMutation.mutate(trimmed);
   };
 
-  const handleRevoke = (key: ApiKeySummary) => {
+  const handleRevoke = async (key: ApiKeySummary) => {
     const confirmMsg = `Revoke "${key.name}"? Applications using this key will immediately lose access.`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm({ message: confirmMsg, confirmLabel: 'Revoke' }))) return;
     revokeMutation.mutate(key.id);
   };
 

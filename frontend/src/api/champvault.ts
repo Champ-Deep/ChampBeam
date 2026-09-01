@@ -7,8 +7,8 @@ function asArray<T>(data: unknown): T[] {
 export interface VaultAsset {
   id: string;
   title: string;
-  type: 'video' | 'deck' | 'pdf' | 'case_study' | 'image' | 'one_pager' | string;
-  storage: 'r2' | 'stream' | string;
+  type: 'video' | 'deck' | 'pdf' | 'case_study' | 'image' | 'one_pager' | (string & {});
+  storage: 'r2' | 'stream' | (string & {});
   status: string;
   mime: string | null;
   size_bytes: number | null;
@@ -29,7 +29,7 @@ export interface BeamResult {
   content_id?: string | null;
   link_id: string | null;
   beam_url: string;
-  kind: 'file' | 'video' | string;
+  kind: 'file' | 'video' | (string & {});
   expires_at: number | null;
 }
 

@@ -12,3 +12,5 @@ export { QrCode, QrButton, QrDownloadButton, qrUrlFor } from './QrCode';
 export { Logo, LogoMark } from './Logo';
 export { FolderChips } from './FolderChips';
 export type { FolderChipItem } from './FolderChips';
+export { ConfirmProvider, useConfirm } from './ConfirmDialog';
+export type { ConfirmOptions } from './ConfirmDialog';

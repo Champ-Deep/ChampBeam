@@ -146,7 +146,7 @@ export const orgApi = {
     userId: string,
     leaderUserId: string | null
   ): Promise<{ user_id: string; role: string; leader_user_id: string | null }> {
-    const response = await api.patch(`/org/members/${userId}`, { leader_user_id: leaderUserId });
+    const response = await api.patch<{ user_id: string; role: string; leader_user_id: string | null }>(`/org/members/${userId}`, { leader_user_id: leaderUserId });
     return response.data;
   },
 };
@@ -215,7 +215,7 @@ export const contentApi = {
   },
 
   async share(id: string, domainId?: string): Promise<{ share_id: string; content_id: string; share_url: string }> {
-    const response = await api.post(`/content/${id}/share`, { domain_id: domainId ?? null });
+    const response = await api.post<{ share_id: string; content_id: string; share_url: string }>(`/content/${id}/share`, { domain_id: domainId ?? null });
     return response.data;
   },
 

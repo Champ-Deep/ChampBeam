@@ -32,12 +32,15 @@ import {
   EmptyState,
   QrButton,
   FolderChips,
+  useConfirm
 } from '../components/ui';
 import { filesApi } from '../api/files';
 import type { FileAsset, FileKind } from '../api/files';
 import { UPLOAD_ACCEPT, UPLOAD_HINT, UPLOAD_LABEL } from '../config/uploadLimits';
+import { formatBytes } from '../lib/format';
 import { utmApi } from '../api/utm';
 import type { Domain, Project, ProjectCreate } from '../api/utm';
+import { apiErrorDetail } from '../api/_shared';
 
 const KIND_ICON: Record<FileKind, typeof FileText> = {
   pdf: FileText,
@@ -70,14 +73,9 @@ interface DragPayload {
   fileIds: string[];
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 
 export function FilesPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [progress, setProgress] = useState<number | null>(null);
@@ -288,7 +286,7 @@ export function FilesPage() {
 
     // No-op guard: dropping onto the folder the files already live in.
     const destProjectId = targetId === DROP_UNFILED ? null : targetId;
-    const draggedFiles = files.filter((f) => payload!.fileIds.includes(f.id));
+    const draggedFiles = files.filter((f) => payload.fileIds.includes(f.id));
     const allAlreadyThere =
       draggedFiles.length > 0 &&
       draggedFiles.every((f) => (f.project_id ?? null) === destProjectId);
@@ -358,7 +356,7 @@ export function FilesPage() {
       queryClient.invalidateQueries({ queryKey: ['files'] });
     } catch (err: unknown) {
       const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        apiErrorDetail(err);
       toast.error(detail ?? 'Upload failed.');
     } finally {
       setIsUploading(false);
@@ -401,7 +399,7 @@ export function FilesPage() {
   };
 
   const handleDeleteProject = async (id: string) => {
-    if (!window.confirm('Delete this project? Files will be unassigned but not deleted.')) return;
+    if (!(await confirm({ message: 'Delete this project? Files will be unassigned but not deleted.', confirmLabel: 'Delete' }))) return;
     try {
       await utmApi.deleteProject(id);
       toast.success('Project deleted');
@@ -667,8 +665,8 @@ export function FilesPage() {
                     onDragEnd={handleDragEnd}
                     onCopy={() => copyUrl(f.serve_url)}
                     onAnalytics={() => navigate(`/files/${f.id}/analytics`)}
-                    onDelete={() => {
-                      if (!window.confirm(`Remove ${f.filename}? Existing links will stop working.`)) {
+                    onDelete={async () => {
+                      if (!(await confirm({ message: `Remove ${f.filename}? Existing links will stop working.`, confirmLabel: 'Remove' }))) {
                         return;
                       }
                       deleteMutation.mutate(f.id);

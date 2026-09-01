@@ -19,12 +19,13 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import { Badge, Button, Card, CardHeader, CardTitle, Input } from '../components/ui';
+import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
+import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 
 type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance';
 
@@ -61,6 +62,7 @@ function validateSlug(slug: string): string | null {
 }
 
 export function SettingsPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<SettingsTab>(initialTab(searchParams.get('tab')));
@@ -76,7 +78,7 @@ export function SettingsPage() {
     queryFn: () => utmApi.listDomains(),
     // Poll every 15s while any row is mid-verification.
     refetchInterval: (query) => {
-      const data = query.state.data as Domain[] | undefined;
+      const data = query.state.data;
       const pending = data?.some(
         (d) => d.status === 'pending_cname' || d.status === 'pending_ssl'
       );
@@ -96,7 +98,7 @@ export function SettingsPage() {
     },
     onError: (err: unknown) => {
       const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        apiErrorDetail(err) ??
         'Could not add domain.';
       toast.error(msg);
     },
@@ -115,7 +117,7 @@ export function SettingsPage() {
     },
     onError: (err: unknown) => {
       const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        apiErrorDetail(err) ??
         'Could not set primary.';
       toast.error(msg);
     },
@@ -129,10 +131,8 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['domains'] });
     },
     onError: (err: unknown) => {
-      const detail =
-        (err as { response?: { data?: { detail?: string }; status?: number } })?.response;
-      if (detail?.status === 409) {
-        toast.error(detail.data?.detail ?? 'Domain has links attached.');
+      if (apiErrorStatus(err) === 409) {
+        toast.error(apiErrorDetail(err) ?? 'Domain has links attached.');
       } else {
         toast.error('Could not remove domain.');
       }
@@ -150,9 +150,9 @@ export function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleDelete = (d: Domain) => {
+  const handleDelete = async (d: Domain) => {
     const confirmMsg = `Remove ${d.hostname}? Links generated with this domain will stop resolving.`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!(await confirm({ message: confirmMsg, confirmLabel: 'Remove' }))) return;
     deleteMutation.mutate({ id: d.id, force: false });
   };
 
@@ -546,6 +546,7 @@ function SetupInstructions({
 }
 
 function BuyDomainCard() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DomainSearchResult[] | null>(null);
@@ -554,7 +555,7 @@ function BuyDomainCard() {
     mutationFn: (q: string) => utmApi.searchDomains(q),
     onSuccess: (rows) => setResults(rows),
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const msg = apiErrorDetail(err);
       toast.error(msg ?? 'Search failed.');
     },
   });
@@ -568,7 +569,7 @@ function BuyDomainCard() {
       queryClient.invalidateQueries({ queryKey: ['domains'] });
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const msg = apiErrorDetail(err);
       toast.error(msg ?? 'Could not register that domain.');
     },
   });
@@ -583,9 +584,9 @@ function BuyDomainCard() {
     searchMutation.mutate(q);
   };
 
-  const confirmBuy = (r: DomainSearchResult) => {
+  const confirmBuy = async (r: DomainSearchResult) => {
     const price = r.registration_cost ? ` for ${r.currency ?? '$'}${r.registration_cost}/yr` : '';
-    if (window.confirm(`Register ${r.name}${price}? This is billed immediately and is non-refundable.`)) {
+    if (await confirm({ title: 'Register domain', message: `Register ${r.name}${price}? This is billed immediately and is non-refundable.`, confirmLabel: 'Register', destructive: false })) {
       purchaseMutation.mutate(r.name);
     }
   };

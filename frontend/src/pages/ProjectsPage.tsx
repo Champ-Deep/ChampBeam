@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Plus, Trash2, Pencil, Save, X, FolderOpen, ExternalLink, Link, MousePointerClick } from 'lucide-react';
-import { Card, CardHeader, CardTitle, Button, Input, LoadingSpinner, EmptyState } from '../components/ui';
+import { Card, CardHeader, CardTitle, Button, Input, LoadingSpinner, EmptyState, useConfirm } from '../components/ui';
 import { utmApi } from '../api/utm';
 import type { Project, ProjectCreate } from '../api/utm';
 
@@ -12,6 +12,7 @@ const EMPTY_FORM: ProjectCreate = {
 };
 
 export function ProjectsPage() {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +70,7 @@ export function ProjectsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this project? Links inside will not be deleted, but they will be unassigned from this project.')) return;
+    if (!(await confirm({ message: 'Delete this project? Links inside will not be deleted, but they will be unassigned from this project.', confirmLabel: 'Delete' }))) return;
     try {
       await utmApi.deleteProject(id);
       toast.success('Project deleted');
