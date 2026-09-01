@@ -10,7 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Build output only; source folders named lib (e.g. frontend/src/lib) must stay tracked.
+/lib/
 lib64/
 parts/
 sdist/
