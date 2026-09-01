@@ -13,6 +13,8 @@ import { CampaignComparisonPage } from './pages/CampaignComparisonPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { FilesPage } from './pages/FilesPage';
 import { FileAnalyticsPage } from './pages/FileAnalyticsPage';
+import { PagesPage } from './pages/PagesPage';
+import { PageAnalyticsPage } from './pages/PageAnalyticsPage';
 import { ContentLibraryPage } from './pages/ContentLibraryPage';
 import { TeamAnalyticsPage } from './pages/TeamAnalyticsPage';
 import { VaultPage } from './pages/VaultPage';
@@ -122,6 +124,8 @@ export default function App() {
                 <Route path="/campaigns/:campaignName" element={<ProtectedRoute><CampaignDetailPage /></ProtectedRoute>} />
                 <Route path="/files" element={<ProtectedRoute><FilesPage /></ProtectedRoute>} />
                 <Route path="/files/:fileId/analytics" element={<ProtectedRoute><FileAnalyticsPage /></ProtectedRoute>} />
+                <Route path="/pages" element={<ProtectedRoute><PagesPage /></ProtectedRoute>} />
+                <Route path="/pages/:pageId/analytics" element={<ProtectedRoute><PageAnalyticsPage /></ProtectedRoute>} />
                 <Route path="/vault" element={<ProtectedRoute><VaultPage /></ProtectedRoute>} />
                 <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><OrgRoute team><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />

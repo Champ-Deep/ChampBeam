@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  Zap, Link2, FileText, Library, Users, BarChart3, Settings, Radio,
+  Zap, Link2, FileText, Globe, Library, Users, BarChart3, Settings, Radio,
   Bell, Menu, X,
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -13,6 +13,7 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import { champvaultApi } from '../../api/champvault';
 import { utmApi } from '../../api/utm';
 import { filesApi } from '../../api/files';
+import { pagesApi } from '../../api/pages';
 
 interface NavItem {
   to: string;
@@ -81,6 +82,12 @@ export function Sidebar() {
     enabled: !!isSignedIn,
     staleTime: 60 * 1000,
   });
+  const { data: pages } = useQuery({
+    queryKey: ['pages'],
+    queryFn: () => pagesApi.list(),
+    enabled: !!isSignedIn,
+    staleTime: 60 * 1000,
+  });
 
   useEffect(() => {
     function onAway(e: MouseEvent) {
@@ -98,6 +105,7 @@ export function Sidebar() {
     { to: '/', label: 'Generator', icon: Zap, end: true },
     { to: '/links', label: 'Links', icon: Link2, count: links?.length },
     { to: '/files', label: 'Files', icon: FileText, count: files?.length },
+    { to: '/pages', label: 'Pages', icon: Globe, count: pages?.length },
     { to: '/vault', label: 'Vault', icon: Radio, requiresVault: true },
     { to: '/library', label: 'Library', icon: Library, requiresOrg: 'member' },
     { to: '/team', label: 'Team', icon: Users, requiresOrg: 'team' },

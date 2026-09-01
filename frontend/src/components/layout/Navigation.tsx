@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Library, Users, Radio } from 'lucide-react';
+import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Globe, Library, Users, Radio } from 'lucide-react';
 
 import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
@@ -29,6 +29,7 @@ const navLinks: NavLink[] = [
   { to: '/', label: 'Generator', icon: Link2 },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
   { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
+  { to: '/pages', label: 'Pages', icon: Globe, requiresAuth: true },
   { to: '/vault', label: 'Vault', icon: Radio, requiresAuth: true, requiresVault: true },
   { to: '/library', label: 'Library', icon: Library, requiresAuth: true, requiresOrg: 'member' },
   { to: '/team', label: 'Team', icon: Users, requiresAuth: true, requiresOrg: 'team' },

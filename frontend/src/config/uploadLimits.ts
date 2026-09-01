@@ -40,3 +40,10 @@ export const UPLOAD_HINT_COMPACT =
 const g = GUEST_UPLOAD_CAPS_MB;
 export const UPLOAD_HINT_GUEST =
   `Files ≤ ${g.pdf} MB · HTML ≤ ${g.html} MB · video ≤ ${g.video} MB · link expires in 24h`;
+
+// Beam Pages (hosted single-file HTML). Mirrors `settings.pages_max_bytes`.
+export const PAGE_CAP_MB = 2;
+export const PAGE_ACCEPT = '.html,.htm,text/html';
+export const PAGE_LABEL = 'Drop an .html file here';
+export const PAGE_HINT =
+  `Single HTML file up to ${PAGE_CAP_MB} MB · inline CSS/JS is fine · no server-side code`;
