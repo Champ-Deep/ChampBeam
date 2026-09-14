@@ -40,6 +40,8 @@ export interface GenerateLinkRequest {
   project_id?: string;
   preset_id?: string;
   domain_id?: string;
+  // User-named short link (/s/{alias}).
+  alias?: string;
 }
 
 // --- Domains (BYOD) ---
@@ -96,6 +98,8 @@ export interface GenerateLinkResponse {
   short_code: string | null;
   utm_params: Record<string, string>;
   link_id: string | null;
+  short_url?: string | null;
+  alias?: string | null;
 }
 
 export interface UTMBreakdownItem {
@@ -113,6 +117,7 @@ export interface LinkPerformanceItem {
   tracked_url: string | null;
   redirect_url: string | null;
   short_code: string | null;
+  alias?: string | null;
   anchor_text: string | null;
   utm_source: string | null;
   utm_medium: string | null;
@@ -303,7 +308,7 @@ export const utmApi = {
     await api.delete(`/utm/links/${linkId}`);
   },
 
-  async updateLink(linkId: string, data: { project_id: string | null }): Promise<void> {
+  async updateLink(linkId: string, data: { project_id: string | null; alias?: string }): Promise<void> {
     await api.patch(`/utm/links/${linkId}`, data);
   },
 

@@ -2,20 +2,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, BookmarkCheck, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, BookmarkCheck, Bot, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
+import { AssistantSettings } from '../components/AssistantSettings';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
 import { PresetsManager } from './PresetsManager';
 import { SystemSettings } from '../components/SystemSettings';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 
-type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance' | 'system';
+type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance' | 'system' | 'assistant';
 
 function initialTab(param: string | null): SettingsTab {
-  if (param === 'presets' || param === 'appearance' || param === 'apikeys' || param === 'system')
+  if (param === 'presets' || param === 'appearance' || param === 'apikeys' || param === 'system' || param === 'assistant')
     return param;
   return 'domains';
 }
@@ -209,12 +210,25 @@ export function SettingsPage() {
             <Activity className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             System
           </button>
+          <button
+            onClick={() => setTab('assistant')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === 'assistant'
+                ? 'border-brand-purple text-brand-purple'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Bot className="h-4 w-4 inline mr-1.5 -mt-0.5" />
+            Assistant
+          </button>
         </div>
       </div>
 
       {tab === 'appearance' && <AppearanceSettings />}
 
       {tab === 'system' && <SystemSettings />}
+
+      {tab === 'assistant' && <AssistantSettings />}
 
       {tab === 'domains' && (
         <>

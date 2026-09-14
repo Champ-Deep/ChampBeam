@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import access_control as ac
@@ -79,6 +79,25 @@ async def _resolve_destination(link: LinkClick) -> str | None:
     return destination
 
 
+async def _lookup_link(
+    key: str, session: AsyncSession, domain: Optional[Domain]
+) -> Optional[LinkClick]:
+    """Resolve a redirect key: a user-named alias first, then a random code.
+
+    Aliases are hyphenated slugs (``event-summit``) and codes are bare
+    alphanumerics, so the two namespaces are practically disjoint; the OR keeps
+    it a single indexed lookup either way. Scoped by Host like before.
+    """
+    stmt = select(LinkClick).where(
+        or_(LinkClick.short_code == key, LinkClick.alias == key)
+    )
+    if domain is None:
+        stmt = stmt.where(LinkClick.domain_id.is_(None))
+    else:
+        stmt = stmt.where(LinkClick.domain_id == domain.id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 @router.get("/r/{short_code}")
 async def redirect_link(
     short_code: str,
@@ -86,12 +105,12 @@ async def redirect_link(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Redirect a short code to its destination, recording the click.
+    """Redirect a short code (or a user-named alias) to its destination,
+    recording the click.
 
-    The Host header decides which short-code namespace to look in: the
-    platform default uses ``domain_id IS NULL``; a custom hostname must
-    resolve to an ``active`` Domain row and then look up by
-    ``(domain_id, short_code)``.
+    The Host header decides which namespace to look in: the platform default
+    uses ``domain_id IS NULL``; a custom hostname must resolve to an ``active``
+    Domain row and then look up by ``(domain_id, key)``.
     """
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
@@ -102,14 +121,7 @@ async def redirect_link(
         # one tenant's link onto another tenant's domain).
         return RedirectResponse(url="/", status_code=302)
 
-    stmt = select(LinkClick).where(LinkClick.short_code == short_code)
-    if domain is None:
-        stmt = stmt.where(LinkClick.domain_id.is_(None))
-    else:
-        stmt = stmt.where(LinkClick.domain_id == domain.id)
-
-    result = await session.execute(stmt)
-    link = result.scalar_one_or_none()
+    link = await _lookup_link(short_code, session, domain)
 
     if not link:
         return RedirectResponse(url="/", status_code=302)
@@ -184,11 +196,7 @@ async def unlock_link(
     """Email-gate submit: capture the lead, set the gate cookie, re-enter /r."""
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
-    stmt = select(LinkClick).where(LinkClick.short_code == short_code)
-    stmt = stmt.where(LinkClick.domain_id.is_(None)) if domain is None else stmt.where(
-        LinkClick.domain_id == domain.id
-    )
-    link = (await session.execute(stmt)).scalar_one_or_none()
+    link = await _lookup_link(short_code, session, domain)
     if not link:
         return RedirectResponse(url="/", status_code=302)
 

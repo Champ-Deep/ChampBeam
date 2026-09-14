@@ -47,8 +47,9 @@ from app.models.file_asset import (
 )
 from app.models.file_version import FileVersion
 from app.models.page_engagement import PageEngagement
+from app.models.page_link_route import PageLinkRoute
 from app.models.utm import ClickEvent
-from app.services import pages_service, storage
+from app.services import link_rewrite, pages_service, storage
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,8 @@ async def _publish(
     slug: Optional[str],
     filename: Optional[str],
     content_type: Optional[str],
+    short_code: Optional[str] = None,
+    rewrite_report: Optional[list] = None,
 ) -> FileAsset:
     _ensure_storage()
     pages_service.validate_html_upload(filename or f"{pages_service.slugify(title)}.html", content_type, payload)
@@ -257,7 +260,7 @@ async def _publish(
     else:
         slug = await pages_service.unique_slug(session, title, domain_uuid)
 
-    short_code = await _allocate_unique_short_code(session, domain_uuid)
+    short_code = short_code or await _allocate_unique_short_code(session, domain_uuid)
     file_id = uuid4()
     stored_name = _filename_for(title)
     key = _storage_key(user.user_id, file_id, stored_name)
@@ -287,7 +290,8 @@ async def _publish(
         await session.rollback()
         raise HTTPException(status_code=409, detail="That slug is already taken.")
     await pages_service.record_version(
-        session, asset, storage_key=key, size_bytes=len(payload), sha256=asset.sha256, filename=stored_name
+        session, asset, storage_key=key, size_bytes=len(payload), sha256=asset.sha256, filename=stored_name,
+        rewrite_report=rewrite_report,
     )
     await session.commit()
     return asset
@@ -345,6 +349,169 @@ async def upload_page(
         content_type=file.content_type,
     )
     return await _page_response(session, asset)
+
+
+# ---------------------------------------------------------------------------
+# Batch publish + link rerouting (Pages V2)
+# ---------------------------------------------------------------------------
+
+
+class BatchPageResult(BaseModel):
+    filename: str
+    title: str
+    slug: str
+    url: str
+    legacy_url: str = ""
+    rewritten: list[dict] = []
+    unresolved: list[dict] = []
+
+
+class RouteRule(BaseModel):
+    src_href: str = Field(..., min_length=1, max_length=2000)
+    target_url: str = Field(..., min_length=1, max_length=2000)
+
+
+class LinksApplyRequest(BaseModel):
+    routes: list[RouteRule] = Field(default_factory=list, max_length=500)
+    # Auto-map /f/{code} and matching filenames to the user's existing pages.
+    auto_map: bool = True
+
+
+async def _page_resolver(
+    user: TokenData, domain_id: Optional[_UUID], session: AsyncSession
+) -> tuple[dict[str, str], list[str]]:
+    """Resolver entries + slug list for every page the user owns in the same
+    domain namespace: ``/f/{code}`` -> ``/p/{slug}``, filename stems, and the
+    fuzzy-match slug index."""
+    rows = (
+        await session.execute(
+            select(FileAsset).where(
+                FileAsset.user_id == user.user_id,
+                FileAsset.kind == KIND_HTML,
+                FileAsset.status != STATUS_DELETED,
+                FileAsset.slug.isnot(None),
+            )
+        )
+    ).scalars().all()
+    if domain_id is not None:
+        rows = [a for a in rows if a.domain_id is not None]
+    else:
+        rows = [a for a in rows if a.domain_id is None]
+    resolver: dict[str, str] = {}
+    slugs: list[str] = []
+    for a in rows:
+        code = str(a.short_code)
+        slug = str(a.slug) if a.slug is not None else ""
+        target = f"/p/{slug}"
+        resolver[f"/f/{code}"] = target
+        resolver[code] = target
+        resolver[f"/p/{slug}"] = target  # canonical already; harmless
+        stem = str(a.filename or "").rsplit(".", 1)[0].lower()
+        if stem:
+            resolver[stem] = target
+        if slug:
+            resolver[slug] = target
+            slugs.append(slug)
+    return resolver, slugs
+
+
+async def _current_html(session: AsyncSession, asset: FileAsset) -> str:
+    try:
+        chunks = [c async for c in storage.stream_object(str(asset.storage_key))]
+    except storage.StorageError as exc:
+        raise HTTPException(status_code=502, detail=f"Storage error: {exc}")
+    try:
+        return b"".join(chunks).decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Page must be UTF-8 to re-link its links.")
+
+
+@router.post("/batch", response_model=list[BatchPageResult], status_code=201)
+async def publish_batch(
+    files: list[UploadFile] = File(...),
+    domain_id: Optional[str] = Form(default=None),
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Publish several HTML files as pages in one call.
+
+    Cross-references between the files are rewritten automatically: sibling
+    file references (``Harshil Plan.html``) and ``/f/{code}`` links become
+    clean ``/p/{slug}`` links. Each file's result carries the rewrite report
+    (``rewritten``) and anything that could not be mapped (``unresolved``).
+    """
+    if len(files) > 50:
+        raise HTTPException(status_code=400, detail="At most 50 files per batch.")
+    domain_uuid = await _resolve_domain_uuid(user, domain_id, session)
+
+    payloads: list[tuple[UploadFile, bytes, str]] = []
+    for f in files:
+        raw = await f.read(settings.pages_max_bytes + 1)
+        name = f.filename or ""
+        title = (link_rewrite.page_title(raw.decode("utf-8", errors="ignore")) or "").strip() or (
+            _title_from_filename(name)
+        )
+        pages_service.validate_html_upload(name, f.content_type, raw)
+        payloads.append((f, raw, title))
+
+    # Allocate slugs and codes up front so the batch resolver can see every
+    # page that is about to exist. unique_slug only queries, so track used
+    # slugs locally to keep titles unique within the batch itself.
+    allocated: list[dict] = []
+    used_slugs: set[str] = set()
+    for _, _, title in payloads:
+        slug = await pages_service.unique_slug(session, title, domain_uuid)
+        n = 1
+        while slug in used_slugs:
+            slug = await pages_service.unique_slug(session, f"{title} {n}", domain_uuid)
+            n += 1
+        used_slugs.add(slug)
+        allocated.append(
+            {"slug": slug, "code": await _allocate_unique_short_code(session, domain_uuid)}
+        )
+
+    resolver: dict[str, str] = {}
+    for item in allocated:
+        target = f"/p/{item['slug']}"
+        resolver[f"/p/{item['slug']}"] = target
+        resolver[f"/f/{item['code']}"] = target
+        resolver[item["slug"]] = target
+
+    results: list[BatchPageResult] = []
+    for (f, raw, title), item in zip(payloads, allocated):
+        text = raw.decode("utf-8", errors="ignore")
+        stem = (f.filename or "").rsplit(".", 1)[0].lower()
+        batch_resolver = dict(resolver)
+        if stem:
+            batch_resolver[stem] = f"/p/{item['slug']}"
+        rewritten, report = link_rewrite.resolve_links(
+            text, resolver=batch_resolver, slugs=[i["slug"] for i in allocated]
+        )
+        payload = rewritten.encode("utf-8")
+        asset = await _publish(
+            user=user,
+            session=session,
+            payload=payload,
+            title=title,
+            domain_id=domain_id,
+            slug=item["slug"],
+            short_code=item["code"],
+            filename=f.filename,
+            content_type=f.content_type,
+            rewrite_report=report,
+        )
+        results.append(
+            BatchPageResult(
+                filename=f.filename or "",
+                title=title,
+                slug=str(asset.slug) if asset.slug is not None else "",
+                url=(await _page_response(session, asset)).url,
+                legacy_url=f"https://{await _serve_host(session, user.user_id, domain_uuid)}/f/{asset.short_code}",
+                rewritten=[r for r in report if r.get("to")],
+                unresolved=[r for r in report if not r.get("to")],
+            )
+        )
+    return results
 
 
 @router.get("", response_model=list[PageResponse])
@@ -486,6 +653,109 @@ async def patch_page(
         await session.rollback()
         raise HTTPException(status_code=409, detail="That slug is already taken.")
     return await _page_response(session, asset)
+
+
+# ---------------------------------------------------------------------------
+# Link inventory + rerouting (Pages V2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{page_id}/links")
+async def page_link_inventory(
+    page_id: str,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """List every <a href> on the page's current version, classified, plus the
+    stored reroute rules. The frontend renders the table and the target
+    pickers from this."""
+    asset = await _get_owned_page(page_id, user, session)
+    html = await _current_html(session, asset)
+    routes = (
+        await session.execute(
+            select(PageLinkRoute).where(PageLinkRoute.page_id == asset.id).order_by(PageLinkRoute.src_href)
+        )
+    ).scalars().all()
+    return {
+        "page_id": str(asset.id),
+        "links": link_rewrite.link_inventory(html),
+        "routes": [{"src_href": r.src_href, "target_url": r.target_url} for r in routes],
+    }
+
+
+@router.post("/{page_id}/links/apply")
+async def apply_page_link_routes(
+    page_id: str,
+    data: LinksApplyRequest,
+    background_tasks: BackgroundTasks,
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Rewire a page's links without editing HTML by hand.
+
+    ``routes`` are exact-href overrides (stored in page_link_routes so future
+    replaces keep honoring them). With ``auto_map`` (default) the user's other
+    pages are also mapped: ``/f/{code}`` links become ``/p/{slug}`` and file
+    references that match a page's slug/file stem are linked up. The result is
+    baked into a NEW version (rollback-able), with the rewrite report attached.
+    """
+    asset = await _get_owned_page(page_id, user, session)
+    if asset.status != STATUS_ACTIVE:
+        raise HTTPException(status_code=409, detail=f"Page is in status '{asset.status}'.")
+    _ensure_storage()
+
+    html = await _current_html(session, asset)
+    domain_uuid = asset.domain_id
+    resolver: dict[str, str] = {}
+    slugs: list[str] = []
+    if data.auto_map:
+        resolver, slugs = await _page_resolver(user, domain_uuid, session)
+    # Explicit routes win; store them so a later replace applies the same map.
+    routes = {r.src_href: r.target_url for r in data.routes}
+    if data.routes:
+        existing = (
+            await session.execute(
+                select(PageLinkRoute).where(PageLinkRoute.page_id == asset.id)
+            )
+        ).scalars().all()
+        for row in existing:
+            await session.delete(row)
+        for r in data.routes:
+            session.add(PageLinkRoute(page_id=asset.id, src_href=r.src_href, target_url=r.target_url))
+
+    rewritten, report = link_rewrite.resolve_links(html, resolver=resolver, slugs=slugs, routes=routes)
+    changed = rewritten != html
+    if not changed:
+        # Reroute rules recorded, nothing to re-serve: no new version.
+        await session.commit()
+        return {
+            "page": await _page_response(session, asset),
+            "rewritten": [],
+            "unresolved": [r for r in report if not r.get("to")],
+        }
+
+    payload = rewritten.encode("utf-8")
+    pages_service.validate_html_upload(asset.filename, _HTML_MIME, payload)
+
+    new_key = _storage_key(user.user_id, asset.id, f"{uuid4().hex[:8]}-{asset.filename}")
+    await _write_blob(new_key, payload)
+    await pages_service.snapshot_if_unversioned(session, asset)
+    asset.storage_key = new_key
+    asset.size_bytes = len(payload)
+    asset.sha256 = hashlib.sha256(payload).hexdigest()
+    await pages_service.record_version(
+        session, asset, storage_key=new_key, size_bytes=len(payload), sha256=asset.sha256,
+        filename=str(asset.filename), rewrite_report=report,
+    )
+    doomed = await pages_service.prune_versions(session, asset)
+    await session.commit()
+    for key in doomed:
+        background_tasks.add_task(_delete_blob_quiet, key)
+    return {
+        "page": await _page_response(session, asset),
+        "rewritten": [r for r in report if r.get("to")],
+        "unresolved": [r for r in report if not r.get("to")],
+    }
 
 
 # ---------------------------------------------------------------------------

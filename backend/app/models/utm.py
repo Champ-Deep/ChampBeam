@@ -78,6 +78,10 @@ class LinkClick(Base):
     # partial indexes above rather than a column-level unique constraint.
     short_code = Column(String(20), nullable=True, index=True)
 
+    # User-named short link (/s/{alias}). Same per-domain partial uniqueness
+    # as short_code (migration 027), validated with the pages slug rules.
+    alias = Column(String(80), nullable=True, index=True)
+
     # Project grouping
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     project_name = Column(String(255), nullable=True)  # kept for backward compatibility

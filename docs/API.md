@@ -18,6 +18,10 @@ X-API-Key: cb_live_...
 
 ## 2. Create a trackable link
 
+`POST /api/v1/utm/generate` creates a UTM-tagged link. Authenticated users get a tracked short link (`/r/{code}` and `/s/{code}`) with click analytics; guests get the tagged URL only.
+
+**Named links.** Pass an optional `alias` (slug rules: 3–60 lowercase letters, digits, hyphens; unique per domain; 409 if taken) and the short link becomes readable: `/s/your-name`. The same alias resolves through `/r/{alias}` too. `PATCH /api/v1/utm/links/{id}` with `{"alias": "new-name"}` renames it (`""` clears the name).
+
 ```bash
 curl -s -X POST "$BASE/api/v1/utm/generate" \
   -H "X-API-Key: $CHAMPBEAM_API_KEY" \
@@ -108,6 +112,21 @@ Or upload the file: `POST /api/v1/pages/upload` (multipart `file`, optional `tit
 
 **Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates — rename the delimiter).
 
+**Publish a set.** `POST /api/v1/pages/batch` (multipart, up to 50 `files`, optional `domain_id`) publishes several HTML files as pages in one call. Cross-references between the files are rewritten automatically: sibling file references (`Harshil Plan.html`) and `/f/{code}` links become clean `/p/{slug}` links. Each file's result carries the rewrite report and anything that could not be mapped:
+
+```bash
+curl -s -X POST "$BASE/api/v1/pages/batch" \
+  -H "X-API-Key: $CHAMP...KEY" \
+  -F "files=@mission-control.html" -F "files=@harshil-plan.html"
+# -> [{"filename": "mission-control.html", "slug": "event-scout-mission-control",
+#      "url": "https://<host>/p/event-scout-mission-control",
+#      "rewritten": [{"from_href": "Event Scout 2026 - Harshil Plan.html",
+#                     "to": "/p/harshil-plan", "kind": "mapped"}],
+#      "unresolved": [{"from_href": "missing.html", "to": null, "kind": "unresolved"}]}]
+```
+
+**Reroute links without editing HTML.** `GET /api/v1/pages/{id}/links` lists every `<a href>` on the current version, classified (`external`, `platform-page`, `platform-file`, `internal`, `fragment`) with its anchor text and stored route rules. `POST /api/v1/pages/{id}/links/apply` takes `routes` (exact-href → target overrides) and, with `auto_map` (default), also maps `/f/{code}` links and matching filenames to the user's other pages. The result is baked into a **new version** (rollback-able) with the rewrite report attached; when nothing changes, no version is minted. Route rules persist so later replaces keep honoring them.
+
 **Access codes.** With `access_code` set, visitors see a branded code gate *before* any email gate (authorize before identify). 5 wrong attempts per 10 minutes → a 429 "too many attempts" page; each failure is a `gate_failed` event. The code cookie is derived from the code, so changing the code re-gates everyone.
 
 ### Beam State: comments + shared state for pages
@@ -130,6 +149,16 @@ It is a JSON store with a comment stream, not a database: no queries, no per-use
 ## Service keys (trusted backend integrations)
 
 Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env, e.g. for the agent workspace) resolves to a dedicated org-scoped service identity and is accepted **only** on a write allowlist — register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `app/core/service_auth.py`.
+
+## Assistant: the guided feature helper
+
+The assistant (bottom-right chat button, signed-in users only) explains features, why they matter, and exactly where to use them, and suggests one next thing to try. It is provider-swappable:
+
+- `POST /api/v1/assistant/chat` `{"messages": [{"role": "user", "content": "…"}]}` → `{"reply", "provider", "model", "usage"}`. The backend injects the feature map and the user's usage counts (links / files / pages) into the system prompt, so suggestions land on what they have not tried yet. **503** when disabled or the active provider has no key.
+- `GET /api/v1/assistant/config` → current provider/model/enabled plus per-provider `configured` flags and the suggested free models.
+- `PUT /api/v1/assistant/config` (org admins only) `{"provider": "openrouter" | "vercel" | "mock", "model": "…", "enabled": true}` → switches provider/model at runtime.
+
+Keys live in the environment (`ASSISTANT_OPENROUTER_API_KEY`, `ASSISTANT_VERCEL_API_KEY`; Vercel AI Gateway base `ASSISTANT_VERCEL_GATEWAY_URL`, default `https://gateway.vercel.ai/v1`). Free testing models are the defaults (e.g. `meta-llama/llama-3.3-70b-instruct:free` on OpenRouter); `mock` is a keyless provider for dev and CI.
 
 ## Limits & errors
 
