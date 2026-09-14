@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
+from uuid import UUID as _UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +24,7 @@ from app.db.postgres import get_db_session
 from app.models.domain import Domain, STATUS_ACTIVE
 from app.models.file_asset import FileAsset
 from app.models.utm import ClickEvent, LinkClick, UTMPreset
+from app.services import pages_service
 from app.services.utm_service import utm_service
 
 logger = logging.getLogger(__name__)
@@ -85,6 +87,8 @@ class GenerateLinkRequest(BaseModel):
     project_id: Optional[str] = None
     preset_id: Optional[str] = None
     domain_id: Optional[str] = None
+    # User-named short link (/s/{alias}). Slug rules, unique per domain.
+    alias: Optional[str] = Field(default=None, max_length=80)
 
 
 class GenerateLinkResponse(BaseModel):
@@ -95,6 +99,7 @@ class GenerateLinkResponse(BaseModel):
     utm_params: dict
     link_id: Optional[str] = None
     short_url: Optional[str] = None
+    alias: Optional[str] = None
 
 
 class UTMBreakdownItem(BaseModel):
@@ -112,6 +117,7 @@ class LinkPerformanceItem(BaseModel):
     tracked_url: Optional[str] = None
     redirect_url: Optional[str] = None
     short_code: Optional[str] = None
+    alias: Optional[str] = None
     anchor_text: Optional[str] = None
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
@@ -210,6 +216,36 @@ async def _domain_for_link(link: LinkClick, session: AsyncSession) -> Domain | N
         return None
     result = await session.execute(select(Domain).where(Domain.id == link.domain_id))
     return result.scalar_one_or_none()
+
+
+def _validate_alias(raw: Optional[str]) -> str:
+    """Normalize a user-named short link; '' means no alias. Uses the pages
+    slug rules (3-60 chars, lowercase + hyphens, reserved words blocked)."""
+    alias = ((raw or "").strip().lower()) or ""
+    if not alias:
+        return ""
+    return pages_service.validate_slug(alias)
+
+
+async def _alias_taken(
+    session: AsyncSession,
+    alias: str,
+    domain_id: Optional[_UUID],
+    *,
+    exclude_id: Optional[_UUID] = None,
+) -> bool:
+    """Is ``alias`` already used in this domain namespace? Mirrors
+    pages_service.slug_taken; the partial unique indexes from migration 027
+    are the source of truth on Postgres, this is the clean-409 pre-check."""
+    stmt = select(LinkClick.id).where(LinkClick.alias == alias)
+    stmt = (
+        stmt.where(LinkClick.domain_id.is_(None))
+        if domain_id is None
+        else stmt.where(LinkClick.domain_id == domain_id)
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(LinkClick.id != exclude_id)
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
 async def _domains_by_link(
@@ -321,15 +357,34 @@ async def generate_utm_link(
 
     tracked_url = utm_service.generate_utm_url(data.base_url, utm_params)
 
+    # User-named short link: validate + claim before recording, so a taken
+    # alias is a clean 409 and never silently steals another link's name.
+    alias = _validate_alias(data.alias)
+
     # Record link for authenticated users
     link_id = None
     short_code = None
     redirect_url = None
     short_url = None
+    link_alias: Optional[str] = None
     if user:
-        from uuid import UUID as _UUID
         project_id = _UUID(data.project_id) if data.project_id else None
         domain = await _resolve_link_domain(user.user_id, data.domain_id, session)
+        if alias:
+            # Claim the name, but allow re-generating the SAME link (dedup
+            # path would return it and the alias belongs to it).
+            existing = await utm_service.find_existing_link(
+                user_id=user.user_id,
+                original_url=data.base_url,
+                utm_params=utm_params,
+                domain_id=domain.id if domain else None,
+                session=session,
+            )
+            if await _alias_taken(
+                session, alias, domain.id if domain else None,
+                exclude_id=existing.id if existing else None,
+            ):
+                raise HTTPException(status_code=409, detail=f"'{alias}' is already taken.")
         link = await utm_service.record_link(
             user_id=user.user_id,
             original_url=data.base_url,
@@ -338,21 +393,24 @@ async def generate_utm_link(
             project_name=data.project_name,
             project_id=project_id,
             domain_id=domain.id if domain else None,
+            alias=alias or None,
             session=session,
         )
         link_id = str(link.id)
         short_code = link.short_code
-        redirect_url = _build_redirect_url(link.short_code, domain, request=request)
-        if link.short_code:
+        link_alias = alias or (str(link.alias) if link.alias is not None else None)
+        key = link_alias or (str(link.short_code) if link.short_code is not None else None)
+        redirect_url = _build_redirect_url(key, domain, request=request)
+        if key:
             # Short URL mirrors the redirect URL's host precedence: custom
             # domain → configured redirect base (canonical public host, which
             # server-to-server API callers may not be hitting) → request host.
             if domain is not None:
-                short_url = f"https://{domain.hostname}/s/{link.short_code}"
+                short_url = f"https://{domain.hostname}/s/{key}"
             elif settings.redirect_base_url:
-                short_url = f"{settings.redirect_base_url.rstrip('/')}/s/{link.short_code}"
+                short_url = f"{settings.redirect_base_url.rstrip('/')}/s/{key}"
             else:
-                short_url = str(request.base_url) + f"s/{link.short_code}"
+                short_url = str(request.base_url) + f"s/{key}"
 
     return GenerateLinkResponse(
         original_url=data.base_url,
@@ -362,6 +420,7 @@ async def generate_utm_link(
         utm_params=utm_params,
         link_id=link_id,
         short_url=short_url,
+        alias=link_alias,
     )
 
 
@@ -372,6 +431,8 @@ async def generate_utm_link(
 
 class UpdateLinkRequest(BaseModel):
     project_id: Optional[str] = None
+    # /s/{alias}; "" clears the name. Slug rules, unique per domain.
+    alias: Optional[str] = None
 
 
 @router.delete("/links/{link_id}", status_code=204)
@@ -426,6 +487,14 @@ async def update_link(
     if data.project_id is not None:
         link.project_id = _UUID(data.project_id) if data.project_id else None
 
+    if data.alias is not None:
+        new_alias = _validate_alias(data.alias)  # "" clears the name
+        if new_alias and await _alias_taken(
+            session, new_alias, link.domain_id, exclude_id=link.id
+        ):
+            raise HTTPException(status_code=409, detail=f"'{new_alias}' is already taken.")
+        link.alias = new_alias or None
+
     await session.commit()
     await session.refresh(link)
 
@@ -434,6 +503,7 @@ async def update_link(
         "project_id": str(link.project_id) if link.project_id else None,
         "original_url": link.original_url,
         "short_code": link.short_code,
+        "alias": link.alias,
     }
 
 
@@ -849,9 +919,11 @@ async def get_link_performance(
             original_url=link.original_url,
             tracked_url=link.tracked_url,
             redirect_url=_build_redirect_url(
-                link.short_code, link_to_domain.get(link.id), request=request,
+                (str(link.alias) if link.alias is not None else None) or link.short_code,
+                link_to_domain.get(link.id), request=request,
             ),
             short_code=link.short_code,
+            alias=link.alias,
             anchor_text=link.anchor_text,
             utm_source=link.utm_source,
             utm_medium=link.utm_medium,

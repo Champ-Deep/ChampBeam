@@ -9,6 +9,7 @@ from app.models.content import Content, ContentShare
 from app.models.room import Room, RoomRecipient, RoomLink, RoomEvent
 from app.models.api_key import ApiKey
 from app.models.file_version import FileVersion
+from app.models.page_link_route import PageLinkRoute
 from app.models.maxmind_usage import MaxMindUsage
 from app.models.page_state import PageComment, PageEvent, PageState
 
