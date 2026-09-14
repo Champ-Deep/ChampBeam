@@ -150,6 +150,16 @@ It is a JSON store with a comment stream, not a database: no queries, no per-use
 
 Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env, e.g. for the agent workspace) resolves to a dedicated org-scoped service identity and is accepted **only** on a write allowlist — register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `app/core/service_auth.py`.
 
+## Assistant: the guided feature helper
+
+The assistant (bottom-right chat button, signed-in users only) explains features, why they matter, and exactly where to use them, and suggests one next thing to try. It is provider-swappable:
+
+- `POST /api/v1/assistant/chat` `{"messages": [{"role": "user", "content": "…"}]}` → `{"reply", "provider", "model", "usage"}`. The backend injects the feature map and the user's usage counts (links / files / pages) into the system prompt, so suggestions land on what they have not tried yet. **503** when disabled or the active provider has no key.
+- `GET /api/v1/assistant/config` → current provider/model/enabled plus per-provider `configured` flags and the suggested free models.
+- `PUT /api/v1/assistant/config` (org admins only) `{"provider": "openrouter" | "vercel" | "mock", "model": "…", "enabled": true}` → switches provider/model at runtime.
+
+Keys live in the environment (`ASSISTANT_OPENROUTER_API_KEY`, `ASSISTANT_VERCEL_API_KEY`; Vercel AI Gateway base `ASSISTANT_VERCEL_GATEWAY_URL`, default `https://gateway.vercel.ai/v1`). Free testing models are the defaults (e.g. `meta-llama/llama-3.3-70b-instruct:free` on OpenRouter); `mock` is a keyless provider for dev and CI.
+
 ## Limits & errors
 
 - **429** — over the per-key limit (120 requests/minute) or the per-IP limit (100/minute). Back off and retry.

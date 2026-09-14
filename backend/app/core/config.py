@@ -370,6 +370,35 @@ class Settings(BaseSettings):
     def clerk_webhook_configured(self) -> bool:
         return bool(self.clerk_webhook_secret)
 
+    # ------------------------------------------------------------------
+    # Assistant (guided feature helper, provider-swappable)
+    # ------------------------------------------------------------------
+    # Provider id: openrouter | vercel (Vercel AI Gateway) | mock (tests/dev).
+    assistant_provider: str = "openrouter"
+    # Free models by default for testing. OpenRouter's ":free" suffix is the
+    # convention there; on the Vercel gateway the routing name depends on the
+    # upstream key you connected.
+    assistant_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    # API keys. Empty string = provider not configured (chat returns 503).
+    assistant_openrouter_api_key: str = ""
+    assistant_vercel_api_key: str = ""
+    # OpenAI-compatible base URL for the Vercel AI Gateway.
+    assistant_vercel_gateway_url: str = "https://gateway.vercel.ai/v1"
+    # Global kill switch (env-level override of the DB config row).
+    assistant_enabled: bool = True
+    # Timeout (s) for the upstream completion call; guards free-tier slowness.
+    assistant_timeout_s: float = 60.0
+    assistant_max_tokens: int = 700
+    assistant_max_history: int = 12
+
+    @property
+    def assistant_openrouter_configured(self) -> bool:
+        return bool(self.assistant_openrouter_api_key)
+
+    @property
+    def assistant_vercel_configured(self) -> bool:
+        return bool(self.assistant_vercel_api_key)
+
     @property
     def storage_backend_normalized(self) -> str:
         return (self.storage_backend or "local").strip().lower()
