@@ -7,6 +7,7 @@ import {
   GripVertical, CheckSquare,
 } from 'lucide-react';
 import { Card, Button, Input, Badge, LoadingSpinner, EmptyState, QrButton, FolderChips, useConfirm } from '../components/ui';
+import { UtmUrlBuilder } from '../components/UtmUrlBuilder';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, Project, ProjectCreate } from '../api/utm';
 
@@ -53,6 +54,7 @@ export function LinksPage() {
 
   // --- Project form state ---
   const [showForm, setShowForm] = useState(false);
+  const [showUtmBuilder, setShowUtmBuilder] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectCreate>({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
@@ -349,14 +351,48 @@ export function LinksPage() {
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Links</h1>
           <p className="text-slate-600 mt-1">
             Manage all your tracked UTM links and organize them into projects. Drag links onto a folder to file them.
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowUtmBuilder(true)}
+          leftIcon={<Link2 className="h-3.5 w-3.5" />}
+          title="Append UTM parameters without shortening or tracking"
+        >
+          Add UTM parameters to your links
+        </Button>
       </div>
+
+      {/* Append-only UTM builder (no short link, no tracking). */}
+      {showUtmBuilder && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 overflow-y-auto"
+          onClick={() => setShowUtmBuilder(false)}
+        >
+          <div
+            className="w-full max-w-lg mt-10 rounded-xl bg-white shadow-xl border border-slate-200 p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-end -mt-1 -mr-1">
+              <button
+                type="button"
+                onClick={() => setShowUtmBuilder(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <UtmUrlBuilder onClose={() => setShowUtmBuilder(false)} />
+          </div>
+        </div>
+      )}
 
       {/* Folder chips: filter + drag-and-drop drop targets (App v2 layout) */}
       <div className="mb-5">

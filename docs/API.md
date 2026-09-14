@@ -18,6 +18,10 @@ X-API-Key: cb_live_...
 
 ## 2. Create a trackable link
 
+`POST /api/v1/utm/generate` creates a UTM-tagged link. Authenticated users get a tracked short link (`/r/{code}` and `/s/{code}`) with click analytics; guests get the tagged URL only.
+
+**Named links.** Pass an optional `alias` (slug rules: 3–60 lowercase letters, digits, hyphens; unique per domain; 409 if taken) and the short link becomes readable: `/s/your-name`. The same alias resolves through `/r/{alias}` too. `PATCH /api/v1/utm/links/{id}` with `{"alias": "new-name"}` renames it (`""` clears the name).
+
 ```bash
 curl -s -X POST "$BASE/api/v1/utm/generate" \
   -H "X-API-Key: $CHAMPBEAM_API_KEY" \
@@ -107,6 +111,21 @@ Or upload the file: `POST /api/v1/pages/upload` (multipart `file`, optional `tit
 **Settings.** `PATCH /api/v1/pages/{id}` with any of `slug` (3–60 chars, lowercase/digits/hyphens; 409 if taken), `title`, `enabled` (`false` = kill switch: every URL and API route returns 410 immediately), `domain_id`, `access_code` (4–8 digits; `null` clears). `DELETE` removes the page and every version blob.
 
 **Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates — rename the delimiter).
+
+**Publish a set.** `POST /api/v1/pages/batch` (multipart, up to 50 `files`, optional `domain_id`) publishes several HTML files as pages in one call. Cross-references between the files are rewritten automatically: sibling file references (`Harshil Plan.html`) and `/f/{code}` links become clean `/p/{slug}` links. Each file's result carries the rewrite report and anything that could not be mapped:
+
+```bash
+curl -s -X POST "$BASE/api/v1/pages/batch" \
+  -H "X-API-Key: $CHAMP...KEY" \
+  -F "files=@mission-control.html" -F "files=@harshil-plan.html"
+# -> [{"filename": "mission-control.html", "slug": "event-scout-mission-control",
+#      "url": "https://<host>/p/event-scout-mission-control",
+#      "rewritten": [{"from_href": "Event Scout 2026 - Harshil Plan.html",
+#                     "to": "/p/harshil-plan", "kind": "mapped"}],
+#      "unresolved": [{"from_href": "missing.html", "to": null, "kind": "unresolved"}]}]
+```
+
+**Reroute links without editing HTML.** `GET /api/v1/pages/{id}/links` lists every `<a href>` on the current version, classified (`external`, `platform-page`, `platform-file`, `internal`, `fragment`) with its anchor text and stored route rules. `POST /api/v1/pages/{id}/links/apply` takes `routes` (exact-href → target overrides) and, with `auto_map` (default), also maps `/f/{code}` links and matching filenames to the user's other pages. The result is baked into a **new version** (rollback-able) with the rewrite report attached; when nothing changes, no version is minted. Route rules persist so later replaces keep honoring them.
 
 **Access codes.** With `access_code` set, visitors see a branded code gate *before* any email gate (authorize before identify). 5 wrong attempts per 10 minutes → a 429 "too many attempts" page; each failure is a `gate_failed` event. The code cookie is derived from the code, so changing the code re-gates everyone.
 
