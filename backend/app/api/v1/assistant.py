@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.security import TokenData, require_auth
 from app.db.postgres import get_db_session
+from app.middleware.rate_limit import limiter
 from app.models.assistant_config import (
     ASSISTANT_PROVIDERS,
     SUGGESTED_FREE_MODELS,
@@ -35,6 +36,13 @@ from app.services import assistant as _as
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
+
+# Every /chat call spends money on a third-party model provider, so it is
+# metered per client IP. The app configures a slowapi default limit but never
+# installs the middleware that would apply it, so nothing else in the service
+# was actually rate limited; this endpoint is the one where an unmetered loop
+# has a direct, immediate cost.
+ASSISTANT_CHAT_LIMIT = "20/minute"
 
 
 # ---------------------------------------------------------------------------
@@ -152,8 +160,10 @@ async def update_assistant_config(
 
 
 @router.post("/chat", response_model=ChatResponse)
+@limiter.limit(ASSISTANT_CHAT_LIMIT)
 async def assistant_chat(
     data: ChatRequest,
+    request: Request,
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):

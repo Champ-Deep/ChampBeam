@@ -82,14 +82,32 @@ async def _resolve_destination(link: LinkClick) -> str | None:
 async def _lookup_link(
     key: str, session: AsyncSession, domain: Optional[Domain]
 ) -> Optional[LinkClick]:
-    """Resolve a redirect key: a user-named alias first, then a random code.
+    """Resolve a redirect key: a random short code, or a user-named alias.
 
-    Aliases are hyphenated slugs (``event-summit``) and codes are bare
-    alphanumerics, so the two namespaces are practically disjoint; the OR keeps
-    it a single indexed lookup either way. Scoped by Host like before.
+    The two namespaces are NOT disjoint. Aliases are validated with the pages
+    slug rules (3-60 chars of ``[a-z0-9-]``) and short codes are 7 chars of
+    ``[A-Za-z0-9]``, so a key can legitimately match one link's ``short_code``
+    and a different link's ``alias``. Selecting with ``scalar_one_or_none()``
+    raised ``MultipleResultsFound`` there, which surfaced as a 500 on the
+    public redirect and let any user who can mint a link take a shared link
+    offline by naming their own link after someone else's code.
+
+    Resolution is therefore deterministic: the row whose ``short_code`` equals
+    the key wins, because that is the canonical, unclaimable address. The OR
+    stays a single indexed lookup; the ordering picks the winner and ``limit(1)``
+    guarantees a single row, so ``scalar_one_or_none`` can no longer see two.
+
+    ``NULLS LAST`` is load-bearing: ``short_code`` is nullable, and Postgres
+    sorts NULLS FIRST under ``DESC``, so without it a row with a NULL code and
+    a matching alias would outrank the genuine short-code match.
+
+    Scoped by Host like before.
     """
-    stmt = select(LinkClick).where(
-        or_(LinkClick.short_code == key, LinkClick.alias == key)
+    stmt = (
+        select(LinkClick)
+        .where(or_(LinkClick.short_code == key, LinkClick.alias == key))
+        .order_by((LinkClick.short_code == key).desc().nulls_last())
+        .limit(1)
     )
     if domain is None:
         stmt = stmt.where(LinkClick.domain_id.is_(None))

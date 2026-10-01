@@ -393,10 +393,14 @@ async def _page_resolver(
             )
         )
     ).scalars().all()
-    if domain_id is not None:
-        rows = [a for a in rows if a.domain_id is not None]
-    else:
+    # Scope to the SAME namespace the page being edited lives in. Comparing
+    # `domain_id IS NOT NULL` here would admit the user's pages on every other
+    # custom domain and rewrite hrefs to /p/{slug} addresses that do not
+    # resolve on this host.
+    if domain_id is None:
         rows = [a for a in rows if a.domain_id is None]
+    else:
+        rows = [a for a in rows if a.domain_id == domain_id]
     resolver: dict[str, str] = {}
     slugs: list[str] = []
     for a in rows:
