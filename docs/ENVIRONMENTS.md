@@ -108,6 +108,15 @@ the flip, every link minted by a user goes to the Railway database.
 7. Only now turn Railway into test: point it at `staging`, swap to Clerk dev
    keys, replace its database with a scrubbed copy.
 
+## Test without Railway (cheaper)
+
+`deploy/coolify/docker-compose.test.yml` runs the test stack as a second Coolify
+app on Deepify, branch `staging`, with its own throwaway Postgres and Redis,
+about 450 MB all in. Railway then has no job and can be deleted. Do this only
+after the dev stacks on the box are stopped (capacity report, step 1), since
+the box is already paging. If the box stays tight, the same compose file runs
+unchanged on a $6 droplet with Coolify pointed at it as a second server.
+
 ## Refreshing test data
 
 ```bash
