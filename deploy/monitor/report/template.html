@@ -44,7 +44,7 @@ h2{font-family:var(--head);font-size:22px;margin:0 0 4px}
 .lede{color:var(--ink-2);margin:0 0 18px;max-width:80ch}
 .grid{display:grid;gap:14px}
 .g4{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-.g2{grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(420px,1fr));align-items:start}
 .tile{background:var(--surface);border:1px solid var(--line);padding:16px 18px;position:relative;opacity:0;transform:translateY(10px);transition:opacity .5s ease,transform .5s ease}
 .tile.in,.card.in{opacity:1;transform:none}
 .tile .k{font-size:13px;color:var(--ink-2)}
@@ -101,7 +101,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);paddin
 
 <section>
   <h2>The box</h2>
-  <p class="lede">One DigitalOcean droplet runs Coolify, ChampBeam (standby today, prod after cutover), ChamPDF, the workspace, BearDrive, Hermes and GlitchTip. Every tile below is the whole machine, not one tool. Markers sit at the warning line (70%) and the critical line (85%).</p>
+  <p class="lede" id="boxlede">Every tile below is the whole machine, not one tool. Markers sit at the warning line (70%) and the critical line (85%).</p>
   <div class="grid g4" id="vitals"></div>
 </section>
 
@@ -127,7 +127,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);paddin
   <h2>Data growth</h2>
   <p class="lede">Postgres and Redis on the shared data tier. Tracking rows are the thing that grows without anyone uploading anything.</p>
   <div class="grid g2">
-    <div class="card"><h3>Databases</h3><p class="note">Size on disk per database, and live connections against max_connections.</p><div id="dbtable"></div></div>
+    <div class="card"><h3>Databases</h3><p class="note">Size on disk per database the snapshot could read.</p><div id="dbtable"></div></div>
     <div class="card"><h3>Largest tables</h3><p class="note">Across every database the snapshot could read.</p><div id="tabletable"></div></div>
   </div>
 </section>
@@ -166,7 +166,7 @@ function tile(k, v, h, p, warn=70, crit=85){
 
 function render(){
   if(!SNAP){ ['vitals','memchart','hostchart','hourchart','dbtable','tabletable','tooltable'].forEach(id=>$(id).innerHTML='<div class="empty">Run deploy/monitor/champ-load-snapshot.py on the VPS, then rebuild this page.</div>'); return; }
-  const H = SNAP.host, C = SNAP.containers||[], N = SNAP.nginx||{}, P = SNAP.postgres||[], R = SNAP.redis||[];
+  const H = SNAP.host, C = (SNAP.containers||[]).filter(c=>!(c.status==='exited' && c.restarts===0 && (/migrate|createbucket|init|seed/.test(c.name) || !c.restart_policy || c.restart_policy==='no'))), N = SNAP.nginx||{}, P = SNAP.postgres||[], R = SNAP.redis||[];
   const taken = new Date(SNAP.taken_at);
   $('sub').textContent = `Snapshot ${taken.toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})} · ${H.hostname} · ${H.cpus} vCPU · ${fmtB(H.mem.total)} RAM · up ${H.uptime_days} days · ${C.filter(c=>c.status==='running').length} containers running`;
 
@@ -177,29 +177,32 @@ function render(){
   $('vitals').innerHTML = [
     tile('CPU busy', H.cpu_busy_pct_1s+'%', `load ${H.load['1m']} / ${H.load['5m']} / ${H.load['15m']} on ${H.cpus} vCPU`, Math.max(H.cpu_busy_pct_1s, loadPct), 70, 90),
     tile('Memory used', H.mem.used_pct+'%', `${fmtB(H.mem.total-H.mem.available)} of ${fmtB(H.mem.total)}, ${fmtB(H.mem.available)} available`, H.mem.used_pct, 70, 85),
-    tile('Swap used', swapPct+'%', H.swap.total? `${fmtB(H.swap.used)} of ${fmtB(H.swap.total)}` : 'no swap configured', H.swap.total? swapPct : 0, 30, 80),
+    tile('Swap used', swapPct+'%', H.swap.total? `${fmtB(H.swap.used)} of ${fmtB(H.swap.total)}` : 'no swap configured', H.swap.total? swapPct : 0, 30, 70),
     tile('Root disk', disk.pct+'%', `${fmtB(disk.used)} of ${fmtB(disk.total)}`, disk.pct, 70, 85),
   ].join('');
 
   // ---- memory chart
   const running = C.filter(c=>c.status==='running' && c.mem_bytes!=null).slice(0,14);
-  const apps = [...new Set(C.map(c=>c.app))];
-  const palette = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'];
-  const colorOf = app => `var(${palette[apps.indexOf(app)%palette.length]})`;
+  const memByApp={}; C.forEach(c=>memByApp[c.app]=(memByApp[c.app]||0)+(c.mem_bytes||0));
+  const topApps=Object.entries(memByApp).sort((a,b)=>b[1]-a[1]).slice(0,7).map(a=>a[0]);
+  const apps=[...topApps,'other tools'];
+  const palette = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7'];
+  const colorOf = app => topApps.includes(app) ? `var(${palette[topApps.indexOf(app)]})` : 'var(--line-2)';
+  $('boxlede').textContent = `${H.hostname} runs Coolify plus ${C.filter(c=>c.status==='running').length} containers across ${Object.keys(memByApp).length} tools. Every tile below is the whole machine, not one tool. Markers sit at the warning line (70%) and the critical line (85%).`;
   {
-    const W=560, rowH=26, L=170, Rm=70, Hh=running.length*rowH+30;
+    const W=600, rowH=26, L=190, Rm=130, Hh=running.length*rowH+30;
     const max = Math.max(...running.map(c=>c.mem_bytes), 1);
     const svg = svgEl('svg',{viewBox:`0 0 ${W} ${Hh}`, width:'100%', role:'img','aria-label':'Memory per container'});
     [0.25,.5,.75,1].forEach(f=>{ const x=L+(W-L-Rm)*f; const g=svgEl('g',{class:'grid'}); g.appendChild(svgEl('line',{x1:x,x2:x,y1:0,y2:Hh-22})); svg.appendChild(g); const t=svgEl('text',{x,y:Hh-6,'text-anchor':'middle'}); t.textContent=fmtB(max*f); svg.appendChild(t); });
     running.forEach((c,i)=>{ const y=i*rowH+6; const w=(W-L-Rm)*c.mem_bytes/max;
-      const t=svgEl('text',{x:L-8,y:y+13,'text-anchor':'end'}); t.textContent=c.name.length>24?c.name.slice(0,23)+'…':c.name; svg.appendChild(t);
+      const t=svgEl('text',{x:L-8,y:y+13,'text-anchor':'end'}); const label=/^[a-z0-9]{20,}/.test(c.name)? c.app : c.name; t.textContent=label.length>26?label.slice(0,25)+'…':label; svg.appendChild(t);
       const r=svgEl('rect',{x:L,y,width:Math.max(2,w),height:16,rx:0,fill:colorOf(c.app)}); svg.appendChild(r);
       const cap=svgEl('rect',{x:L+Math.max(2,w)-4,y,width:4,height:16,rx:3,fill:colorOf(c.app)}); svg.appendChild(cap);
       const v=svgEl('text',{x:L+Math.max(2,w)+6,y:y+13}); v.textContent=`${fmtB(c.mem_bytes)} · ${c.cpu_pct}% cpu`; svg.appendChild(v);
       hover(r, `${c.name} (${c.app}): ${fmtB(c.mem_bytes)} RSS, ${c.cpu_pct}% CPU, ${c.pids} pids, ${c.restarts} restarts`);
     });
     $('memchart').innerHTML=''; $('memchart').appendChild(svg);
-    const lg=document.createElement('div'); lg.className='legend'; lg.innerHTML=apps.map(a=>`<span><i style="background:${colorOf(a)}"></i>${a}</span>`).join(''); $('memchart').appendChild(lg);
+    const lg=document.createElement('div'); lg.className='legend'; lg.innerHTML=apps.map(a=>`<span><i style="background:${a==='other tools'?'var(--line-2)':colorOf(a)}"></i>${a}</span>`).join(''); $('memchart').appendChild(lg);
   }
 
   // ---- per tool table
@@ -207,7 +210,9 @@ function render(){
     const byApp={};
     C.forEach(c=>{ const a=byApp[c.app]||(byApp[c.app]={app:c.app,n:0,running:0,mem:0,cpu:0,restarts:0,unhealthy:0});
       a.n++; if(c.status==='running') a.running++; a.mem+=c.mem_bytes||0; a.cpu+=c.cpu_pct||0; a.restarts+=c.restarts||0; if(c.health&&c.health!=='healthy') a.unhealthy++; if(c.status!=='running') a.unhealthy++; });
-    const rows=Object.values(byApp).sort((a,b)=>b.mem-a.mem);
+    const all=Object.values(byApp).sort((a,b)=>b.mem-a.mem);
+    const rows=all.slice(0,12); const rest=all.slice(12);
+    if(rest.length){ rows.push({app:`${rest.length} other tools`,n:rest.reduce((a,b)=>a+b.n,0),running:rest.reduce((a,b)=>a+b.running,0),mem:rest.reduce((a,b)=>a+b.mem,0),cpu:rest.reduce((a,b)=>a+b.cpu,0),restarts:rest.reduce((a,b)=>a+b.restarts,0),unhealthy:rest.reduce((a,b)=>a+b.unhealthy,0)}); }
     const total=H.mem.total;
     $('tooltable').innerHTML = `<table><thead><tr><th>Tool</th><th class="num">Containers</th><th class="num">Memory</th><th class="num">of box</th><th class="num">CPU</th><th class="num">Restarts</th><th>State</th></tr></thead><tbody>${rows.map(a=>{
       const s = a.unhealthy? 'crit' : a.restarts>5? 'warn' : 'good';
@@ -216,19 +221,22 @@ function render(){
 
   // ---- traffic
   if(N.available){
-    const hosts=Object.entries(N.requests_24h||{}).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const hostKeys=Object.keys(N.requests_24h||{});
+    const singleLog = hostKeys.length===1;
+    const hosts = singleLog ? (N.top_paths_24h[hostKeys[0]]||[]).slice(0,10) : Object.entries(N.requests_24h||{}).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    if(singleLog){ $('hostchart').previousElementSibling.previousElementSibling.textContent='Top paths, 24h'; $('hostchart').previousElementSibling.textContent=`One shared nginx log without $host, so paths stand in for hosts. ${fmtN(N.requests_24h[hostKeys[0]])} requests in 24h, ${Math.round((N.bot_share_24h[hostKeys[0]]||0)*100)}% from bots and monitors.`; }
     const W=600,rowH=28,L=250,Rm=140,Hh=hosts.length*rowH+30, max=Math.max(...hosts.map(h=>h[1]),1);
     const svg=svgEl('svg',{viewBox:`0 0 ${W} ${Hh}`,width:'100%',role:'img','aria-label':'Requests per host'});
-    hosts.forEach(([h,n],i)=>{ const y=i*rowH+6, w=(W-L-Rm)*n/max, bots=(N.bot_share_24h||{})[h]||0;
+    hosts.forEach(([h,n],i)=>{ const y=i*rowH+6, w=(W-L-Rm)*n/max, bots=singleLog?0:((N.bot_share_24h||{})[h]||0);
       const t=svgEl('text',{x:L-8,y:y+14,'text-anchor':'end'}); t.textContent=h.length>32?h.slice(0,31)+'…':h; svg.appendChild(t);
       const r=svgEl('rect',{x:L,y,width:Math.max(2,w),height:16,fill:'var(--s1)'}); svg.appendChild(r);
       const b=svgEl('rect',{x:L,y,width:Math.max(0,w*bots),height:16,fill:'var(--s4)'}); svg.appendChild(b);
       const v=svgEl('text',{x:L+Math.max(2,w)+6,y:y+14}); v.textContent=`${fmtN(n)} · ${(n/24/60).toFixed(2)}/min`; svg.appendChild(v);
       const st=(N.status_24h||{})[h]||{};
-      hover(r,`${h}: ${fmtN(n)} in 24h, ${fmtN((N.requests_1h||{})[h]||0)} last hour, ${Math.round(bots*100)}% bots, 5xx ${st['5xx']||0}, 4xx ${st['4xx']||0}`);
+      hover(r, singleLog? `${h}: ${fmtN(n)} requests in 24h` : `${h}: ${fmtN(n)} in 24h, ${fmtN((N.requests_1h||{})[h]||0)} last hour, ${Math.round(bots*100)}% bots, 5xx ${st['5xx']||0}, 4xx ${st['4xx']||0}`);
     });
     $('hostchart').innerHTML=''; $('hostchart').appendChild(svg);
-    const lg=document.createElement('div'); lg.className='legend'; lg.innerHTML=`<span><i style="background:var(--s1)"></i>requests</span><span><i style="background:var(--s4)"></i>of which bots and monitors</span>`; $('hostchart').appendChild(lg);
+    const lg=document.createElement('div'); lg.className='legend'; lg.innerHTML= singleLog ? `<span><i style="background:var(--s1)"></i>requests, /r /s /f /p codes folded</span>` : `<span><i style="background:var(--s1)"></i>requests</span><span><i style="background:var(--s4)"></i>of which bots and monitors</span>`; $('hostchart').appendChild(lg);
 
     const hours=Object.entries(N.hourly_24h||{});
     const W2=560,H2=180,L2=44,B2=28,T2=10; const mx=Math.max(...hours.map(h=>h[1]),1);
@@ -248,7 +256,7 @@ function render(){
   {
     const rows=[]; P.forEach(p=> (p.databases||[]).forEach(d=> rows.push({c:p.container,db:d.db,b:d.bytes,conn:p.connections,max:p.max_connections})));
     rows.sort((a,b)=>b.b-a.b);
-    $('dbtable').innerHTML = rows.length? `<table><thead><tr><th>Database</th><th>Container</th><th class="num">Size</th><th class="num">Conns</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r.db}</td><td>${r.c}</td><td class="num">${fmtB(r.b)}</td><td class="num">${r.conn||'?'} / ${r.max||'?'}</td></tr>`).join('')}</tbody></table>` + (R.length?`<p class="note" style="margin-top:10px">Redis: ${R.map(r=>`${r.container} ${fmtB(r.used)} used (peak ${fmtB(r.peak)}), ${r.keys} keys`).join('; ')}</p>`:'') : '<div class="empty">No Postgres container answered.</div>';
+    $('dbtable').innerHTML = rows.length? `<table><thead><tr><th>Database</th><th>Container</th><th class="num">Size</th>${rows.some(r=>r.conn)?'<th class="num">Conns</th>':''}</tr></thead><tbody>${rows.map(r=>`<tr><td>${r.db}</td><td>${r.c}</td><td class="num">${fmtB(r.b)}</td>${rows.some(x=>x.conn)?`<td class="num">${r.conn||'?'} / ${r.max||'?'}</td>`:''}</tr>`).join('')}</tbody></table>` + (R.length?`<p class="note" style="margin-top:10px">Redis: ${R.map(r=> r.used==null ? `${r.container} (password protected, not read)` : `${r.container} ${fmtB(r.used)} used (peak ${fmtB(r.peak)}), ${r.keys} keys`).join('; ')}</p>`:'') : '<div class="empty">No Postgres container answered.</div>';
     const tabs=[]; P.forEach(p=> (p.top_tables||[]).forEach(t=> tabs.push({...t,c:p.container}))); tabs.sort((a,b)=>b.bytes-a.bytes);
     $('tabletable').innerHTML = tabs.length? `<table><thead><tr><th>Table</th><th class="num">Rows</th><th class="num">Size</th></tr></thead><tbody>${tabs.slice(0,12).map(t=>`<tr><td>${t.table}</td><td class="num">${fmtN(t.rows)}</td><td class="num">${fmtB(t.bytes)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Table stats not readable.</div>';
   }
@@ -258,12 +266,15 @@ function render(){
   const add=(s,t,d,fix)=>W.push({s,t,d,fix});
   if(H.mem.used_pct>=85) add('crit','Memory is at '+H.mem.used_pct+'%','Only '+fmtB(H.mem.available)+' available on the whole box. The next spike picks an OOM victim, and Docker does not choose the tool you would.','Set memory limits per container (deploy/coolify/docker-compose.prod.yml does this for ChampBeam) and move the heaviest non-prod tool off the box.');
   else if(H.mem.used_pct>=70) add('warn','Memory is at '+H.mem.used_pct+'%',fmtB(H.mem.available)+' available. Fine today, no room for a second ChampBeam worker or a Postgres cache increase.','Memory limits per container, then a bigger droplet or a second box for prod.');
-  if(H.swap.total && swapPct>=30) add('warn','Swap in use ('+swapPct+'%)','Swapping means something already did not fit in RAM. Latency on the swapped tool is unpredictable.','Find the container whose RSS grew (memory chart) and cap it.');
+  if(H.swap.total && swapPct>=70) add('crit','Swap is '+swapPct+'% full ('+fmtB(H.swap.used)+')','The box is holding more than it has RAM for. Idle tools get paged out and the first request to any of them stalls while they page back in; a spike with swap this full ends in the OOM killer.','Cut resident workload: stop the dev and duplicate stacks, cap each container, then move prod to its own box.');
+  else if(H.swap.total && swapPct>=30) add('warn','Swap in use ('+swapPct+'%)','Swapping means something already did not fit in RAM. Latency on the swapped tool is unpredictable.','Find the container whose RSS grew (memory chart) and cap it.');
+  if(N.available){ const k=Object.keys(N.requests_24h||{})[0]; const st=(N.status_24h||{})[k]||{}; const tot=(N.requests_24h||{})[k]||1; if((st['4xx']||0)/tot>0.2) add('warn',`${Math.round(st['4xx']/tot*100)}% of requests are 4xx`,'Mostly scanners probing /.env, /login and friends, plus unauthenticated health pollers. Each one still costs a worker slot on the app it hits.','Cloudflare in front of every public host with a WAF rule for the usual probes; the sslip hosts are reachable by IP and get the raw internet.'); }
+  if(N.available && Object.keys(N.requests_24h||{}).length===1) add('warn','nginx log has no $host field','Traffic cannot be split per tool, so this report cannot say which tool takes the load.','Add $host to the nginx log_format on the box (one line in /etc/nginx/nginx.conf) and reload.');
   if(!H.swap.total) add('warn','No swap configured','With no swap, memory pressure goes straight to the OOM killer. A 2 GB swap file is a cheap shock absorber on a 3.8 GB box.','fallocate -l 2G /swapfile; chmod 600; mkswap; swapon; add to fstab. vm.swappiness=10.');
   if(disk.pct>=85) add('crit','Root disk at '+disk.pct+'%','Docker build cache, container logs and Postgres live here. A full disk stops every tool at once, and ChampBeam uploads if STORAGE_BACKEND is local.','docker system prune, log rotation (json-file max-size) on every service, then R2 for uploads and backups.');
   else if(disk.pct>=70) add('warn','Root disk at '+disk.pct+'%','Growth here is mostly logs and build cache, which nobody watches.','Weekly docker builder prune and json-file log rotation on every Coolify service.');
   if(Math.max(H.cpu_busy_pct_1s,loadPct)>=90) add('crit','CPU saturated','Load per vCPU above 0.9. Every request on every tool is queuing.','Find the hot container in the memory chart (CPU column) and give prod its own cores.');
-  const restarting=C.filter(c=>c.restarts>5); if(restarting.length) add('warn','Containers restarting: '+restarting.map(c=>c.name).join(', '),'Repeated restarts hide crashes behind restart: unless-stopped. Each restart is a short outage for that tool.','docker logs on each; fix the crash or cap memory if it is the OOM killer.');
+  const restarting=C.filter(c=>c.restarts>5 && c.status==='running'); if(restarting.length) add('warn','Containers restarting: '+restarting.map(c=>c.name).join(', '),'Repeated restarts hide crashes behind restart: unless-stopped. Each restart is a short outage for that tool.','docker logs on each; fix the crash or cap memory if it is the OOM killer.');
   const down=C.filter(c=>c.status!=='running'||(c.health&&c.health!=='healthy')); if(down.length) add('crit','Not healthy: '+down.map(c=>c.name).join(', '),'Exited or unhealthy right now.','docker ps -a and the Coolify deployment log for each.');
   P.forEach(p=>{ const c=+p.connections,m=+p.max_connections; if(c&&m&&c/m>=0.7) add('warn',`Postgres ${p.container} connections ${c}/${m}`,'Several tools share this Postgres. ChampBeam alone can open 15 per worker.','Lower pool sizes or add PgBouncer in front of the shared Postgres.'); });
   if(N.available){ Object.entries(N.status_24h||{}).forEach(([h,st])=>{ const tot=(N.requests_24h||{})[h]||1; if((st['5xx']||0)/tot>0.01) add('warn',`${h}: ${(st['5xx']/tot*100).toFixed(1)}% 5xx in 24h`,'More than 1 in 100 requests failed at the origin.','Check the container logs for that host and the deploy timeline; a redeploy window shows as a 502 burst.'); }); }
