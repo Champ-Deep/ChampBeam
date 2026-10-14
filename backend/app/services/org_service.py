@@ -109,12 +109,15 @@ async def sync_from_token(
     if cached and cached[0] == role and (now - cached[1]) < _SYNC_TTL_SECONDS:
         return
     try:
-        org = await upsert_organization(session, clerk_org_id, slug=slug)
-        await upsert_membership(session, org.id, user.id, role)
+        # The caller may have just created the user. Flush it before opening
+        # the savepoint so a failed mirror write cannot roll that user back.
+        await session.flush()
+        async with session.begin_nested():
+            org = await upsert_organization(session, clerk_org_id, slug=slug)
+            await upsert_membership(session, org.id, user.id, role)
         _sync_cache[cache_key] = (role, now)
     except Exception:
         logger.warning("org sync_from_token failed for org=%s", clerk_org_id, exc_info=True)
-        await session.rollback()
 
 
 async def get_membership(
