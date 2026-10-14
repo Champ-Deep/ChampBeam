@@ -29,6 +29,7 @@ describe('recent opens', () => {
     const second = renderHook(() => useClickNotifications(true, 'user_1'), { wrapper });
     expect(second.result.current.recentClicks).toHaveLength(1);
     expect(toastSpy).not.toHaveBeenCalled();
+    const mobile = renderHook(() => useClickNotifications(true, 'user_1'), { wrapper });
     rows = [item('new'), item('old')];
     await act(async () => { await client.invalidateQueries({ queryKey: ['recent-clicks', 'user_1'] }); });
     await waitFor(() => expect(second.result.current.recentClicks).toHaveLength(2));
@@ -36,6 +37,7 @@ describe('recent opens', () => {
     await act(async () => { await second.result.current.clearAll(); });
     await waitFor(() => expect(second.result.current.recentClicks).toHaveLength(0));
     second.unmount();
+    mobile.unmount();
     client.clear();
   });
 });
