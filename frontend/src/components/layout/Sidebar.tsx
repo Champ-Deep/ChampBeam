@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { OrganizationSwitcher, UserButton, useAuth } from '@clerk/react';
+import { OrganizationSwitcher, UserButton, useAuth, useUser } from '@clerk/react';
 import { Logo } from '../ui/Logo';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -52,9 +52,10 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
 
 export function Sidebar() {
   const location = useLocation();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
+  const { user } = useUser();
   const { inOrg, canManageTeam } = useOrgContext();
-  const { recentClicks } = useClickNotifications(!!isSignedIn);
+  const { recentClicks, clearAll } = useClickNotifications(!!isSignedIn, userId);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showBell, setShowBell] = useState(false);
@@ -70,9 +71,9 @@ export function Sidebar() {
 
   // Counts share the pages' query keys, so these are cache hits once a page has
   // loaded and they refresh together.
-  const { data: links } = useQuery({
-    queryKey: ['utm', 'links', 365],
-    queryFn: () => utmApi.getLinkPerformance({ days: 365 }),
+  const { data: linkOverview } = useQuery({
+    queryKey: ['utm', 'overview'],
+    queryFn: () => utmApi.getOverview(),
     enabled: !!isSignedIn,
     staleTime: 60 * 1000,
   });
@@ -106,7 +107,7 @@ export function Sidebar() {
 
   const items: NavItem[] = [
     { to: '/', label: 'Generator', icon: Zap, end: true },
-    { to: '/links', label: 'Links', icon: Link2, count: links?.length },
+    { to: '/links', label: 'Links', icon: Link2, count: linkOverview?.total_tracked_links },
     { to: '/files', label: 'Files', icon: FileText, count: files?.length },
     { to: '/pages', label: 'Pages', icon: Globe, count: pages?.length },
     { to: '/vault', label: 'Vault', icon: Radio, requiresVault: true },
@@ -172,6 +173,8 @@ export function Sidebar() {
             >
               <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--cb-divider)' }}>
                 <p className="text-sm font-semibold" style={{ color: 'var(--cb-ink)' }}>Recent opens</p>
+                {recentClicks.length > 0 && <button type="button" onClick={() => void clearAll()}
+                  className="text-xs text-brand-purple hover:underline">Clear All</button>}
               </div>
               {recentClicks.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm" style={{ color: 'var(--cb-muted)' }}>
@@ -180,8 +183,8 @@ export function Sidebar() {
               ) : (
                 recentClicks.slice(0, 10).map((click) => (
                   <div key={click.id} className="rounded-xl px-3 py-2.5 hover:bg-[var(--cb-bg)]">
-                    <p className="truncate text-sm" style={{ color: 'var(--cb-ink)' }} title={click.original_url}>
-                      {click.original_url.length > 34 ? click.original_url.slice(0, 34) + '…' : click.original_url}
+                    <p className="truncate text-sm" style={{ color: 'var(--cb-ink)' }} title={click.filename || click.original_url || undefined}>
+                      {(click.filename || click.original_url || 'Link open').slice(0, 34)}
                     </p>
                     <p className="mt-0.5 text-xs" style={{ color: 'var(--cb-muted)' }}>
                       {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}
@@ -201,6 +204,9 @@ export function Sidebar() {
         >
           <UserButton appearance={{ elements: { userButtonAvatarBox: 'h-8 w-8' } }} />
           <div className="min-w-0 flex-1">
+            <p className="truncate px-1 text-xs font-medium text-white" title={user?.fullName || user?.primaryEmailAddress?.emailAddress || undefined}>
+              {user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || 'Account'}
+            </p>
             <OrganizationSwitcher
               hidePersonal={false}
               afterSelectOrganizationUrl="/library"

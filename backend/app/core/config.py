@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     clerk_webhook_secret: str = ""
     # Clerk Backend API base; override only for tests.
     clerk_api_url: str = "https://api.clerk.com"
+    # Comma-separated Clerk user IDs allowed to view platform-wide system spend.
+    system_admin_clerk_ids: str = ""
 
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:5173"

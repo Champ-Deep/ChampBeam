@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, BookmarkCheck, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, BookmarkCheck, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
@@ -11,11 +11,13 @@ import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '..
 import { PresetsManager } from './PresetsManager';
 import { SystemSettings } from '../components/SystemSettings';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
+import { systemApi } from '../api/system';
+import { useAuth } from '@clerk/react';
 
-type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance' | 'system';
+type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance' | 'notifications' | 'system';
 
 function initialTab(param: string | null): SettingsTab {
-  if (param === 'presets' || param === 'appearance' || param === 'apikeys' || param === 'system')
+  if (param === 'presets' || param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system')
     return param;
   return 'domains';
 }
@@ -48,10 +50,25 @@ function validateSlug(slug: string): string | null {
 }
 
 export function SettingsPage() {
+  const { userId } = useAuth();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<SettingsTab>(initialTab(searchParams.get('tab')));
+  const { data: systemAccess } = useQuery({
+    queryKey: ['system', 'access', userId],
+    queryFn: () => systemApi.access(),
+    enabled: !!userId,
+  });
+  const canViewSystem = !!systemAccess?.is_admin;
+  const clearNotifications = useMutation({
+    mutationFn: () => utmApi.clearRecentClicks(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['recent-clicks'] });
+      toast.success('Recent opens cleared.');
+    },
+    onError: (error: unknown) => toast.error(apiErrorDetail(error) ?? 'Could not clear recent opens.'),
+  });
 
   const { data: config } = useQuery<DomainsConfig>({
     queryKey: ['domains-config'],
@@ -198,7 +215,11 @@ export function SettingsPage() {
             <Palette className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             Appearance
           </button>
-          <button
+          <button onClick={() => setTab('notifications')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${tab === 'notifications' ? 'border-brand-purple text-brand-purple' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            <Bell className="h-4 w-4 inline mr-1.5 -mt-0.5" />Notifications
+          </button>
+          {canViewSystem && <button
             onClick={() => setTab('system')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
               tab === 'system'
@@ -208,13 +229,18 @@ export function SettingsPage() {
           >
             <Activity className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             System
-          </button>
+          </button>}
         </div>
       </div>
 
       {tab === 'appearance' && <AppearanceSettings />}
+      {tab === 'notifications' && <Card>
+        <CardHeader><CardTitle>Recent opens</CardTitle></CardHeader>
+        <p className="mb-4 text-sm text-slate-600">Opens stay in your notifications across sessions until you clear them. Your analytics history is not deleted.</p>
+        <Button variant="outline" onClick={() => clearNotifications.mutate()} disabled={clearNotifications.isPending}>Clear All</Button>
+      </Card>}
 
-      {tab === 'system' && <SystemSettings />}
+      {tab === 'system' && (canViewSystem ? <SystemSettings /> : <p className="text-sm text-slate-600">System access requires a platform admin.</p>)}
 
       {tab === 'domains' && (
         <>
