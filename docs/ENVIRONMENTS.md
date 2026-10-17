@@ -1,5 +1,10 @@
 # Environments: how a change gets from a laptop to prod
 
+> **Status 2026-10-17: the Coolify cutover is on hold.** Prod is the Railway
+> project `ChampBeam`, environment `production`, auto-deploying `main`; the
+> Railway `Testing` environment is the test stack. The `deploy-prod` CI job was
+> removed. The Coolify sections below describe the parked target, not the live one.
+
 Two backends, one image. Railway is the test stack, Deepify (Coolify on the VPS)
 is prod, Vercel serves the UI for both. Everything that differs between the two
 is an environment variable; nothing that differs is in code.

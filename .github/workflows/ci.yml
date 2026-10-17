@@ -1,19 +1,13 @@
 # ChampBeam CI gate.
 #
-# Runs on every pull request and on every push to `staging` (Railway test) and
-# `main` (Deepify prod). Nothing deploys unless this is green:
-#   * Railway: enable "Wait for CI" on the service (Settings -> Deploy ->
-#     Check Suites) so a red run blocks the test deploy.
-#   * Coolify (prod): auto-deploy is OFF on the app; the `deploy-prod` job below
-#     calls the Coolify deploy webhook only after every check passes on main.
-#   * Vercel: set "Ignored Build Step" to skip previews on draft PRs if wanted;
-#     production builds come from `main` and are already behind this gate via
-#     branch protection (require the `ci / gate` check).
-#
-# Secrets used (repo -> Settings -> Secrets and variables -> Actions):
-#   COOLIFY_DEPLOY_WEBHOOK   the app's "Deploy webhook" URL from Coolify
-#   COOLIFY_API_TOKEN        a Coolify API token (Keys & Tokens), deploy scope
-#   PROD_HEALTH_URL          https://share.lakeb2b.com/health (or the sslip host)
+# Runs on every pull request and on every push to `staging` and `main`.
+# Deploys are owned by the platforms, gated by this workflow:
+#   * Railway (backend, prod and Testing): enable "Wait for CI" on the service
+#     (Settings -> Deploy -> Check Suites) so a red run blocks the deploy.
+#   * Vercel (frontend): production builds come from `main`, behind branch
+#     protection that requires the `gate` check.
+# No deploy secrets are needed here. Coolify deploy job removed 2026-10-17;
+# the compose files under deploy/coolify stay as reference only.
 
 name: ci
 
@@ -91,24 +85,3 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "all checks green"
-
-  deploy-prod:
-    name: deploy prod (Coolify)
-    needs: gate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Trigger Coolify deploy
-        run: |
-          curl -fsS -X GET "${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
-      - name: Wait for the new build to answer /health
-        run: |
-          for i in $(seq 1 40); do
-            sleep 15
-            body=$(curl -sS -m 10 "${{ secrets.PROD_HEALTH_URL }}" || true)
-            echo "$i: $body"
-            echo "$body" | grep -q '"healthy"' && exit 0
-          done
-          echo "::error::prod never reported healthy after deploy"; exit 1
