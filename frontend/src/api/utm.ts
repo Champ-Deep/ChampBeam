@@ -251,12 +251,14 @@ export interface LinkTag {
 
 export interface RecentClick {
   id: string;
+  type: 'link' | 'file';
+  filename: string | null;
   clicked_at: string | null;
   country: string | null;
   region: string | null;
   device_type: string | null;
   browser: string | null;
-  original_url: string;
+  original_url: string | null;
   short_code: string | null;
   utm_campaign: string | null;
   utm_source: string | null;
@@ -400,15 +402,26 @@ export const utmApi = {
   },
 
   async getLinkPerformance(
-    opts?: { projectName?: string; projectId?: string } & DateRangeOpts
+    opts?: { projectName?: string; projectId?: string; allTime?: boolean } & DateRangeOpts
   ): Promise<LinkPerformanceItem[]> {
     const params = _dateParams(opts);
+    if (opts?.allTime) params.append('all_time', 'true');
     if (opts?.projectId) params.append('project_id', opts.projectId);
     else if (opts?.projectName) params.append('project_name', opts.projectName);
-    const response = await api.get<LinkPerformanceItem[]>(
-      _appendQuery('/utm/analytics/links', params)
-    );
-    return _arr<LinkPerformanceItem>(response.data);
+    const items: LinkPerformanceItem[] = [];
+    const pageSize = 200;
+    let pageLength = pageSize;
+    while (pageLength === pageSize) {
+      params.set('limit', String(pageSize));
+      params.set('offset', String(items.length));
+      const response = await api.get<LinkPerformanceItem[]>(
+        _appendQuery('/utm/analytics/links', params)
+      );
+      const page = _arr<LinkPerformanceItem>(response.data);
+      items.push(...page);
+      pageLength = opts?.allTime ? page.length : 0;
+    }
+    return items;
   },
 
   async getPerformanceOverTime(
@@ -603,6 +616,9 @@ export const utmApi = {
       _appendQuery('/utm/analytics/clicks/recent', params)
     );
     return _arr<RecentClick>(response.data);
+  },
+  async clearRecentClicks(): Promise<void> {
+    await api.post('/utm/analytics/clicks/recent/clear');
   },
 
   // ============================================================

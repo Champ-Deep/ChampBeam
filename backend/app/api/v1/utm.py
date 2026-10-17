@@ -7,14 +7,14 @@ Preset CRUD, link generation, bulk CSV processing, and analytics.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID as _UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete as sa_delete, func, literal_column, or_, select, update
+from sqlalchemy import String, cast, delete as sa_delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -485,7 +485,17 @@ async def update_link(
         raise HTTPException(status_code=404, detail="Link not found.")
 
     if data.project_id is not None:
-        link.project_id = _UUID(data.project_id) if data.project_id else None
+        project_uuid = _to_uuid(data.project_id)
+        if data.project_id and project_uuid is None:
+            raise HTTPException(status_code=400, detail="Invalid project ID.")
+        if project_uuid:
+            from app.models.utm import Project
+            owned = await session.scalar(select(Project.id).where(
+                Project.id == project_uuid, Project.user_id == user.user_id,
+            ))
+            if owned is None:
+                raise HTTPException(status_code=404, detail="Project not found.")
+        link.project_id = project_uuid
 
     if data.alias is not None:
         new_alias = _validate_alias(data.alias)  # "" clears the name
@@ -885,19 +895,19 @@ async def get_link_performance(
     project_name: Optional[str] = Query(default=None, description="Filter by project name"),
     project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
     days: int = Query(default=30, ge=1, le=365),
+    all_time: bool = Query(default=False, description="Include links created before the selected window"),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
     end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """List all tracked links with click stats, ordered by click_count desc."""
-    range_start, range_end = _resolve_date_range(days, start_date, end_date)
-
-    conditions = [
-        LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= range_start,
-        LinkClick.created_at <= range_end,
-    ]
+    """List tracked links with lifetime click stats, ordered by click count."""
+    conditions = [LinkClick.user_id == user.user_id]
+    if not all_time:
+        range_start, range_end = _resolve_date_range(days, start_date, end_date)
+        conditions.extend((LinkClick.created_at >= range_start, LinkClick.created_at <= range_end))
     if project_id:
         conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
@@ -906,8 +916,8 @@ async def get_link_performance(
     result = await session.execute(
         select(LinkClick)
         .where(*conditions)
-        .order_by(LinkClick.click_count.desc(), LinkClick.created_at.desc())
-        .limit(200)
+        .order_by(LinkClick.click_count.desc(), LinkClick.created_at.desc(), LinkClick.id.desc())
+        .limit(limit).offset(offset)
     )
 
     links = list(result.scalars().all())
@@ -954,40 +964,42 @@ async def get_performance_over_time(
     """Get link generation and click counts over time (daily buckets)."""
     range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
-    conditions = [
-        LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= range_start,
-        LinkClick.created_at <= range_end,
-    ]
+    conditions = [LinkClick.user_id == user.user_id]
     if project_id:
         conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
-    # The date_trunc unit must be a SQL literal, not a bound parameter, or
-    # Postgres treats the SELECT and GROUP BY occurrences as distinct
-    # expressions and raises a GroupingError. Build one expression and reuse it.
-    day_bucket = func.date_trunc(literal_column("'day'"), LinkClick.created_at)
-    result = await session.execute(
+    # Creation and click dates are independent. An old link clicked today must
+    # appear today, not on its creation date or disappear from the window.
+    created_day = func.date(LinkClick.created_at)
+    created = await session.execute(
         select(
-            day_bucket.label("date"),
+            created_day.label("date"),
             func.count(LinkClick.id).label("links_created"),
-            func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
-            func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
         )
-        .where(*conditions)
-        .group_by(day_bucket)
-        .order_by(day_bucket)
+        .where(*conditions, LinkClick.created_at >= range_start, LinkClick.created_at <= range_end)
+        .group_by(created_day)
     )
-
-    data = []
-    for row in result.all():
-        data.append({
-            "date": row.date.isoformat() if row.date else None,
-            "links_created": row.links_created or 0,
-            "total_clicks": int(row.total_clicks) if row.total_clicks else 0,
-            "unique_clicks": int(row.unique_clicks) if row.unique_clicks else 0,
-        })
+    clicked_day = func.date(ClickEvent.clicked_at)
+    visitor = cast(ClickEvent.link_id, String) + ":" + func.coalesce(
+        ClickEvent.ip_address, cast(ClickEvent.id, String),
+    )
+    clicked = await session.execute(
+        select(clicked_day.label("date"), func.count(ClickEvent.id).label("total_clicks"),
+               func.count(func.distinct(visitor)).label("unique_clicks"))
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(*conditions, ClickEvent.clicked_at >= range_start, ClickEvent.clicked_at <= range_end)
+        .group_by(clicked_day)
+    )
+    by_day = {str(row.date): {"date": str(row.date), "links_created": row.links_created,
+                              "total_clicks": 0, "unique_clicks": 0} for row in created.all()}
+    for row in clicked.all():
+        item = by_day.setdefault(str(row.date), {"date": str(row.date), "links_created": 0,
+                                                 "total_clicks": 0, "unique_clicks": 0})
+        item["total_clicks"] = row.total_clicks
+        item["unique_clicks"] = row.unique_clicks
+    data = [by_day[day] for day in sorted(by_day)]
 
     return {"days": days, "data": data}
 
@@ -2437,15 +2449,23 @@ async def get_recent_clicks(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get recent click events for polling-based notifications."""
+    from app.models.user import User
+    owner = await session.get(User, _to_uuid(user.user_id))
+    if owner is None:
+        raise HTTPException(status_code=404, detail="User not found")
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            # Strip timezone info, DB uses naive timestamps (UTC assumed)
+            # Database timestamps are naive UTC; normalize offset-aware input first.
+            if since_dt.tzinfo is not None:
+                since_dt = since_dt.astimezone(timezone.utc)
             since_dt = since_dt.replace(tzinfo=None)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid timestamp format")
     else:
-        since_dt = datetime.utcnow() - timedelta(minutes=5)
+        since_dt = datetime.min
+    if owner.notifications_cleared_at:
+        since_dt = max(since_dt, owner.notifications_cleared_at)
 
     result = await session.execute(
         select(
@@ -2501,3 +2521,17 @@ async def get_recent_clicks(
         }
         for r in result.all()
     ]
+
+
+@router.post("/analytics/clicks/recent/clear", status_code=204)
+async def clear_recent_clicks(
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Dismiss the user's existing notifications across devices."""
+    from app.models.user import User
+    owner = await session.get(User, _to_uuid(user.user_id))
+    if owner is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    owner.notifications_cleared_at = datetime.utcnow()
+    await session.commit()
