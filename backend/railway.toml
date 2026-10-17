@@ -1,0 +1,23 @@
+# Railway = the TEST environment (service root directory must be `backend`).
+#
+# One-time dashboard settings on the Railway service, then this file rules:
+#   Settings -> Source   -> Root Directory: backend
+#   Settings -> Source   -> Branch: staging          (never main)
+#   Settings -> Deploy   -> Wait for CI: on           (GitHub check suites)
+#   Settings -> Config-as-code path: backend/railway.toml (if not auto-detected)
+#
+# Builds the SAME Dockerfile Coolify builds for prod, so the test deploy and
+# the prod deploy are byte-for-byte the same image. The Dockerfile's CMD runs
+# ensure_geoip -> bootstrap_db -> alembic upgrade head -> uvicorn on $PORT.
+# Migrations run at container start, never at build time (no DB network then).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+numReplicas = 1

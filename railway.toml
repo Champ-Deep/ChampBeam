@@ -1,3 +1,8 @@
+# LEGACY nixpacks config, used only while the Railway service's Root Directory
+# is the repo root. The target setup is Root Directory = backend, which makes
+# Railway read backend/railway.toml and build backend/Dockerfile (same image as
+# prod). Once that setting is flipped and a staging deploy is green, delete this
+# file, the Procfile and the root requirements.txt together.
 [build]
 builder = "nixpacks"
 
