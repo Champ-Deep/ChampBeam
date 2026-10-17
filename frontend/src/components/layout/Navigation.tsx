@@ -39,9 +39,9 @@ const navLinks: NavLink[] = [
 
 export function Navigation() {
   const location = useLocation();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
   const { inOrg, isAdmin, canManageTeam } = useOrgContext();
-  const { recentClicks } = useClickNotifications(!!isSignedIn);
+  const { recentClicks, clearAll } = useClickNotifications(!!isSignedIn, userId);
   const { data: vaultConfig } = useQuery({
     queryKey: ['champvault-config'],
     queryFn: () => champvaultApi.config(),
@@ -137,6 +137,7 @@ export function Navigation() {
                   <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-slate-200 z-50 max-h-96 overflow-y-auto">
                     <div className="px-4 py-3 border-b border-slate-100">
                       <p className="text-sm font-semibold text-slate-900">Recent Clicks</p>
+                      {recentClicks.length > 0 && <button type="button" onClick={() => void clearAll()} className="text-xs text-brand-purple hover:underline">Clear All</button>}
                     </div>
                     {recentClicks.length === 0 ? (
                       <div className="px-4 py-6 text-center text-sm text-slate-400">No recent clicks</div>
@@ -144,10 +145,8 @@ export function Navigation() {
                       <div className="divide-y divide-slate-100">
                         {recentClicks.slice(0, 10).map((click) => (
                           <div key={click.id} className="px-4 py-3 hover:bg-slate-50">
-                            <p className="text-sm text-slate-900 truncate" title={click.original_url}>
-                              {click.original_url.length > 35
-                                ? click.original_url.slice(0, 35) + '...'
-                                : click.original_url}
+                            <p className="text-sm text-slate-900 truncate" title={click.filename || click.original_url || undefined}>
+                              {(click.filename || click.original_url || 'Link open').slice(0, 35)}
                             </p>
                             <p className="text-xs text-slate-500 mt-0.5">
                               {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}

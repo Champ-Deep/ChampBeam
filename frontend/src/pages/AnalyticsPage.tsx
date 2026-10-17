@@ -48,6 +48,7 @@ export function AnalyticsPage() {
   // Shared filters
   const [dateRange, setDateRange] = useState<DateRangeOpts>({ days: 30 });
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsError, setProjectsError] = useState(false);
   const [projectId, setProjectId] = useState<string>('');
 
   // Dashboard data
@@ -77,7 +78,7 @@ export function AnalyticsPage() {
   const [campaignsSearch, setCampaignsSearch] = useState('');
 
   useEffect(() => {
-    utmApi.getProjects().then(setProjects).catch(() => {});
+    utmApi.getProjects().then(setProjects).catch(() => setProjectsError(true));
   }, []);
 
   // When the project list changes (e.g. it arrives after the Projects tab was
@@ -157,7 +158,7 @@ export function AnalyticsPage() {
       setLinksLoading(true);
       const data = await utmApi.getLinkPerformance({
         projectId: projectId || undefined,
-        ...dateRange,
+        allTime: true,
       });
       setLinksList(data);
     } catch {
@@ -165,7 +166,7 @@ export function AnalyticsPage() {
     } finally {
       setLinksLoading(false);
     }
-  }, [projectId, dateRange]);
+  }, [projectId]);
 
   useEffect(() => {
     if (activeTab === 'links') loadLinks();
@@ -217,7 +218,7 @@ export function AnalyticsPage() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Analytics</h1>
-          <p className="text-slate-600 mt-1">Track UTM performance across your links.</p>
+          <p className="text-slate-600 mt-1">Lifetime totals and activity in the selected date range.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <select
@@ -324,7 +325,7 @@ export function AnalyticsPage() {
                 <Card className="bg-gradient-to-br from-brand-purple/5 to-brand-purple/10">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-brand-purple font-medium">Tracked Links</p>
+                      <p className="text-sm text-brand-purple font-medium">Tracked Links (all time)</p>
                       <p className="text-2xl font-bold text-slate-900">{(overview.total_tracked_links ?? 0).toLocaleString()}</p>
                     </div>
                     <div className="w-12 h-12 bg-brand-purple/20 rounded-lg flex items-center justify-center">
@@ -335,7 +336,7 @@ export function AnalyticsPage() {
                 <Card className="bg-gradient-to-br from-green-50 to-green-100">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-green-600 font-medium">Total Clicks</p>
+                      <p className="text-sm text-green-600 font-medium">Total Clicks (all time)</p>
                       <p className="text-2xl font-bold text-green-900">{(overview.total_clicks ?? 0).toLocaleString()}</p>
                     </div>
                     <div className="w-12 h-12 bg-green-200 rounded-lg flex items-center justify-center">
@@ -346,7 +347,7 @@ export function AnalyticsPage() {
                 <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-purple-600 font-medium">Unique Clicks</p>
+                      <p className="text-sm text-purple-600 font-medium">Unique Clicks (all time)</p>
                       <p className="text-2xl font-bold text-purple-900">{(overview.unique_clicks ?? 0).toLocaleString()}</p>
                     </div>
                     <div className="w-12 h-12 bg-purple-200 rounded-lg flex items-center justify-center">
@@ -457,7 +458,7 @@ export function AnalyticsPage() {
               className="flex-1 min-w-[240px] max-w-md rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
             />
             <p className="text-xs text-slate-500">
-              Click any link to drill into its analytics.
+              All-time links and lifetime clicks. Click any link for date-filtered analytics.
             </p>
           </div>
 
@@ -568,6 +569,8 @@ export function AnalyticsPage() {
         <>
           {projectsLoading && projectOverviews.size === 0 ? (
             <LoadingSpinner />
+          ) : projectsError ? (
+            <EmptyState icon={FolderOpen} title="Could not load projects" description="Check your connection and reload analytics." />
           ) : projects.length === 0 ? (
             <EmptyState
               icon={FolderOpen}

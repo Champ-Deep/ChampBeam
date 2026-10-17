@@ -11,6 +11,8 @@ import {
   Globe,
   History,
   KeyRound,
+  Layers,
+  Link2,
   Pencil,
   RefreshCw,
   Repeat,
@@ -33,7 +35,7 @@ import {
   useConfirm
 } from '../components/ui';
 import { pagesApi } from '../api/pages';
-import type { BeamPage, PagePatch, PageVersion } from '../api/pages';
+import type { BatchPageResult, BeamPage, PageLinksResponse, PagePatch, PageVersion } from '../api/pages';
 import { utmApi } from '../api/utm';
 import type { Domain } from '../api/utm';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
@@ -44,7 +46,7 @@ const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 const BEAM_STATE_DOCS_URL = 'https://github.com/Champ-Deep/ChampUTM/blob/main/docs/API.md#pages';
 
 type PublishMode = 'upload' | 'paste';
-type RowPanel = { mode: 'idle' } | { mode: 'edit' } | { mode: 'versions' };
+type RowPanel = { mode: 'idle' } | { mode: 'edit' } | { mode: 'versions' } | { mode: 'links' };
 
 function isHtmlFile(file: File): boolean {
   return /\.html?$/i.test(file.name) || file.type === 'text/html';
@@ -113,6 +115,16 @@ export function PagesPage() {
     onError: (err: unknown) => toast.error(apiErrorDetail(err) ?? 'Rollback failed.'),
   });
 
+  const batchMutation = useMutation({
+    mutationFn: ({ files, domainId }: { files: File[]; domainId?: string }) =>
+      pagesApi.batch(files, domainId),
+    onSuccess: () => {
+      toast.success('Published as a set. Cross-links were rewritten automatically.');
+      invalidate();
+    },
+    onError: (err: unknown) => toast.error(publishErrorMessage(err)),
+  });
+
   const copyUrl = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
@@ -137,6 +149,15 @@ export function PagesPage() {
         isPublishing={createMutation.isPending}
         onPublish={(data) => createMutation.mutate(data)}
       />
+
+      <BatchPublishCard
+        domains={activeDomains}
+        isPublishing={batchMutation.isPending}
+        onPublish={(files, domainId) => batchMutation.mutate({ files, domainId })}
+      />
+      {batchMutation.data && batchMutation.data.length > 0 && (
+        <BatchResults results={batchMutation.data} />
+      )}
 
       <Card padding="none">
         <div className="p-6 pb-0">
@@ -408,6 +429,9 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
           <Button variant="ghost" size="sm" onClick={() => toggle('edit')} leftIcon={<Pencil className="h-4 w-4" />}>
             Edit
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => toggle('links')} leftIcon={<Link2 className="h-4 w-4" />} title="See and reroute the links inside this page">
+            Links
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => toggle('versions')} leftIcon={<History className="h-4 w-4" />}>
             Versions
           </Button>
@@ -422,6 +446,9 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
       )}
       {panel.mode === 'versions' && (
         <VersionsPanel page={page} onRollback={onRollback} />
+      )}
+      {panel.mode === 'links' && (
+        <LinksPanel page={page} onDone={() => setPanel({ mode: 'idle' })} />
       )}
     </div>
   );
@@ -579,6 +606,269 @@ function VersionsPanel({ page, onRollback }: { page: BeamPage; onRollback: (vers
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Batch publish ("publish a set")
+// ---------------------------------------------------------------------------
+
+function BatchPublishCard({
+  domains,
+  isPublishing,
+  onPublish,
+}: {
+  domains: Domain[];
+  isPublishing: boolean;
+  onPublish: (files: File[], domainId?: string) => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [domainId, setDomainId] = useState('');
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []).filter(isHtmlFile);
+    if (picked.length !== (e.target.files?.length ?? 0)) {
+      toast.error('Only .html files can be published in a set.');
+    }
+    setFiles((prev) => [...prev, ...picked]);
+    e.target.value = '';
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Layers className="h-5 w-5" />
+          Publish a set
+        </CardTitle>
+      </CardHeader>
+      <p className="text-sm text-slate-600 mb-4">
+        Drop several HTML pages together and their links to each other are rewritten
+        automatically to clean /p/ URLs. Great for multi-page plans, funnels and dashboards.
+      </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <input
+          type="file"
+          multiple
+          accept={PAGE_ACCEPT}
+          onChange={pick}
+          disabled={isPublishing}
+          className="block w-full sm:w-auto text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-purple/10 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-brand-purple hover:file:bg-brand-purple/20 disabled:opacity-50"
+        />
+        {files.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {files.map((f, i) => (
+              <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                {f.name}
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  className="text-slate-400 hover:text-slate-700"
+                  aria-label={`Remove ${f.name}`}
+                >
+                  <Upload className="h-3 w-3 rotate-45" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {domains.length > 0 && (
+          <select
+            value={domainId}
+            onChange={(e) => setDomainId(e.target.value)}
+            disabled={isPublishing}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple disabled:opacity-50"
+          >
+            <option value="">Platform default</option>
+            {domains.map((d) => (
+              <option key={d.id} value={d.id}>{d.hostname}</option>
+            ))}
+          </select>
+        )}
+        <Button
+          onClick={() => {
+            if (files.length === 0) {
+              toast.error('Pick at least one .html file first.');
+              return;
+            }
+            onPublish(files, domainId || undefined);
+          }}
+          disabled={isPublishing || files.length === 0}
+          leftIcon={<Layers className="h-4 w-4" />}
+        >
+          {isPublishing ? `Publishing ${files.length}…` : `Publish ${files.length || ''} ${files.length === 1 ? 'page' : 'pages'}`}
+        </Button>
+      </div>
+      {isPublishing && files.length > 1 && (
+        <p className="text-xs text-slate-500 mt-3">
+          Links between these files are being rewritten to their new /p/ slugs.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/** Result list after a batch publish: per-file rewritten/unresolved counts. */
+function BatchResults({ results }: { results: BatchPageResult[] }) {
+  const [open, setOpen] = useState(false);
+  const totalRewritten = results.reduce((n, r) => n + r.rewritten.length, 0);
+  const totalUnresolved = results.reduce((n, r) => n + r.unresolved.length, 0);
+  return (
+    <Card className="mb-6 border-brand-purple/30">
+      <div className="p-4 sm:p-5">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-3 text-left"
+          onClick={() => setOpen((o) => !o)}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-slate-900">
+              {results.length} {results.length === 1 ? 'page' : 'pages'} published
+            </span>
+            {totalRewritten > 0 && <Badge variant="success" size="sm">{totalRewritten} links rerouted</Badge>}
+            {totalUnresolved > 0 && <Badge variant="warning" size="sm">{totalUnresolved} unresolved</Badge>}
+          </div>
+          <span className="text-xs text-slate-500">{open ? 'Hide' : 'Show'} details</span>
+        </button>
+        {open && (
+          <div className="mt-4 space-y-3">
+            {results.map((r) => (
+              <div key={r.slug} className="rounded-lg border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-slate-900 truncate">{r.title}</span>
+                  <a href={r.url} target="_blank" rel="noreferrer" className="text-xs font-mono text-brand-purple hover:underline truncate">
+                    {r.url}
+                  </a>
+                </div>
+                {r.rewritten.length > 0 && (
+                  <ul className="mt-2 space-y-0.5">
+                    {r.rewritten.map((x) => (
+                      <li key={x.from_href} className="text-xs text-slate-600 font-mono break-all">
+                        {x.from_href} → {x.to}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {r.unresolved.length > 0 && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    Could not map: {r.unresolved.map((x) => x.from_href).join(', ')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Link inventory + reroute panel
+// ---------------------------------------------------------------------------
+
+const LINK_KIND_LABEL: Record<string, string> = {
+  external: 'External',
+  'platform-page': 'Page link',
+  'platform-file': 'File link',
+  internal: 'Sibling file',
+  fragment: 'Anchor',
+};
+
+function LinksPanel({ page, onDone }: { page: BeamPage; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [applying, setApplying] = useState(false);
+
+  const { data, isLoading } = useQuery<PageLinksResponse>({
+    queryKey: ['pages', page.page_id, 'links'],
+    queryFn: () => pagesApi.links(page.page_id),
+  });
+  const links = data?.links ?? [];
+  const existingRoutes = data?.routes ?? [];
+
+  // Reroutable rows: file/platform-file links plus exact-href routes already
+  // recorded (external anchors can be rerouted too via the override input).
+  const reroutable = links.filter((l) => l.kind !== 'fragment' && l.kind !== 'platform-page');
+
+  const apply = async () => {
+    const routes = Object.entries(overrides)
+      .filter(([, target]) => target.trim())
+      .map(([src_href, target_url]) => ({ src_href, target_url: target_url.trim() }));
+    setApplying(true);
+    try {
+      const result = await pagesApi.applyLinks(page.page_id, { routes, auto_map: true });
+      queryClient.invalidateQueries({ queryKey: ['pages'] });
+      queryClient.invalidateQueries({ queryKey: ['pages', page.page_id, 'links'] });
+      if (result.rewritten.length > 0) {
+        toast.success(`Rewired ${result.rewritten.length} link${result.rewritten.length === 1 ? '' : 's'}. New version live.`);
+      } else {
+        toast.info('No links needed changing.');
+      }
+      if (result.unresolved.length > 0) {
+        toast.warning(`${result.unresolved.length} link${result.unresolved.length === 1 ? '' : 's'} could not be mapped. Set a target below for those.`);
+      }
+      onDone();
+    } catch (err: unknown) {
+      toast.error(apiErrorDetail(err) ?? 'Could not apply link changes.');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const routeTarget = (href: string): string => overrides[href] ?? existingRoutes.find((r) => r.src_href === href)?.target_url ?? '';
+
+  return (
+    <div className="mt-4 rounded-lg border border-brand-purple/30 bg-white p-4 space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Link2 className="h-4 w-4 text-brand-purple" />
+          <span className="text-sm font-semibold text-slate-900">Links on this page</span>
+          <span className="text-xs text-slate-500">{reroutable.length} reroutable</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onDone}>Cancel</Button>
+          <Button size="sm" onClick={apply} disabled={applying || isLoading}>
+            {applying ? 'Rewiring…' : 'Apply changes'}
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 -mt-2">
+        Sibling file references and old /f/ links are auto-matched to your pages. Set a target on any
+        row to force it. Changes are baked into a new version you can roll back.
+      </p>
+
+      {isLoading ? (
+        <div className="py-4"><LoadingSpinner /></div>
+      ) : links.length === 0 ? (
+        <p className="text-sm text-slate-500 py-2">No links found on this page.</p>
+      ) : (
+        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          {reroutable.map((l) => (
+            <div key={l.href} className="rounded-md border border-slate-200 p-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="default" size="sm">{LINK_KIND_LABEL[l.kind] ?? l.kind}</Badge>
+                <code className="text-xs font-mono text-slate-700 break-all flex-1 min-w-0" title={l.href}>
+                  {l.href}
+                </code>
+                {l.anchor_text && (
+                  <span className="text-xs text-slate-400 italic truncate max-w-[200px]">“{l.anchor_text}”</span>
+                )}
+              </div>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 flex-shrink-0">Target</span>
+                <input
+                  value={routeTarget(l.href)}
+                  onChange={(e) => setOverrides((o) => ({ ...o, [l.href]: e.target.value }))}
+                  placeholder={l.kind === 'external' ? 'https://…' : 'auto /p/… (leave empty to auto-map)'}
+                  className="flex-1 min-w-0 rounded-md border border-slate-200 px-2 py-1 text-xs font-mono focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

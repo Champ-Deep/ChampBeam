@@ -92,6 +92,49 @@ export interface PagePatch {
   access_code?: string | null;
 }
 
+// ---- Pages V2: batch publish + link rerouting ----
+
+export interface RewriteReportRow {
+  from_href: string;
+  to: string | null;
+  kind: string;
+}
+
+export interface BatchPageResult {
+  filename: string;
+  title: string;
+  slug: string;
+  url: string;
+  legacy_url: string;
+  rewritten: RewriteReportRow[];
+  unresolved: RewriteReportRow[];
+}
+
+export type PageLinkKind = 'external' | 'platform-page' | 'platform-file' | 'internal' | 'fragment';
+
+export interface PageLinkInventory {
+  href: string;
+  anchor_text: string;
+  kind: PageLinkKind;
+}
+
+export interface PageLinkRoute {
+  src_href: string;
+  target_url: string;
+}
+
+export interface PageLinksResponse {
+  page_id: string;
+  links: PageLinkInventory[];
+  routes: PageLinkRoute[];
+}
+
+export interface PageLinksApplyResult {
+  page: BeamPage;
+  rewritten: RewriteReportRow[];
+  unresolved: RewriteReportRow[];
+}
+
 // ============================================================
 // API
 // ============================================================
@@ -193,6 +236,34 @@ export const pagesApi = {
     const response = await api.get<DeviceBreakdown>(
       appendQuery(`/files/${pageId}/devices`, dateParams(opts)),
     );
+    return response.data;
+  },
+
+  // ---- Pages V2: batch publish + link rerouting ----
+
+  /** Publish several HTML files as pages; cross-links between them are
+   * rewritten to /p/{slug} automatically. */
+  async batch(files: File[], domainId?: string): Promise<BatchPageResult[]> {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    if (domainId) form.append('domain_id', domainId);
+    const response = await api.post<BatchPageResult[]>('/pages/batch', form);
+    return asArray<BatchPageResult>(response.data);
+  },
+
+  /** Every <a href> on the page's current version, classified. */
+  async links(pageId: string): Promise<PageLinksResponse> {
+    const response = await api.get<PageLinksResponse>(`/pages/${pageId}/links`);
+    return response.data;
+  },
+
+  /** Rewire links without editing HTML: exact-href routes plus auto-mapping of
+   * /f/{code} and matching filenames. Produces a new versioned change. */
+  async applyLinks(
+    pageId: string,
+    data: { routes: PageLinkRoute[]; auto_map?: boolean },
+  ): Promise<PageLinksApplyResult> {
+    const response = await api.post<PageLinksApplyResult>(`/pages/${pageId}/links/apply`, data);
     return response.data;
   },
 };

@@ -120,6 +120,7 @@ class UTMService:
         project_name: Optional[str] = None,
         project_id: Optional[UUID] = None,
         domain_id: Optional[UUID] = None,
+        alias: Optional[str] = None,
         session: Optional[AsyncSession] = None,
     ) -> LinkClick:
         """Record a generated link for click tracking.
@@ -173,6 +174,9 @@ class UTMService:
             if existing:
                 if project_id and existing.project_id != project_id:
                     existing.project_id = project_id
+                if alias and existing.alias != alias:
+                    existing.alias = alias
+                if project_id or alias:
                     await session.flush()
                 return existing
         else:
@@ -181,6 +185,9 @@ class UTMService:
                 if existing:
                     if project_id and existing.project_id != project_id:
                         existing.project_id = project_id
+                    if alias and existing.alias != alias:
+                        existing.alias = alias
+                    if project_id or alias:
                         await s.commit()
                     return existing
         s_code = self._generate_short_code()
@@ -189,6 +196,7 @@ class UTMService:
             id=uuid4(),
             user_id=user_id,
             short_code=s_code,
+            alias=alias,
             project_id=project_id,
             project_name=project_name,
             domain_id=domain_id,
@@ -213,6 +221,44 @@ class UTMService:
                 await s.commit()
 
         return link
+
+    async def find_existing_link(
+        self,
+        user_id: str,
+        original_url: str,
+        utm_params: Dict[str, str],
+        domain_id: Optional[UUID] = None,
+        session: Optional[AsyncSession] = None,
+    ) -> Optional[LinkClick]:
+        """The recorded link identical to (user, url, params, domain), if any.
+
+        Mirrors the dedup query used by record_link so callers can distinguish
+        "this alias is taken by THIS link" from "taken by another link".
+        """
+        src = utm_params.get("utm_source")
+        med = utm_params.get("utm_medium")
+        cam = utm_params.get("utm_campaign")
+        con = utm_params.get("utm_content")
+        trm = utm_params.get("utm_term")
+
+        stmt = select(LinkClick).where(
+            LinkClick.user_id == user_id,
+            LinkClick.original_url == original_url,
+            LinkClick.utm_source == src if src else LinkClick.utm_source.is_(None),
+            LinkClick.utm_medium == med if med else LinkClick.utm_medium.is_(None),
+            LinkClick.utm_campaign == cam if cam else LinkClick.utm_campaign.is_(None),
+            LinkClick.utm_content == con if con else LinkClick.utm_content.is_(None),
+            LinkClick.utm_term == trm if trm else LinkClick.utm_term.is_(None),
+            LinkClick.domain_id == domain_id if domain_id is not None else LinkClick.domain_id.is_(None),
+        )
+
+        async def _run(s: AsyncSession) -> Optional[LinkClick]:
+            return (await s.execute(stmt)).scalar_one_or_none()
+
+        if session is not None:
+            return await _run(session)
+        async with async_session_maker() as s:
+            return await _run(s)
 
     async def record_click_event(
         self,

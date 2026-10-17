@@ -7,13 +7,14 @@ Preset CRUD, link generation, bulk CSV processing, and analytics.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+from uuid import UUID as _UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse, RedirectResponse
-from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, literal_column, or_, select, update
+from pydantic import BaseModel, Field
+from sqlalchemy import String, cast, delete as sa_delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -23,6 +24,7 @@ from app.db.postgres import get_db_session
 from app.models.domain import Domain, STATUS_ACTIVE
 from app.models.file_asset import FileAsset
 from app.models.utm import ClickEvent, LinkClick, UTMPreset
+from app.services import pages_service
 from app.services.utm_service import utm_service
 
 logger = logging.getLogger(__name__)
@@ -85,6 +87,8 @@ class GenerateLinkRequest(BaseModel):
     project_id: Optional[str] = None
     preset_id: Optional[str] = None
     domain_id: Optional[str] = None
+    # User-named short link (/s/{alias}). Slug rules, unique per domain.
+    alias: Optional[str] = Field(default=None, max_length=80)
 
 
 class GenerateLinkResponse(BaseModel):
@@ -95,6 +99,7 @@ class GenerateLinkResponse(BaseModel):
     utm_params: dict
     link_id: Optional[str] = None
     short_url: Optional[str] = None
+    alias: Optional[str] = None
 
 
 class UTMBreakdownItem(BaseModel):
@@ -112,6 +117,7 @@ class LinkPerformanceItem(BaseModel):
     tracked_url: Optional[str] = None
     redirect_url: Optional[str] = None
     short_code: Optional[str] = None
+    alias: Optional[str] = None
     anchor_text: Optional[str] = None
     utm_source: Optional[str] = None
     utm_medium: Optional[str] = None
@@ -210,6 +216,36 @@ async def _domain_for_link(link: LinkClick, session: AsyncSession) -> Domain | N
         return None
     result = await session.execute(select(Domain).where(Domain.id == link.domain_id))
     return result.scalar_one_or_none()
+
+
+def _validate_alias(raw: Optional[str]) -> str:
+    """Normalize a user-named short link; '' means no alias. Uses the pages
+    slug rules (3-60 chars, lowercase + hyphens, reserved words blocked)."""
+    alias = ((raw or "").strip().lower()) or ""
+    if not alias:
+        return ""
+    return pages_service.validate_slug(alias)
+
+
+async def _alias_taken(
+    session: AsyncSession,
+    alias: str,
+    domain_id: Optional[_UUID],
+    *,
+    exclude_id: Optional[_UUID] = None,
+) -> bool:
+    """Is ``alias`` already used in this domain namespace? Mirrors
+    pages_service.slug_taken; the partial unique indexes from migration 027
+    are the source of truth on Postgres, this is the clean-409 pre-check."""
+    stmt = select(LinkClick.id).where(LinkClick.alias == alias)
+    stmt = (
+        stmt.where(LinkClick.domain_id.is_(None))
+        if domain_id is None
+        else stmt.where(LinkClick.domain_id == domain_id)
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(LinkClick.id != exclude_id)
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
 
 
 async def _domains_by_link(
@@ -321,15 +357,34 @@ async def generate_utm_link(
 
     tracked_url = utm_service.generate_utm_url(data.base_url, utm_params)
 
+    # User-named short link: validate + claim before recording, so a taken
+    # alias is a clean 409 and never silently steals another link's name.
+    alias = _validate_alias(data.alias)
+
     # Record link for authenticated users
     link_id = None
     short_code = None
     redirect_url = None
     short_url = None
+    link_alias: Optional[str] = None
     if user:
-        from uuid import UUID as _UUID
         project_id = _UUID(data.project_id) if data.project_id else None
         domain = await _resolve_link_domain(user.user_id, data.domain_id, session)
+        if alias:
+            # Claim the name, but allow re-generating the SAME link (dedup
+            # path would return it and the alias belongs to it).
+            existing = await utm_service.find_existing_link(
+                user_id=user.user_id,
+                original_url=data.base_url,
+                utm_params=utm_params,
+                domain_id=domain.id if domain else None,
+                session=session,
+            )
+            if await _alias_taken(
+                session, alias, domain.id if domain else None,
+                exclude_id=existing.id if existing else None,
+            ):
+                raise HTTPException(status_code=409, detail=f"'{alias}' is already taken.")
         link = await utm_service.record_link(
             user_id=user.user_id,
             original_url=data.base_url,
@@ -338,21 +393,24 @@ async def generate_utm_link(
             project_name=data.project_name,
             project_id=project_id,
             domain_id=domain.id if domain else None,
+            alias=alias or None,
             session=session,
         )
         link_id = str(link.id)
         short_code = link.short_code
-        redirect_url = _build_redirect_url(link.short_code, domain, request=request)
-        if link.short_code:
+        link_alias = alias or (str(link.alias) if link.alias is not None else None)
+        key = link_alias or (str(link.short_code) if link.short_code is not None else None)
+        redirect_url = _build_redirect_url(key, domain, request=request)
+        if key:
             # Short URL mirrors the redirect URL's host precedence: custom
             # domain → configured redirect base (canonical public host, which
             # server-to-server API callers may not be hitting) → request host.
             if domain is not None:
-                short_url = f"https://{domain.hostname}/s/{link.short_code}"
+                short_url = f"https://{domain.hostname}/s/{key}"
             elif settings.redirect_base_url:
-                short_url = f"{settings.redirect_base_url.rstrip('/')}/s/{link.short_code}"
+                short_url = f"{settings.redirect_base_url.rstrip('/')}/s/{key}"
             else:
-                short_url = str(request.base_url) + f"s/{link.short_code}"
+                short_url = str(request.base_url) + f"s/{key}"
 
     return GenerateLinkResponse(
         original_url=data.base_url,
@@ -362,6 +420,7 @@ async def generate_utm_link(
         utm_params=utm_params,
         link_id=link_id,
         short_url=short_url,
+        alias=link_alias,
     )
 
 
@@ -372,6 +431,8 @@ async def generate_utm_link(
 
 class UpdateLinkRequest(BaseModel):
     project_id: Optional[str] = None
+    # /s/{alias}; "" clears the name. Slug rules, unique per domain.
+    alias: Optional[str] = None
 
 
 @router.delete("/links/{link_id}", status_code=204)
@@ -424,7 +485,25 @@ async def update_link(
         raise HTTPException(status_code=404, detail="Link not found.")
 
     if data.project_id is not None:
-        link.project_id = _UUID(data.project_id) if data.project_id else None
+        project_uuid = _to_uuid(data.project_id)
+        if data.project_id and project_uuid is None:
+            raise HTTPException(status_code=400, detail="Invalid project ID.")
+        if project_uuid:
+            from app.models.utm import Project
+            owned = await session.scalar(select(Project.id).where(
+                Project.id == project_uuid, Project.user_id == user.user_id,
+            ))
+            if owned is None:
+                raise HTTPException(status_code=404, detail="Project not found.")
+        link.project_id = project_uuid
+
+    if data.alias is not None:
+        new_alias = _validate_alias(data.alias)  # "" clears the name
+        if new_alias and await _alias_taken(
+            session, new_alias, link.domain_id, exclude_id=link.id
+        ):
+            raise HTTPException(status_code=409, detail=f"'{new_alias}' is already taken.")
+        link.alias = new_alias or None
 
     await session.commit()
     await session.refresh(link)
@@ -434,6 +513,7 @@ async def update_link(
         "project_id": str(link.project_id) if link.project_id else None,
         "original_url": link.original_url,
         "short_code": link.short_code,
+        "alias": link.alias,
     }
 
 
@@ -815,19 +895,19 @@ async def get_link_performance(
     project_name: Optional[str] = Query(default=None, description="Filter by project name"),
     project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
     days: int = Query(default=30, ge=1, le=365),
+    all_time: bool = Query(default=False, description="Include links created before the selected window"),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     start_date: Optional[str] = Query(default=None, description="Start date (ISO 8601)"),
     end_date: Optional[str] = Query(default=None, description="End date (ISO 8601)"),
     user: TokenData = Depends(require_auth),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """List all tracked links with click stats, ordered by click_count desc."""
-    range_start, range_end = _resolve_date_range(days, start_date, end_date)
-
-    conditions = [
-        LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= range_start,
-        LinkClick.created_at <= range_end,
-    ]
+    """List tracked links with lifetime click stats, ordered by click count."""
+    conditions = [LinkClick.user_id == user.user_id]
+    if not all_time:
+        range_start, range_end = _resolve_date_range(days, start_date, end_date)
+        conditions.extend((LinkClick.created_at >= range_start, LinkClick.created_at <= range_end))
     if project_id:
         conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
@@ -836,8 +916,8 @@ async def get_link_performance(
     result = await session.execute(
         select(LinkClick)
         .where(*conditions)
-        .order_by(LinkClick.click_count.desc(), LinkClick.created_at.desc())
-        .limit(200)
+        .order_by(LinkClick.click_count.desc(), LinkClick.created_at.desc(), LinkClick.id.desc())
+        .limit(limit).offset(offset)
     )
 
     links = list(result.scalars().all())
@@ -849,9 +929,11 @@ async def get_link_performance(
             original_url=link.original_url,
             tracked_url=link.tracked_url,
             redirect_url=_build_redirect_url(
-                link.short_code, link_to_domain.get(link.id), request=request,
+                (str(link.alias) if link.alias is not None else None) or link.short_code,
+                link_to_domain.get(link.id), request=request,
             ),
             short_code=link.short_code,
+            alias=link.alias,
             anchor_text=link.anchor_text,
             utm_source=link.utm_source,
             utm_medium=link.utm_medium,
@@ -882,40 +964,42 @@ async def get_performance_over_time(
     """Get link generation and click counts over time (daily buckets)."""
     range_start, range_end = _resolve_date_range(days, start_date, end_date)
 
-    conditions = [
-        LinkClick.user_id == user.user_id,
-        LinkClick.created_at >= range_start,
-        LinkClick.created_at <= range_end,
-    ]
+    conditions = [LinkClick.user_id == user.user_id]
     if project_id:
         conditions.append(LinkClick.project_id == _to_uuid(project_id))
     elif project_name:
         conditions.append(LinkClick.project_name == project_name)
 
-    # The date_trunc unit must be a SQL literal, not a bound parameter, or
-    # Postgres treats the SELECT and GROUP BY occurrences as distinct
-    # expressions and raises a GroupingError. Build one expression and reuse it.
-    day_bucket = func.date_trunc(literal_column("'day'"), LinkClick.created_at)
-    result = await session.execute(
+    # Creation and click dates are independent. An old link clicked today must
+    # appear today, not on its creation date or disappear from the window.
+    created_day = func.date(LinkClick.created_at)
+    created = await session.execute(
         select(
-            day_bucket.label("date"),
+            created_day.label("date"),
             func.count(LinkClick.id).label("links_created"),
-            func.coalesce(func.sum(LinkClick.click_count), 0).label("total_clicks"),
-            func.coalesce(func.sum(LinkClick.unique_clicks), 0).label("unique_clicks"),
         )
-        .where(*conditions)
-        .group_by(day_bucket)
-        .order_by(day_bucket)
+        .where(*conditions, LinkClick.created_at >= range_start, LinkClick.created_at <= range_end)
+        .group_by(created_day)
     )
-
-    data = []
-    for row in result.all():
-        data.append({
-            "date": row.date.isoformat() if row.date else None,
-            "links_created": row.links_created or 0,
-            "total_clicks": int(row.total_clicks) if row.total_clicks else 0,
-            "unique_clicks": int(row.unique_clicks) if row.unique_clicks else 0,
-        })
+    clicked_day = func.date(ClickEvent.clicked_at)
+    visitor = cast(ClickEvent.link_id, String) + ":" + func.coalesce(
+        ClickEvent.ip_address, cast(ClickEvent.id, String),
+    )
+    clicked = await session.execute(
+        select(clicked_day.label("date"), func.count(ClickEvent.id).label("total_clicks"),
+               func.count(func.distinct(visitor)).label("unique_clicks"))
+        .join(LinkClick, ClickEvent.link_id == LinkClick.id)
+        .where(*conditions, ClickEvent.clicked_at >= range_start, ClickEvent.clicked_at <= range_end)
+        .group_by(clicked_day)
+    )
+    by_day = {str(row.date): {"date": str(row.date), "links_created": row.links_created,
+                              "total_clicks": 0, "unique_clicks": 0} for row in created.all()}
+    for row in clicked.all():
+        item = by_day.setdefault(str(row.date), {"date": str(row.date), "links_created": 0,
+                                                 "total_clicks": 0, "unique_clicks": 0})
+        item["total_clicks"] = row.total_clicks
+        item["unique_clicks"] = row.unique_clicks
+    data = [by_day[day] for day in sorted(by_day)]
 
     return {"days": days, "data": data}
 
@@ -2365,15 +2449,23 @@ async def get_recent_clicks(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get recent click events for polling-based notifications."""
+    from app.models.user import User
+    owner = await session.get(User, _to_uuid(user.user_id))
+    if owner is None:
+        raise HTTPException(status_code=404, detail="User not found")
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            # Strip timezone info, DB uses naive timestamps (UTC assumed)
+            # Database timestamps are naive UTC; normalize offset-aware input first.
+            if since_dt.tzinfo is not None:
+                since_dt = since_dt.astimezone(timezone.utc)
             since_dt = since_dt.replace(tzinfo=None)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid timestamp format")
     else:
-        since_dt = datetime.utcnow() - timedelta(minutes=5)
+        since_dt = datetime.min
+    if owner.notifications_cleared_at:
+        since_dt = max(since_dt, owner.notifications_cleared_at)
 
     result = await session.execute(
         select(
@@ -2429,3 +2521,17 @@ async def get_recent_clicks(
         }
         for r in result.all()
     ]
+
+
+@router.post("/analytics/clicks/recent/clear", status_code=204)
+async def clear_recent_clicks(
+    user: TokenData = Depends(require_auth),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Dismiss the user's existing notifications across devices."""
+    from app.models.user import User
+    owner = await session.get(User, _to_uuid(user.user_id))
+    if owner is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    owner.notifications_cleared_at = datetime.utcnow()
+    await session.commit()
