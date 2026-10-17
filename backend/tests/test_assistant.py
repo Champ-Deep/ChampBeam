@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from app.core.config import settings
+from app.core.security import TokenData, require_auth
+from app.main import app
 from tests.test_api_keys import _mint_key
 from tests.test_pages_v2 import local_storage  # noqa: F401  (storage fixture)
 
@@ -18,13 +20,37 @@ async def _headers(app_client):
     return {"X-API-Key": raw}
 
 
+async def _put_config(app_client, headers, body, *, org_role="admin"):
+    """PUT /config as an org member with the given role; the config row is a
+    global singleton, so only org admins may write it."""
+    _, _, user = await _mint_key()
+    token = TokenData(user_id=str(user.id), email=user.email, org_id="org_test", org_role=org_role)
+    app.dependency_overrides[require_auth] = lambda: token
+    try:
+        return await app_client.put("/api/v1/assistant/config", headers=headers, json=body)
+    finally:
+        app.dependency_overrides.pop(require_auth, None)
+
+
 async def _bootstrap_config(app_client, monkeypatch):
     """Set the mock provider + keyless path as the active config."""
     monkeypatch.setattr(settings, "assistant_provider", "mock")
     headers = await _headers(app_client)
-    r = await app_client.put("/api/v1/assistant/config", headers=headers, json={"provider": "mock"})
+    r = await _put_config(app_client, headers, {"provider": "mock"})
     assert r.status_code == 200, r.text
     return headers
+
+
+@pytest.mark.asyncio
+async def test_config_write_is_org_admin_only(app_client, monkeypatch):
+    headers = await _headers(app_client)
+    # Personal account (no org claims): read ok, write forbidden.
+    assert (await app_client.get("/api/v1/assistant/config", headers=headers)).status_code == 200
+    r = await app_client.put("/api/v1/assistant/config", headers=headers, json={"provider": "mock"})
+    assert r.status_code == 403, r.text
+    # Org member: forbidden. Org admin: allowed.
+    assert (await _put_config(app_client, headers, {"provider": "mock"}, org_role="member")).status_code == 403
+    assert (await _put_config(app_client, headers, {"provider": "mock"}, org_role="org:admin")).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -70,7 +96,7 @@ async def test_chat_requires_auth(app_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_503_when_disabled(app_client, monkeypatch):
     headers = await _headers(app_client)
-    r = await app_client.put("/api/v1/assistant/config", headers=headers, json={"enabled": False})
+    r = await _put_config(app_client, headers, {"enabled": False})
     assert r.status_code == 200
     r = await app_client.post(
         "/api/v1/assistant/chat",
@@ -84,7 +110,7 @@ async def test_chat_503_when_disabled(app_client, monkeypatch):
 async def test_chat_503_when_provider_unconfigured(app_client, monkeypatch):
     # Default openrouter with no key in tests => unconfigured.
     headers = await _headers(app_client)
-    r = await app_client.put("/api/v1/assistant/config", headers=headers, json={"provider": "openrouter"})
+    r = await _put_config(app_client, headers, {"provider": "openrouter"})
     assert r.status_code == 200
     r = await app_client.post(
         "/api/v1/assistant/chat",
@@ -98,7 +124,7 @@ async def test_chat_503_when_provider_unconfigured(app_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_unknown_provider_rejected(app_client, monkeypatch):
     headers = await _headers(app_client)
-    r = await app_client.put("/api/v1/assistant/config", headers=headers, json={"provider": "nope"})
+    r = await _put_config(app_client, headers, {"provider": "nope"})
     assert r.status_code == 422
 
 

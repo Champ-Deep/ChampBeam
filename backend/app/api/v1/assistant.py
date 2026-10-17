@@ -74,9 +74,9 @@ class AssistantConfigPut(BaseModel):
 
 
 def _is_admin(user: TokenData) -> bool:
-    # Org admins manage the shared assistant; personal-account owners manage
-    # their own. Everyone else gets read-only.
-    return user.org_id is None or user.org_role == "admin"
+    # The config row is a global singleton (services/assistant.config_row), so a
+    # personal account must never write it: org admins only.
+    return user.is_org_admin
 
 
 async def _overview(user_id: str, session: AsyncSession) -> dict:
