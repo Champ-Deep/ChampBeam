@@ -273,6 +273,20 @@ against the backend. `frontend/vercel.json` rewrites every path to
 renders the SPA, not a redirect. To put short links on a branded URL,
 use Custom Domains below.
 
+### System settings and spend
+
+Set `SYSTEM_ADMIN_CLERK_IDS` on the backend to a comma-separated list of
+platform operator Clerk user IDs (`user_...`). Only these users may view the
+System settings or call `/api/v1/system/maxmind` and `/api/v1/system/status`.
+An API key used by the fleet monitor must belong to an allowlisted user.
+Organization admin roles do not grant access to platform-wide spend.
+
+MaxMind balance is supplied by the paid web service on successful lookups.
+Configure `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` for the web service;
+set `MAXMIND_UNIT_PRICE_USD` to the actual USD cost per query to display
+estimated spend. Without a price, usage remains visible but spend has no
+dollar estimate. Changes to deployment variables require a backend restart.
+
 ### Custom Domains
 
 Each user can serve branded short links and file URLs on their own

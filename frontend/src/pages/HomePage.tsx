@@ -385,6 +385,26 @@ function LinkResultCard({
               </p>
             </div>
           )}
+
+          {/* Named link, when the user gave it one: /s/{alias} next to /r/{code}. */}
+          {response.alias && response.short_url && (
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <Badge variant="success" size="sm">Named</Badge>
+              <code className="flex-1 min-w-0 font-mono text-xs text-slate-700 break-all">{response.short_url}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(response.short_url ?? '');
+                  toast.success('Named link copied');
+                }}
+                className="text-slate-400 hover:text-brand-purple flex-shrink-0"
+                title="Copy named link"
+                aria-label="Copy named link"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* QR code + download */}
@@ -415,6 +435,7 @@ export function HomePage() {
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState(searchParams.get('project') || '');
   const [selectedDomainId, setSelectedDomainId] = useState('');
+  const [alias, setAlias] = useState('');
   const [lastGenerateResponse, setLastGenerateResponse] = useState<GenerateLinkResponse | null>(null);
   const [lastUtmUrl, setLastUtmUrl] = useState('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -530,6 +551,7 @@ export function HomePage() {
           project_id: selectedProjectId || undefined,
           preset_id: selectedPresetId || undefined,
           domain_id: selectedDomainId || undefined,
+          alias: alias.trim() || undefined,
         });
         // Bump the projects cache so the per-project counts on the Generator +
         // Analytics pages reflect the new link immediately rather than waiting
@@ -824,6 +846,15 @@ export function HomePage() {
                         </select>
                       </div>
                     )}
+
+                    <Input
+                      label="Link name (optional)"
+                      placeholder="summit-registration"
+                      value={alias}
+                      onChange={(e) => setAlias(e.target.value.toLowerCase())}
+                      helperText={alias ? `/s/${alias}` : 'Replaces the random short code with a readable name'}
+                      maxLength={60}
+                    />
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <Input

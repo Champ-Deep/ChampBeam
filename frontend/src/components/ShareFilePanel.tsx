@@ -16,9 +16,14 @@ import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloa
 import { FileUploadZone } from './ui/FileUploadZone';
 import { UPLOAD_ACCEPT, UPLOAD_HINT_COMPACT, UPLOAD_HINT_GUEST, UPLOAD_LABEL } from '../config/uploadLimits';
 import { filesApi } from '../api/files';
+import { pagesApi } from '../api/pages';
+import type { BeamPage } from '../api/pages';
 import { apiErrorDetail } from '../api/_shared';
 
 const FILE_HISTORY_KEY = 'champbeam_file_history';
+const _PAGE_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
+// Canonical share host (mirrors the served /p/ and /f/ URLs in the App).
+const HOST = 'share.lakeb2b.com';
 
 interface SharedFile {
   fileId: string;
@@ -261,8 +266,32 @@ export function ShareFileCreator({
   share: FileShareState;
 }) {
   const { lastShared, isUploading, progress, handleFile } = share;
+  const [htmlFile, setHtmlFile] = useState<File | null>(null);
+  const [publishedPage, setPublishedPage] = useState<BeamPage | null>(null);
 
   const hint = isAuthenticated ? UPLOAD_HINT_COMPACT : UPLOAD_HINT_GUEST;
+
+  // HTML drops route to the page publisher (title, slug, access code) when
+  // signed in; everything else stays a plain file share. Guests keep file
+  // sharing (page publishing requires an account).
+  const handleDrop = async (file: File) => {
+    if (isAuthenticated && (/\.html?$/i.test(file.name) || file.type === 'text/html')) {
+      setHtmlFile(file);
+      setPublishedPage(null);
+      return;
+    }
+    try {
+      const head = await file.slice(0, 1024).text();
+      if (isAuthenticated && /<!doctype\s+html|<html[\s>]/i.test(head)) {
+        setHtmlFile(file);
+        setPublishedPage(null);
+        return;
+      }
+    } catch {
+      // ignore sniff errors; the upload path validates types anyway
+    }
+    handleFile(file);
+  };
 
   return (
     <div className="space-y-6">
@@ -270,25 +299,52 @@ export function ShareFileCreator({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Share a file
+            {htmlFile ? 'Publish as a page' : 'Share a file'}
           </CardTitle>
         </CardHeader>
         <p className="text-sm text-slate-600 mb-4">
-          Drop a file to get a short, trackable link plus a QR code. You will see the moment it is
-          opened, no account needed to start.
+          {htmlFile
+            ? 'This looks like an HTML page. Publish it on your domain with tracking, versions and an optional access code.'
+            : 'Drop a file to get a short, trackable link plus a QR code. You will see the moment it is opened, no account needed to start.'}
         </p>
-        <FileUploadZone
-          onFileSelected={handleFile}
-          isUploading={isUploading}
-          accept={UPLOAD_ACCEPT}
-          label={UPLOAD_LABEL}
-          hint={hint}
-          uploadingLabel={progress !== null ? `Uploading… ${progress}%` : 'Uploading…'}
-        />
-        {progress !== null && (
-          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-            <div className="h-full bg-brand-purple transition-all" style={{ width: `${progress}%` }} />
+
+        {publishedPage ? (
+          <div className="rounded-lg border border-green-200 bg-green-50 p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-green-800">Page published and live</p>
+              <code className="text-xs font-mono text-green-700 break-all">{publishedPage.url}</code>
+            </div>
+            <a href={publishedPage.url} target="_blank" rel="noreferrer">
+              <Button size="sm" leftIcon={<ExternalLink className="h-4 w-4" />}>Open page</Button>
+            </a>
           </div>
+        ) : htmlFile ? (
+          <HtmlAsPageCreator
+            file={htmlFile}
+            onCancel={() => setHtmlFile(null)}
+            onShareAsFile={() => {
+              const f = htmlFile;
+              setHtmlFile(null);
+              handleFile(f);
+            }}
+            onPublished={(page) => setPublishedPage(page)}
+          />
+        ) : (
+          <>
+            <FileUploadZone
+              onFileSelected={handleDrop}
+              isUploading={isUploading}
+              accept={UPLOAD_ACCEPT}
+              label={UPLOAD_LABEL}
+              hint={hint}
+              uploadingLabel={progress !== null ? `Uploading… ${progress}%` : 'Uploading…'}
+            />
+            {progress !== null && (
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full bg-brand-purple transition-all" style={{ width: `${progress}%` }} />
+              </div>
+            )}
+          </>
         )}
       </Card>
 
@@ -314,6 +370,121 @@ export function ShareFileCreator({
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+/** HTML file → page publisher: title, slug, optional access code. */
+function HtmlAsPageCreator({
+  file,
+  onCancel,
+  onShareAsFile,
+  onPublished,
+}: {
+  file: File;
+  onCancel: () => void;
+  onShareAsFile: () => void;
+  onPublished: (page: BeamPage) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [slug, setSlug] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [publishing, setPublishing] = useState(false);
+
+  const slugValid = slug === '' || _PAGE_SLUG_RE.test(slug);
+
+  const publish = async () => {
+    if (!slugValid) {
+      toast.error('Slug must be lowercase letters, numbers and hyphens.');
+      return;
+    }
+    setPublishing(true);
+    try {
+      const html = await file.text();
+      const slugifiedTitle = title.trim() === '' ? file.name.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ') : title.trim();
+      const created = await pagesApi.create({
+        html,
+        title: slugifiedTitle,
+        slug: slug.trim() || undefined,
+      });
+      if (accessCode.trim()) {
+        try {
+          await pagesApi.patch(created.page_id, { access_code: accessCode.trim() });
+        } catch {
+          toast.warning('Page published, but the access code could not be set.');
+        }
+      }
+      toast.success('Page published. Your page is live.');
+      onPublished(created);
+    } catch (err: unknown) {
+      const detail = apiErrorDetail(err);
+      toast.error(detail ?? 'Publish failed.');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            Title
+          </label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={file.name.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ')}
+            maxLength={200}
+            disabled={publishing}
+            className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 disabled:opacity-50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            Page link name
+          </label>
+          <input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value.toLowerCase())}
+            placeholder="auto from the title"
+            maxLength={60}
+            disabled={publishing}
+            className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-mono outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 disabled:opacity-50"
+          />
+          <p className="text-xs text-slate-500 mt-1 font-mono">/p/{slug || 'your-page'}</p>
+          {slug && !slugValid && (
+            <p className="text-xs text-red-600 mt-1">Use 3–60 lowercase letters, numbers and hyphens.</p>
+          )}
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">Access code (optional)</label>
+        <input
+          type="password"
+          inputMode="numeric"
+          value={accessCode}
+          onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+          placeholder="4–8 digits"
+          disabled={publishing}
+          className="w-full sm:w-64 h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 disabled:opacity-50"
+        />
+        <p className="text-xs text-slate-500 mt-1">Visitors must enter this before the page renders.</p>
+      </div>
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={onShareAsFile} disabled={publishing}>
+          Share as file instead
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={publishing}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={publish} disabled={publishing || !slugValid} leftIcon={<Sparkles className="h-4 w-4" />}>
+          {publishing ? 'Publishing…' : 'Publish page'}
+        </Button>
+      </div>
+      <p className="text-xs text-slate-400">
+        {HOST} links track every open; page versions are kept for rollback.
+      </p>
     </div>
   );
 }

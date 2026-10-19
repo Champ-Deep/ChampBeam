@@ -27,7 +27,7 @@ from app.core.service_auth import service_key_gate
 # Import routers
 from app.api.v1 import auth, health, projects, utm, short_links, domains, qr, system
 from app.api.v1 import files as files_v1
-from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning, pages
+from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning, pages, assistant
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
 from app.api.page_state import router as page_state_router
@@ -212,6 +212,7 @@ app.include_router(rooms.router, prefix=settings.api_v1_prefix)
 app.include_router(api_keys.router, prefix=settings.api_v1_prefix)
 app.include_router(internal_provisioning.router, prefix=settings.api_v1_prefix)
 app.include_router(pages.router, prefix=settings.api_v1_prefix)
+app.include_router(assistant.router, prefix=settings.api_v1_prefix)
 app.include_router(system.router, prefix=settings.api_v1_prefix)
 app.include_router(short_links.router)
 
