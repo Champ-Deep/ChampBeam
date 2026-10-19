@@ -44,3 +44,25 @@ async def test_delete_file_removes_page_and_slug_can_be_reused(app_client, local
     async with async_session_maker() as s:
         left = (await s.execute(select(FileVersion).where(FileVersion.file_id == UUID(page_id)))).scalars().all()
     assert left == []
+
+
+@pytest.mark.asyncio
+async def test_opening_a_hosted_page_shows_in_recent_opens_and_file_analytics(app_client, local_storage):
+    """A file/page open has no URL; the feed and the per-file stats must still count it."""
+    raw, _, _ = await _mint_key()
+    h = {"X-API-Key": raw}
+    r = await app_client.post(
+        "/api/v1/pages/upload", headers=h, data={"slug": "open-me"},
+        files={"file": ("Open Me.html", HTML, "text/html")},
+    )
+    assert r.status_code == 201, r.text
+    page = r.json()
+
+    assert (await app_client.get("/p/open-me")).status_code == 200
+
+    feed = (await app_client.get("/api/v1/utm/analytics/clicks/recent", headers=h)).json()
+    assert [c["type"] for c in feed] == ["file"]
+    assert feed[0]["original_url"] is None and feed[0]["filename"]
+
+    summary = (await app_client.get(f"/api/v1/files/{page['page_id']}/summary", headers=h)).json()
+    assert summary["opens"] == 1
