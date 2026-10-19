@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateAssets } from '../lib/assetCache';
 import { toast } from 'sonner';
 import {
   BarChart3,
@@ -70,7 +71,7 @@ export function PagesPage() {
   const { data: domains = [] } = useQuery({ queryKey: ['domains'], queryFn: () => utmApi.listDomains() });
   const activeDomains = useMemo(() => domains.filter((d) => d.status === 'active'), [domains]);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['pages'] });
+  const invalidate = () => invalidateAssets(queryClient);
 
   const createMutation = useMutation({
     mutationFn: (data: { html: string; title?: string; domain_id?: string }) => pagesApi.create(data),

@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateAssets } from '../lib/assetCache';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -105,8 +106,7 @@ export function FilesPage() {
 
   const refresh = useCallback(() => {
     // Counts (projects) and rows (files) both move when files are reassigned.
-    queryClient.invalidateQueries({ queryKey: ['projects'] });
-    queryClient.invalidateQueries({ queryKey: ['files'] });
+    void invalidateAssets(queryClient);
   }, [queryClient]);
 
   // --- Project form state ---
@@ -315,8 +315,7 @@ export function FilesPage() {
         next.delete(id);
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void invalidateAssets(queryClient);
     },
     onError: () => toast.error('Could not remove file.'),
   });
@@ -353,7 +352,7 @@ export function FilesPage() {
         const next = prev ? [finalized, ...prev.filter((f) => f.id !== finalized.id)] : [finalized];
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ['files'] });
+      void invalidateAssets(queryClient);
     } catch (err: unknown) {
       const detail =
         apiErrorDetail(err);
