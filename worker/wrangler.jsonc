@@ -45,7 +45,7 @@
     {
       "binding": "DB",
       "database_name": "champbeam",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "f4adff8c-771e-4e18-b792-dc9f8f3dbd99",
       "migrations_dir": "migrations"
     }
   ],
