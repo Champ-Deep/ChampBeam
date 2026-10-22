@@ -1,0 +1,9 @@
+# Local secrets for `wrangler dev` (copy to .dev.vars; never commit .dev.vars).
+ENVIRONMENT=development
+DEBUG=true
+FRONTEND_URL=http://localhost:5173
+REDIRECT_BASE_URL=http://localhost:8787
+PLATFORM_REDIRECT_HOST=localhost
+CLERK_SECRET_KEY=sk_test_xxx
+CLERK_PUBLISHABLE_KEY=pk_test_xxx
+STORAGE_UPLOAD_SECRET=dev-upload-secret
