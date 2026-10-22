@@ -120,4 +120,42 @@ npx wrangler dev                      # http://localhost:8787 serves SPA + API
 For frontend hot reload, run `npm --prefix frontend run dev` with
 `VITE_API_URL=http://localhost:8787` in `frontend/.env.local`.
 
-Tests: `cd worker && npm test` (runs in workerd against an in-memory D1/R2).
+`PLATFORM_REDIRECT_HOST` must list every host that serves share links
+(`/r`, `/s`, `/f`, `/p`). Any other host is treated as a customer custom
+domain and refused unless it is registered and active — the same rule as the
+Python app.
+
+## 6. Verifying
+
+- **Unit/route tests** — `cd worker && npm test`: 379 tests in workerd against
+  an in-memory D1 + R2, ported from `backend/tests` plus new coverage.
+- **End to end, locally** — `cd worker && bash scripts/e2e-local.sh`: fresh
+  local D1, builds the SPA, starts `wrangler dev` on port 8799, seeds a user +
+  API key, then drives the SPA shell, link generate → `/r` redirect → click
+  analytics, file upload → R2 → `/f` serve (incl. Range), Beam Page publish →
+  `/p` serve, and projects.
+- **Against a deployment** — `node worker/scripts/e2e-smoke.mjs https://<host> cb_live_<key>`
+  (creates and then deletes its own link, file, page and project).
+
+## 7. Behaviour differences from the FastAPI app
+
+Paths, status codes and response shapes are unchanged; the SPA needed only the
+same-origin API default. Deliberate differences:
+
+- **Geo** comes from Cloudflare (`request.cf`) instead of MaxMind `.mmdb` files;
+  the MaxMind web service (VPN/anonymizer flags) and IPinfo still apply when
+  configured. ip-api.com is dropped. User-agent parsing uses `ua-parser-js`,
+  matched to the Python output (61 of 63 sample agents identical).
+- **Range requests** on `/f` now return 206 (video seeking); seeks after byte 0
+  don't count as new views. HEAD is answered on `/f` and `/p`.
+- **Atomicity**: D1 has no interactive transactions. Multi-row writes use
+  atomic batches; click/view counters use atomic SQL increments (more accurate
+  than before under concurrency). A Clerk webhook that fails halfway can leave
+  earlier rows written (it still reports `{ok:false}`).
+- **Background loops are cron jobs**: domain status refresh every 5 minutes
+  (was every minute), expired-upload sweep every 15.
+- **Uploads through the Worker** are capped at 100 MB (plan limit) unless R2
+  presigned uploads are configured (section 1).
+- **Malformed IDs** that crashed some Python endpoints with a 500 now return a
+  clean 400/404/422.
+- **Timestamps** are stored with millisecond (not microsecond) precision.

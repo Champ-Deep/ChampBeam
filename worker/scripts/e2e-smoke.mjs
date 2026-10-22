@@ -13,7 +13,7 @@
  *   (an API key is a "cb_live_..." key; locally, scripts/e2e-local.sh mints one)
  */
 
-const [base = "http://127.0.0.1:8787", apiKey] = process.argv.slice(2);
+const [base = "http://127.0.0.1:8799", apiKey] = process.argv.slice(2);
 if (!apiKey) {
   console.error("usage: node scripts/e2e-smoke.mjs <base-url> <cb_live_ api key>");
   process.exit(2);
@@ -74,8 +74,9 @@ let linkId;
     const geo = await api("GET", "/utm/analytics/geo?days=7");
     check("geo analytics responds", geo.status === 200, `HTTP ${geo.status}`);
   }
+  // Same as the FastAPI app: an unknown code bounces to "/" rather than 404ing.
   const unknown = await call("GET", "/r/zzzzzzzzzz");
-  check("unknown short code is 404", unknown.status === 404, `HTTP ${unknown.status}`);
+  check("unknown short code redirects home", unknown.status === 302 && unknown.headers.get("location") === "/", `HTTP ${unknown.status}`);
 }
 
 // --- File upload + serve (incl. Range) -------------------------------------
