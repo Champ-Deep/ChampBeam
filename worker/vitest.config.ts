@@ -20,6 +20,10 @@ export default defineConfig(async () => {
             PLATFORM_REDIRECT_HOST: "share.example.com",
             STORAGE_UPLOAD_SECRET: "test-upload-secret",
             CLERK_SECRET_KEY: "sk_test_dummy",
+            // Pinned so a developer's .dev.vars can't change test auth behaviour.
+            CLERK_PUBLISHABLE_KEY: "",
+            CLERK_ISSUER: "",
+            CLERK_AUTHORIZED_PARTIES: "",
             CLERK_JWKS_JSON: JSON.stringify(clerkKey.jwks),
             SERVICE_API_KEYS: "champ-workspace:svc-test-key",
           },

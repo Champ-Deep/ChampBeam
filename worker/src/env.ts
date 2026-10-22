@@ -202,7 +202,9 @@ function resolveClerkIssuer(explicit: string, publishableKey: string): string {
     const host = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4))
       .replace(/\$+$/, "")
       .replace(/^\/+|\/+$/g, "");
-    return host ? `https://${host}` : "";
+    // A real publishable key decodes to a Frontend API hostname; anything else
+    // (a placeholder like pk_test_xxx) must not produce a bogus issuer.
+    return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host) ? `https://${host}` : "";
   } catch {
     return "";
   }

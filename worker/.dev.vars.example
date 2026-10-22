@@ -4,6 +4,7 @@ DEBUG=true
 FRONTEND_URL=http://localhost:5173
 REDIRECT_BASE_URL=http://localhost:8787
 PLATFORM_REDIRECT_HOST=localhost
-CLERK_SECRET_KEY=sk_test_xxx
-CLERK_PUBLISHABLE_KEY=pk_test_xxx
+# Clerk dev instance keys (from the Clerk dashboard):
+# CLERK_SECRET_KEY=sk_test_...
+# CLERK_PUBLISHABLE_KEY=pk_test_...
 STORAGE_UPLOAD_SECRET=dev-upload-secret
