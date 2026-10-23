@@ -3,6 +3,7 @@ import { Show, SignIn, SignUp, useAuth } from '@clerk/react';
 import { useEffect } from 'react';
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
+import { AssistantLauncher } from './components/AssistantDrawer';
 import { HomePage } from './pages/HomePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LinksPage } from './pages/LinksPage';
@@ -85,6 +86,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar />
         <main className="min-w-0 flex-1">{children}</main>
+        <AssistantLauncher isAuthenticated />
       </div>
     );
   }

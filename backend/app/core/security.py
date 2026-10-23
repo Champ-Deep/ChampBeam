@@ -390,7 +390,9 @@ async def require_clerk_auth(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API keys cannot access this endpoint; sign in required",
         )
-    return await require_auth(credentials=credentials, x_api_key=None)
+    # Direct calls do not go through FastAPI dependency injection. Pass every
+    # header explicitly, or the Header sentinel is mistaken for a service key.
+    return await require_auth(credentials=credentials, x_api_key=None, x_service_key=None)
 
 
 async def require_org_member(user: TokenData = Depends(require_auth)) -> TokenData:

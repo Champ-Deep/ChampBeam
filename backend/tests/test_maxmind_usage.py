@@ -10,10 +10,16 @@ from app.core.config import settings
 from app.services import maxmind_usage
 
 
-async def _key():
+async def _key(monkeypatch):
     from tests.test_api_keys import _mint_key
 
     raw, _, user = await _mint_key()
+    from app.db import postgres
+    async with postgres.async_session_maker() as session:
+        owner = await session.get(type(user), user.id)
+        owner.clerk_id = "user_platform_admin"
+        await session.commit()
+    monkeypatch.setattr(settings, "system_admin_clerk_ids", "user_platform_admin")
     return {"X-API-Key": raw}
 
 
@@ -79,10 +85,17 @@ async def test_endpoints_need_auth_and_report(app_client, monkeypatch):
     assert (await app_client.get("/api/v1/system/maxmind")).status_code == 401
     assert (await app_client.get("/api/v1/system/status")).status_code == 401
 
+    from tests.test_api_keys import _mint_key
+    ordinary, _, _ = await _mint_key()
+    for path in ("/api/v1/system/maxmind", "/api/v1/system/status"):
+        assert (await app_client.get(path, headers={"X-API-Key": ordinary})).status_code == 403
+    assert (await app_client.get("/api/v1/system/access", headers={"X-API-Key": ordinary})).json() == {"is_admin": False}
+
     # a deployment that really does call MaxMind, so the balance is graded
     monkeypatch.setattr(settings, "maxmind_account_id", "123456")
     monkeypatch.setattr(settings, "maxmind_license_key", "test-key")
-    headers = await _key()
+    headers = await _key(monkeypatch)
+    assert (await app_client.get("/api/v1/system/access", headers=headers)).json() == {"is_admin": True}
     await maxmind_usage.record_lookup(queries_remaining=42, ok=True)
 
     r = await app_client.get("/api/v1/system/maxmind", headers=headers)
@@ -104,7 +117,7 @@ async def test_status_reports_off_when_the_service_is_not_configured(app_client,
     monkeypatch.setattr(settings, "maxmind_account_id", "")
     monkeypatch.setattr(settings, "maxmind_license_key", "")
 
-    headers = await _key()
+    headers = await _key(monkeypatch)
     r = await app_client.get("/api/v1/system/status", headers=headers)
     assert r.status_code == 200
     assert r.json()["checks"]["maxmind"]["status"] == "off"
