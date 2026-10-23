@@ -86,7 +86,7 @@ export type FileDeviceBreakdown = DeviceBreakdown;
 function _resolveBackendUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   try {
-    const origin = new URL(api.defaults.baseURL || window.location.origin).origin;
+    const origin = new URL(api.defaults.baseURL || '/', window.location.origin).origin;
     return `${origin}${path}`;
   } catch {
     return path;

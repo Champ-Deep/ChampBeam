@@ -2,6 +2,11 @@
 
 **Champbeam** is a powerful, user-friendly UTM tracking and analytics platform that helps marketers create, manage, and analyze campaign links with ease.
 
+> **Cloudflare edition (`cloudflare` branch):** the whole app — SPA, API, share
+> links and files — runs as one Cloudflare Worker on D1 + R2 (`worker/`). See
+> [CLOUDFLARE_DEPLOY.md](CLOUDFLARE_DEPLOY.md). The `backend/` FastAPI app is
+> kept as the reference implementation until cutover.
+
 ## Features
 
 ### 🔗 Public Link Generator
