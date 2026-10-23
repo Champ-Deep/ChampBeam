@@ -5,6 +5,7 @@ import {
   BarChart3,
   Check,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   FileText,
@@ -12,6 +13,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { downloadLink } from '../lib/format';
 import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloadButton } from './ui';
 import { FileUploadZone } from './ui/FileUploadZone';
 import { UPLOAD_ACCEPT, UPLOAD_HINT_COMPACT, UPLOAD_HINT_GUEST, UPLOAD_LABEL } from '../config/uploadLimits';
@@ -126,7 +128,12 @@ function FileResultCard({ file }: { file: SharedFile }) {
               <div className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-4 py-3 font-mono text-base sm:text-lg font-semibold text-brand-purple break-all">
                 {file.serveUrl}
               </div>
-              <Button onClick={handleCopy} leftIcon={<Copy className="h-4 w-4" />} className="flex-shrink-0">
+              <Button
+                onClick={handleCopy}
+                leftIcon={<Copy className="h-4 w-4" />}
+                className="flex-shrink-0"
+                title="Opens in the browser for pages, PDFs and video. Images, ZIPs and docs download as the full original. Every open is tracked."
+              >
                 Copy
               </Button>
             </div>
@@ -172,6 +179,18 @@ function FileResultCard({ file }: { file: SharedFile }) {
                 Open file
               </Button>
             </a>
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<Download className="h-4 w-4" />}
+              title="Copies a link that always downloads the original file. The download still counts as an open."
+              onClick={() => {
+                void navigator.clipboard.writeText(downloadLink(file.serveUrl));
+                toast.success('Download link copied');
+              }}
+            >
+              Copy download link
+            </Button>
             {expiresLabel(file.expiresAt) && (
               <span className="text-xs text-slate-500">{expiresLabel(file.expiresAt)}</span>
             )}
@@ -564,6 +583,18 @@ export function RecentFilesCard({
                     title="Copy link"
                   >
                     <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(downloadLink(urlFor(f)));
+                      toast.success('Download link copied');
+                    }}
+                    title="Copy download link (saves the original file, still tracked)"
+                  >
+                    <Download className="h-3.5 w-3.5" />
                   </Button>
                   <QrButton value={urlFor(f)} filename={`${f.shortCode}.svg`} />
                   <Link to={`/files/${f.fileId}/analytics`} title="View analytics">
