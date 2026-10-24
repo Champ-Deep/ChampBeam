@@ -146,6 +146,20 @@ Under the hood: `GET/POST /api/pages/{slug}/comments`, `GET/PUT/DELETE /api/page
 
 It is a JSON store with a comment stream, not a database: no queries, no per-user auth, no schemas. A page needing more brings its own backend (its own API origin must then be allowed for that page's CSP — ask before relying on it).
 
+## Org administration and reporting (Worker, v3)
+
+Interactive Clerk session in an active org. API keys get no org permission. Full contract,
+permission map and examples: `docs/V3-RELEASE.md` sections 3 and 4.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/v1/org/profile` | any signed-in caller | Org, role, permissions, `report_scope`, default share host, selectable hosts. |
+| `GET/POST /api/v1/org/viewers`, `DELETE /api/v1/org/viewers/{id}` | org admin | Read-only reporting grants (`scope` `org` or `team` + `leader_user_id`). A grant adds no write or secret right. |
+| `GET /api/v1/org/domains` | org member | Active org hosts (admins also see pending). |
+| `POST /api/v1/org/domains/{id}/attach`, `.../default` | org admin | Attach a verified domain you own; set the org default host. |
+| `GET /api/v1/org/reporting/summary?team=&user=&kind=&from=&to=` | member (own), team lead (team), grant or admin (org) | `shares_created`, `opens`, `clicks` by kind and member. `emails_sent` is always `not_measured`. Out-of-scope `team` or `user` is 403. |
+| `GET /api/v1/pages/slug-suggestion?filename=&domain_id=` | signed in | Basename-without-extension slug, numbered on collision. Reserves nothing. |
+
 ## Service keys (trusted backend integrations)
 
 Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env, e.g. for the agent workspace) resolves to a dedicated org-scoped service identity and is accepted **only** on a write allowlist — register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `app/core/service_auth.py`.

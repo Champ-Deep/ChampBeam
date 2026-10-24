@@ -12,6 +12,7 @@ export type Permission =
   | "share.create" // create files / pages / links under the active org
   | "report.own" // read reporting on own items
   | "report.team" // read reporting on assigned teams
+  | "report.org" // read reporting across the whole org
   | "team.manage" // assign content to reps
   | "org.members.manage" // set leaders, invite/remove (mirrors Clerk)
   | "org.domains.manage" // connect, verify, default org domains
@@ -21,6 +22,7 @@ const MEMBER: readonly Permission[] = ["share.create", "report.own"];
 const LEADER: readonly Permission[] = [...MEMBER, "report.team", "team.manage"];
 const ADMIN: readonly Permission[] = [
   ...LEADER,
+  "report.org",
   "org.members.manage",
   "org.domains.manage",
   "org.viewers.grant",
