@@ -18,6 +18,8 @@ export default defineConfig(async () => {
             FRONTEND_URL: "http://localhost:5173",
             REDIRECT_BASE_URL: "https://share.example.com",
             PLATFORM_REDIRECT_HOST: "share.example.com",
+            // Pinned empty so a developer .dev.vars (live QA sets it) cannot turn the app host into a share plane.
+            SHARE_ORIGIN_HOSTS: "",
             STORAGE_UPLOAD_SECRET: "test-upload-secret",
             CLERK_SECRET_KEY: "sk_test_dummy",
             // Pinned so a developer's .dev.vars can't change test auth behaviour.
