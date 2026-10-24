@@ -42,6 +42,7 @@ import * as pagesService from "../services/pages";
 import { rotateStateToken } from "../services/pageState";
 import {
   allocateUniqueShortCode,
+  blobAvailability,
   canonicalUuid,
   dateRange,
   deleteBlobQuiet,
@@ -369,6 +370,11 @@ router.get("/", async (c) => {
   for (const a of rows) out.push(await pageResponse(c, a));
   return c.json(out);
 });
+
+/** Lazy per-item blob check for the UI: missing vs forbidden vs storage outage. */
+router.get("/:page_id/availability", async (c) =>
+  blobAvailability(c, c.req.param("page_id"), await requireAuth(c), true),
+);
 
 router.get("/:page_id", async (c) => {
   const user = await requireAuth(c);

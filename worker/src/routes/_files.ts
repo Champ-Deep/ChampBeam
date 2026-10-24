@@ -37,7 +37,7 @@ import type { Ctx, Settings } from "../env";
 import type { TokenData } from "../auth/security";
 import { bytesToHex, sha256Hex, timingSafeEqual } from "../lib/crypto";
 import { httpError } from "../lib/errors";
-import { deleteObject } from "../lib/storage";
+import { StorageError, deleteObject, headObject } from "../lib/storage";
 import { isoUtc, parseIso } from "../lib/time";
 import { allocateFileShortCode, safeSlug, schemeFor } from "../services/content";
 import type { FileAsset } from "../services/assetLookup";
@@ -350,4 +350,29 @@ export async function parseBodyWithFields<S extends z.ZodType>(
     // parseJson already rejected invalid JSON.
   }
   return { data, fields };
+}
+
+/**
+ * Side-effect-free R2 head() for an item the actor owns: 200 available|missing,
+ * 403 not theirs, 503 storage_error. No body read, no writes, no analytics.
+ * `hostedOnly` keeps /pages from answering for download-intent files.
+ */
+export async function blobAvailability(c: Ctx, rawId: string, user: TokenData, hostedOnly: boolean) {
+  const id = canonicalUuid(rawId);
+  if (!id) httpError(400, "Invalid id.");
+  const asset = await c.var.db
+    .select()
+    .from(fileAssets)
+    .where(and(eq(fileAssets.id, id), ne(fileAssets.status, FILE_STATUS_DELETED), hostedOnly ? hostedCond : undefined))
+    .get();
+  if (!asset) httpError(404, hostedOnly ? "Page not found." : "File not found.");
+  if (asset.userId !== user.userId) httpError(403, "Not authorized for this item.");
+  try {
+    const head = await headObject(c.env.FILES, asset.storageKey);
+    return c.json({ status: "available", size: head.size, etag: head.etag });
+  } catch (err) {
+    if (err instanceof StorageError) return c.json({ status: "missing" });
+    console.error("availability head() failed", err);
+    return c.json({ status: "storage_error" }, 503);
+  }
 }
