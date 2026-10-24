@@ -27,18 +27,11 @@
     "directory": "../frontend/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Only these paths reach the Worker first; every other request is served
-    // straight from the asset store (free, no Worker invocation).
-    "run_worker_first": [
-      "/api/*",
-      "/r/*",
-      "/s/*",
-      "/f/*",
-      "/p/*",
-      "/rooms/*",
-      "/health",
-      "/docs"
-    ]
+    // The Worker runs first for everything except hashed build assets. Root-slug
+    // hosting (https://<share-host>/<slug>) cannot be listed as a path: the SPA
+    // fallback would answer it first. Non-matching GET/HEAD requests fall through
+    // to ASSETS in src/app.ts, so SPA routes still work.
+    "run_worker_first": ["/*", "!/assets/*"]
   },
 
   "d1_databases": [
