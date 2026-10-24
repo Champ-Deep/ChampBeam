@@ -62,8 +62,40 @@ export const organizationMemberships = sqliteTable("organization_memberships", {
   role: text("role").notNull().default(ROLE_MEMBER),
   clerkMembershipId: text("clerk_membership_id"),
   leaderUserId: text("leader_user_id").references(() => users.id, { onDelete: "set null" }),
+  /** "active" | "revoked". Revoked is a tombstone: token sync never revives it. */
+  status: text("status").notNull().default("active"),
+  revokedAt: text("revoked_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+});
+
+export const MEMBERSHIP_ACTIVE = "active";
+export const MEMBERSHIP_REVOKED = "revoked";
+
+export const reportingGrants = sqliteTable("reporting_grants", {
+  id: id(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** "org" = whole org, "team" = reps of leaderUserId (plus the leader). */
+  scope: text("scope").notNull(),
+  leaderUserId: text("leader_user_id").references(() => users.id, { onDelete: "cascade" }),
+  grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  revokedAt: text("revoked_at"),
+});
+
+export const slugAliases = sqliteTable("slug_aliases", {
+  id: id(),
+  fileId: text("file_id")
+    .notNull()
+    .references(() => fileAssets.id, { onDelete: "cascade" }),
+  domainId: text("domain_id").references(() => domains.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(),
+  createdAt: createdAt(),
 });
 
 export const API_KEY_PREFIX = "cb_live_";
@@ -142,6 +174,9 @@ export const domains = sqliteTable("domains", {
   autoRenew: bool("auto_renew").notNull().default(false),
   registrationPrice: text("registration_price"),
   domainExpiresAt: text("domain_expires_at"),
+  /** Set for an org-owned domain (administered by org admins, usable by members). */
+  organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  isOrgDefault: bool("is_org_default").notNull().default(false),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
@@ -173,6 +208,7 @@ export const linkClicks = sqliteTable("link_clicks", {
   requireEmail: bool("require_email").notNull().default(false),
   blockVpn: bool("block_vpn").notNull().default(false),
   branded: bool("branded").notNull().default(false),
+  organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   createdAt: createdAt(true),
 });
 
@@ -215,6 +251,9 @@ export const fileAssets = sqliteTable("file_assets", {
   stateToken: text("state_token"),
   accessCodeHash: text("access_code_hash"),
   projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+  organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  /** "download" | "host"; null = legacy asset, behaviour unchanged. */
+  shareIntent: text("share_intent"),
 });
 
 export const fileVersions = sqliteTable("file_versions", {

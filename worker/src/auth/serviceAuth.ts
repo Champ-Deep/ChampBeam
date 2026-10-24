@@ -4,7 +4,7 @@
  * resolve to service+{name}@championsmail.com, are accepted only on a
  * write-only route allowlist (403 elsewhere) and are rate limited 60/min.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv, Ctx, Settings } from "../env";
 import { organizationMemberships, organizations, users } from "../db/schema";
@@ -88,10 +88,15 @@ export async function resolveServiceIdentity(c: Ctx, rawKey: string): Promise<To
     throw new HTTPError(401, "Service identity not provisioned");
   }
   const row = await db
-    .select({ role: organizationMemberships.role, clerkOrgId: organizations.clerkOrgId, slug: organizations.slug })
+    .select({
+      role: organizationMemberships.role,
+      clerkOrgId: organizations.clerkOrgId,
+      slug: organizations.slug,
+      orgUuid: organizations.id,
+    })
     .from(organizationMemberships)
     .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
-    .where(eq(organizationMemberships.userId, user.id))
+    .where(and(eq(organizationMemberships.userId, user.id), eq(organizationMemberships.status, "active")))
     .limit(1)
     .get();
   return {
@@ -100,5 +105,6 @@ export async function resolveServiceIdentity(c: Ctx, rawKey: string): Promise<To
     orgId: row?.clerkOrgId ?? null,
     orgRole: row?.role ?? null,
     orgSlug: row?.slug ?? null,
+    orgUuid: row?.orgUuid ?? null,
   };
 }

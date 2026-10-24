@@ -22,6 +22,7 @@ import { diffSeconds, nowIso, parseIso } from "../lib/time";
 import * as userService from "../services/user";
 import * as orgService from "../services/org";
 import * as clerk from "../services/clerk";
+import { type Permission, roleHas } from "./permissions";
 import { resolveServiceIdentity } from "./serviceAuth";
 
 export interface TokenData {
@@ -33,10 +34,14 @@ export interface TokenData {
   /** Normalized role: "admin" | "member" | "leader" | "super_admin" | custom. */
   orgRole?: string | null;
   orgSlug?: string | null;
+  /** Local organizations.id of the active org (set only for an active, non-revoked membership). */
+  orgUuid?: string | null;
 }
 
-export const isOrgAdmin = (u: TokenData): boolean => !!u.orgRole && u.orgRole.toLowerCase().endsWith("admin");
-export const isOrgLeader = (u: TokenData): boolean => !!u.orgRole && u.orgRole.toLowerCase() === "leader";
+/** True when the active org role grants `p`. No org, or API key, means no permission. */
+export const can = (u: TokenData, p: Permission): boolean => !!u.orgId && roleHas(u.orgRole, p);
+export const isOrgAdmin = (u: TokenData): boolean => can(u, "org.members.manage");
+export const isOrgLeader = (u: TokenData): boolean => !!u.orgId && (u.orgRole ?? "").toLowerCase() === "leader";
 
 // ---------------------------------------------------------------------------
 // Clerk JWKS (cached per isolate)
@@ -163,11 +168,21 @@ async function maybeBackfillIdentity(c: Ctx, user: userService.User, tokenEmail:
 async function resolveUser(c: Ctx, payload: Record<string, unknown>): Promise<TokenData> {
   const db = c.var.db;
   const clerkUserId = payload.sub as string;
-  const [orgId, orgRole, orgSlug] = extractOrgClaims(payload);
+  let [orgId, orgRole, orgSlug] = extractOrgClaims(payload);
   const tokenEmail = typeof payload.email === "string" ? payload.email : null;
   const user = await userService.getOrCreateByClerkId(db, clerkUserId);
   await maybeBackfillIdentity(c, user, tokenEmail);
-  if (orgId) await orgService.syncFromToken(db, user.id, orgId, orgRole ?? "member", orgSlug);
+  let orgUuid: string | null = null;
+  if (orgId) {
+    const m = await orgService.resolveActiveMembership(db, user.id, orgId, orgRole ?? "member", orgSlug);
+    if (m) {
+      orgUuid = m.orgUuid;
+      orgRole = m.role;
+    } else {
+      // Revoked: behave exactly as if no organization were selected.
+      orgId = orgRole = orgSlug = null;
+    }
+  }
   return {
     userId: user.id,
     email: user.email ?? "",
@@ -175,6 +190,7 @@ async function resolveUser(c: Ctx, payload: Record<string, unknown>): Promise<To
     orgId,
     orgRole,
     orgSlug,
+    orgUuid,
   };
 }
 
@@ -311,8 +327,15 @@ export async function requireOrgAdmin(c: Ctx): Promise<TokenData> {
 
 export async function requireOrgLeaderOrAdmin(c: Ctx): Promise<TokenData> {
   const u = await requireOrgMember(c);
-  if (!(isOrgAdmin(u) || isOrgLeader(u))) {
+  if (!can(u, "team.manage")) {
     throw new HTTPError(403, "This action requires a team leader or organization admin.");
   }
+  return u;
+}
+
+/** Require one explicit permission in the active org. */
+export async function requirePermission(c: Ctx, p: Permission): Promise<TokenData> {
+  const u = await requireOrgMember(c);
+  if (!can(u, p)) throw new HTTPError(403, "You do not have permission to do this.");
   return u;
 }

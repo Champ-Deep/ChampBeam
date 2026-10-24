@@ -540,8 +540,8 @@ describe("analytics: campaigns", () => {
     const l2 = await seedLink(s.user.id, { utm_campaign: "Spring Sale", utm_source: "fb", utm_medium: "social", click_count: 1, unique_clicks: 1 });
     const l3 = await seedLink(s.user.id, { utm_campaign: "fall", utm_source: "fb", click_count: 7, unique_clicks: 3 });
     await seedLink(s.user.id, { utm_campaign: "", click_count: 50 });
-    await seedEvent({ link_id: l1, ip_address: "1.1.1.1", country: "India", country_code: "IN", device_type: "mobile", browser: "Chrome", os: "Android", clicked_at: `${today}T01:00:00.000Z` });
-    await seedEvent({ link_id: l1, ip_address: "1.1.1.1", country: "India", country_code: "IN", device_type: "mobile", browser: "Chrome", os: "Android", clicked_at: `${today}T02:00:00.000Z` });
+    await seedEvent({ link_id: l1, ip_address: "1.1.1.1", country: "India", country_code: "IN", device_type: "mobile", browser: "Chrome", os: "Android", clicked_at: `${today}T00:00:01.000Z` });
+    await seedEvent({ link_id: l1, ip_address: "1.1.1.1", country: "India", country_code: "IN", device_type: "mobile", browser: "Chrome", os: "Android", clicked_at: `${today}T00:00:02.000Z` });
     await seedEvent({ link_id: l2, ip_address: "2.2.2.2", country: "France", country_code: "FR", device_type: "desktop", browser: "Firefox", os: "Linux", clicked_at: iso(DAY) });
     await seedEvent({ link_id: l3, ip_address: "3.3.3.3", country: "Spain", country_code: "ES" });
     return { ...s, today, l1, l2, l3 };

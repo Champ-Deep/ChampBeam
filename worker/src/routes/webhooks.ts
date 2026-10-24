@@ -116,11 +116,12 @@ async function handleMembershipDeleted(db: Db, data: Data): Promise<void> {
   const clerkUserId = userData.user_id;
   if (!(clerkOrgId && clerkUserId)) return;
   const row = await db
-    .select({ id: organizationMemberships.id })
+    .select({ orgId: organizations.id, userId: users.id })
     .from(organizationMemberships)
     .innerJoin(organizations, eq(organizationMemberships.organizationId, organizations.id))
     .innerJoin(users, eq(organizationMemberships.userId, users.id))
     .where(and(eq(organizations.clerkOrgId, clerkOrgId), eq(users.clerkId, clerkUserId)))
     .get();
-  if (row) await db.delete(organizationMemberships).where(eq(organizationMemberships.id, row.id));
+  // Tombstone, not delete: a still-valid session token must not re-create it.
+  if (row) await orgService.revokeMembership(db, row.orgId, row.userId);
 }

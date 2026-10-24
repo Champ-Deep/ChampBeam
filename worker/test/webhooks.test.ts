@@ -120,7 +120,10 @@ describe("clerk webhook", () => {
     expect(mem2.role).toBe("member");
 
     await send({ type: "organizationMembership.deleted", data: membership });
-    expect(await env.DB.prepare("SELECT id FROM organization_memberships WHERE id = ?").bind(mem.id).first()).toBeNull();
+    // Tombstoned, not deleted: a still-valid session token must not revive it.
+    expect(
+      await env.DB.prepare("SELECT status, revoked_at FROM organization_memberships WHERE id = ?").bind(mem.id).first<any>(),
+    ).toMatchObject({ status: "revoked" });
 
     await send({ type: "organization.deleted", data: { id: orgId } });
     expect(await env.DB.prepare("SELECT id FROM organizations WHERE clerk_org_id = ?").bind(orgId).first()).toBeNull();
