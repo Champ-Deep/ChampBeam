@@ -56,7 +56,7 @@ function ThemeCard({
             {name === 'paper' && (
               <span
                 className="rounded px-1.5 py-0.5 text-[10px] font-bold"
-                style={{ color: 'var(--cb-accent)', background: 'var(--cb-accent-soft)' }}
+                style={{ color: 'var(--cb-ink)', background: 'var(--cb-accent-soft)' }}
               >
                 default
               </span>

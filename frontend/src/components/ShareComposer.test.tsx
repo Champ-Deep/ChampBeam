@@ -143,6 +143,12 @@ describe('one composer', () => {
     mount(); await screen.findByText('Read-only workspace');
     expect(screen.queryByLabelText('Choose file')).not.toBeInTheDocument();
   });
+  it('does not offer a reporting link to a viewer with no reporting scope', async () => {
+    vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, role: 'viewer', permissions: [], report_scope: 'none' });
+    mount(); await screen.findByText('Read-only workspace');
+    expect(screen.queryByRole('link', { name: 'Open reporting' })).not.toBeInTheDocument();
+    expect(screen.getByText(/cannot create shares or open reporting/)).toBeInTheDocument();
+  });
   it('does not infer admin rights from role text', async () => {
     function Probe() { const context = useOrgContext(); return <p>{context.isAdmin ? 'admin granted' : 'admin denied'}</p>; }
     mount(<Probe />); await screen.findByText('admin denied');

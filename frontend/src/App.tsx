@@ -66,7 +66,7 @@ function OrgRoute({ team = false, children }: { team?: boolean; children: React.
   if (isLoading) return <p role="status">Loading workspace access…</p>;
   if (error) return <p role="alert">Workspace access could not be verified. Reload or sign in again.</p>;
   if (!inOrg) return <Navigate to="/" replace />;
-  if (team && !canReport) return <p role="alert">Reporting access has not been granted in this workspace.</p>;
+  if (team && !canReport) return <div className="cb-workspace"><h1>Reporting</h1><p role="alert">Reporting access has not been granted in this workspace.</p></div>;
   return <>{children}</>;
 }
 

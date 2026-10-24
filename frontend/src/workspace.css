@@ -52,9 +52,12 @@ button[aria-label="Open menu"], button[aria-label="Close menu"] { min-width: 44p
 .cb-workspace [role=alert], .cb-panel [role=alert] { color:#991b1b; padding:12px; background:#fff4f2; border-radius:6px; }
 .cb-totals { display:flex; gap:32px; flex-wrap:wrap; border-block:1px solid var(--cb-border); margin:24px 0; padding:20px 0; }
 .cb-totals dd { font-size:28px; font-weight:600; }
+/* A fieldset defaults to min-content width, which pushed wide tables past a 375px viewport. */
+.cb-workspace fieldset { min-width:0; }
 .cb-table-scroll { overflow-x:auto; margin:20px 0; }
 .cb-table-scroll table { width:100%; border-collapse:collapse; text-align:left; }
 .cb-table-scroll th, .cb-table-scroll td { border-bottom:1px solid var(--cb-border); padding:12px; }
+.cb-table-scroll tbody th, .cb-table-scroll td:first-child { overflow-wrap:anywhere; }
 .cb-table-scroll small { display:block; font-size:12px; font-weight:400; }
 .cb-table-scroll caption { text-align:left; padding-bottom:12px; }
 .cb-account { color:#fff; font-size:14px; }

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAssets } from '../lib/assetCache';
@@ -409,7 +409,7 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
               <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Updated {formatRelative(page.updated_at)}</span>
             </div>
             <div className="mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-              <code className="text-xs font-mono text-slate-900 break-all flex-1">{page.url}</code>
+              <code className="text-xs font-mono text-slate-900 [overflow-wrap:anywhere] flex-1">{breakAfterPathSlash(page.url)}</code>
               <button type="button" onClick={onCopy} className="min-w-11 inline-flex items-center justify-center text-slate-400 hover:text-slate-700" aria-label="Copy link">
                 <Copy className="h-3.5 w-3.5" />
               </button>
@@ -492,13 +492,18 @@ function PageAvailability({ page }: { page: BeamPage }) {
           <p>{status === 401 || status === 403 ? 'Your session cannot check this page. Confirm your account and workspace, then retry.' : status === 404 ? 'This page record was not found. Refresh the page list to check whether it was removed.' : 'Storage could not be checked. This does not mean the content is missing.'}</p>
         </div>
       ) : data?.status === 'missing' ? (
-        <div role="alert"><strong>Stored content missing</strong><p>The page record exists, but its stored content was not found. Ask your workspace administrator to investigate recovery. No content has been restored.</p></div>
+        <div role="alert"><strong>Stored content missing</strong><p>The record for {page.title} ({page.slug ?? page.short_code}) exists, but its stored content was not found. Ask your workspace administrator to investigate recovery. No content has been restored.</p></div>
       ) : data?.status === 'available' ? (
         <div role="status"><strong>Stored content available</strong><p>{formatBytes(data.size)} found in storage. Access codes and page settings still apply.</p><a href={page.url} target="_blank" rel="noreferrer">Open page</a></div>
       ) : null}
       <Button variant="ghost" size="sm" disabled={isFetching} onClick={() => void refetch()}>Retry storage check</Button>
     </div>
   );
+}
+
+/** Offer line breaks after path slashes (not inside "//") so a narrow address wraps at a slash, not mid-hostname. */
+function breakAfterPathSlash(url: string) {
+  return url.split(/(?<=[^/]\/)(?=[^/])/).map((part, i) => <Fragment key={i}>{i > 0 && <wbr />}{part}</Fragment>);
 }
 
 function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRowProps['onPatch']; onDone: () => void }) {

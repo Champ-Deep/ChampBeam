@@ -15,7 +15,7 @@ const IntentControl = lazy(() => import('./ComposerControls').then((module) => (
 const KINDS: Record<string, keyof typeof UPLOAD_CAPS_MB> = { 'text/html': 'html', 'application/pdf': 'pdf', 'image/jpeg': 'image', 'image/png': 'image', 'image/webp': 'image', 'video/mp4': 'video', 'video/webm': 'video' };
 
 export function ShareComposer() {
-  const { profile, canShare, isSignedIn, isLoading, error: profileError } = useOrgContext();
+  const { profile, canShare, canReport, isSignedIn, isLoading, error: profileError } = useOrgContext();
   const client = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState('');
@@ -94,7 +94,7 @@ export function ShareComposer() {
   if (!isSignedIn) return <section className="cb-panel"><h2>Share with ChampBeam</h2><p>Sign in to host a page, send a file or track a link.</p><Link to="/sign-in">Sign in</Link></section>;
   if (isLoading) return <p role="status">Loading workspace permissions…</p>;
   if (profileError) return <p role="alert">Workspace access could not be verified. Reload or sign in again. No content was uploaded.</p>;
-  if (!canShare) return <section className="cb-panel"><h2>Read-only workspace</h2><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team">Open reporting</Link></section>;
+  if (!canShare) return <section className="cb-panel"><h2>Read-only workspace</h2>{canReport ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team">Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
 
   return <section className="cb-panel cb-composer" aria-labelledby={headingId}>
     <h2 id={headingId}>Drop a file or paste a link</h2>
