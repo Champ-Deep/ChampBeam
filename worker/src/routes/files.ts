@@ -52,6 +52,7 @@ import {
   MB,
   allocateUniqueShortCode,
   authorizeAsset,
+  blobAvailability,
   canonicalUuid,
   classify,
   computeSha256Async,
@@ -420,6 +421,11 @@ router.put("/:file_id/content", async (c) => {
 });
 
 /** Lightweight 'has it been opened?' poll for a file's owner or guest token. */
+/** Lazy per-item blob check for the UI: missing vs forbidden vs storage outage. */
+router.get("/:file_id/availability", async (c) =>
+  blobAvailability(c, c.req.param("file_id"), await requireAuth(c), false),
+);
+
 router.get("/:file_id/status", async (c) => {
   const { owner_token } = parseQuery(c, z.object({ owner_token: qStr() }));
   const user = await getCurrentUser(c);
