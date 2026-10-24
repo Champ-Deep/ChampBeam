@@ -1,0 +1,83 @@
+// ChampBeam on Cloudflare: ONE Worker serves everything.
+//
+//   /api/*, /r/*, /s/*, /f/*, /p/*, /rooms/*, /health  -> the API (Hono, src/)
+//   everything else                                    -> the React SPA (static
+//                                                         assets built from
+//                                                         ../frontend/dist)
+//
+// Bindings:
+//   DB     D1 (SQLite) — replaces Postgres. Schema lives in ./migrations.
+//   FILES  R2 bucket   — replaces Mongo GridFS / local disk / S3 for file bytes.
+//   ASSETS static assets (the built frontend).
+// Cron replaces the in-process background loops of the Python app.
+//
+// First-time setup (see ../CLOUDFLARE_DEPLOY.md):
+//   npx wrangler d1 create champbeam            -> paste database_id below
+//   npx wrangler r2 bucket create champbeam-files
+//   npx wrangler d1 migrations apply champbeam --remote
+//   npx wrangler secret put CLERK_SECRET_KEY    (and the other secrets)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "champbeam",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Only these paths reach the Worker first; every other request is served
+    // straight from the asset store (free, no Worker invocation).
+    "run_worker_first": [
+      "/api/*",
+      "/r/*",
+      "/s/*",
+      "/f/*",
+      "/p/*",
+      "/rooms/*",
+      "/health",
+      "/docs"
+    ]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "champbeam",
+      "database_id": "f4adff8c-771e-4e18-b792-dc9f8f3dbd99",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "champbeam-files"
+    }
+  ],
+
+  "triggers": {
+    // */15: expired-upload sweeper + rate-counter cleanup.
+    // */5 : custom-domain status refresh (Cloudflare for SaaS / DNS checks).
+    "crons": ["*/15 * * * *", "*/5 * * * *"]
+  },
+
+  "observability": { "enabled": true },
+
+  // Non-secret configuration. Secrets (CLERK_SECRET_KEY, CLERK_WEBHOOK_SECRET,
+  // STORAGE_UPLOAD_SECRET, R2_SECRET_ACCESS_KEY, CLOUDFLARE_API_TOKEN,
+  // CHAMPVAULT_API_KEY, SERVICE_API_KEYS, MAXMIND_LICENSE_KEY, IPINFO_API_TOKEN,
+  // PROVISIONER_TOKEN) go in `wrangler secret put` or .dev.vars locally.
+  "vars": {
+    "ENVIRONMENT": "production",
+    "DEBUG": "false",
+    "FRONTEND_URL": "https://www.champbeam.com",
+    "REDIRECT_BASE_URL": "",
+    "PLATFORM_REDIRECT_HOST": "",
+    "CLERK_PUBLISHABLE_KEY": "",
+    "CORS_ALLOW_ORIGINS": "",
+    "CORS_ALLOW_ORIGIN_REGEX": "",
+    "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files"
+  }
+}

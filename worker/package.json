@@ -1,0 +1,36 @@
+{
+  "name": "champbeam-worker",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build:frontend": "npm --prefix ../frontend ci && npm --prefix ../frontend run build",
+    "deploy": "npm run build:frontend && wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply champbeam --local",
+    "db:migrate:remote": "wrangler d1 migrations apply champbeam --remote",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cf-typegen": "wrangler types"
+  },
+  "type": "module",
+  "dependencies": {
+    "aws4fetch": "^1.0.20",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.13",
+    "jose": "^6.2.13",
+    "qrcode": "^1.5.4",
+    "ua-parser-js": "^2.0.10",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "@cloudflare/workers-types": "^5.20261022.1",
+    "@types/qrcode": "^1.5.6",
+    "@vitest/runner": "^4.1.11",
+    "@vitest/snapshot": "^4.1.12",
+    "drizzle-kit": "^0.31.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.152.0"
+  },
+  "private": true
+}

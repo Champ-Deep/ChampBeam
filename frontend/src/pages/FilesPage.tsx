@@ -1,12 +1,14 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateAssets } from '../lib/assetCache';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
   BarChart3,
   Clock,
   Copy,
+  Download,
   Eye,
   FileText,
   FileVideo,
@@ -37,7 +39,7 @@ import {
 import { filesApi } from '../api/files';
 import type { FileAsset, FileKind } from '../api/files';
 import { UPLOAD_ACCEPT, UPLOAD_HINT, UPLOAD_LABEL } from '../config/uploadLimits';
-import { formatBytes } from '../lib/format';
+import { downloadLink, formatBytes } from '../lib/format';
 import { utmApi } from '../api/utm';
 import type { Domain, Project, ProjectCreate } from '../api/utm';
 import { apiErrorDetail } from '../api/_shared';
@@ -105,8 +107,7 @@ export function FilesPage() {
 
   const refresh = useCallback(() => {
     // Counts (projects) and rows (files) both move when files are reassigned.
-    queryClient.invalidateQueries({ queryKey: ['projects'] });
-    queryClient.invalidateQueries({ queryKey: ['files'] });
+    void invalidateAssets(queryClient);
   }, [queryClient]);
 
   // --- Project form state ---
@@ -315,8 +316,7 @@ export function FilesPage() {
         next.delete(id);
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void invalidateAssets(queryClient);
     },
     onError: () => toast.error('Could not remove file.'),
   });
@@ -353,7 +353,7 @@ export function FilesPage() {
         const next = prev ? [finalized, ...prev.filter((f) => f.id !== finalized.id)] : [finalized];
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ['files'] });
+      void invalidateAssets(queryClient);
     } catch (err: unknown) {
       const detail =
         apiErrorDetail(err);
@@ -816,8 +816,22 @@ function FileRow({
                 }}
                 className="text-slate-400 hover:text-slate-700"
                 aria-label="Copy link"
+                title="Copy link. Pages, PDFs and video open in the browser; images, ZIPs and docs download."
               >
                 <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void navigator.clipboard.writeText(downloadLink(file.serve_url));
+                  toast.success('Download link copied.');
+                }}
+                className="text-slate-400 hover:text-slate-700"
+                aria-label="Copy download link"
+                title="Copy download link. Always saves the original file; the download still counts as an open."
+              >
+                <Download className="h-3.5 w-3.5" />
               </button>
               <span onClick={(e) => e.stopPropagation()} className="inline-flex">
                 <QrButton value={file.serve_url} filename={`${file.short_code}.svg`} />

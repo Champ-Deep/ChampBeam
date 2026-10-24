@@ -1,0 +1,27 @@
+{
+  "private": {
+    "kty": "RSA",
+    "n": "vzW0RQZ0m25GFHZ7Zz4Kr-lcPeadNgqAbutjRs_SO00gWl785AKsevp_u3PxCyKP7fPQaCz_U4rxRMo1eG4wGpc6WrvqHJcuColcUOT6mjC7KbyfDu_E1zFpJC3oJ20NIlYR1_HvavCDELZ_SQvJCRqnqIWTVzGu1KT0WxUgZbP2xYR6XdrHvkWTiQUGe3VtoZeV6xYzVetWM7hyoxgynZ0JCWyOQDPYzxBALn_b5GO4LC6ZuiUJ7A3vyL3Jc9cVuSJ1n6qWHLLh5_UJw60gMJJcY8VmGy63-4v3rycJy4QL6s1fE3cKiHXfqFVgYEFxo-scgBpsjORNiEg-NLBJHQ",
+    "e": "AQAB",
+    "d": "AlM9P5ATel-4ozhJZm5jisUU-T1Igq45Awr0SkRReMHqLNuZn42-U09nSXUZa6xo-fwsaaqPTWYMo150Hsf0Pa9tNUpAsym_sRSNwRwTRZ8Q3Ad1cF3kmtQxmdcVSwQb97j6jR_6M5-KjOr6UZpbJBd6f3PX7qus1DHspv46DZKIq9y3pa9SccHbdCq_K2TDHudMWuUY8a8n7BwnnEygK18HUjUyXzre9-jw6UTZx5OLCIxhykl_iZfogytlpm6I069GTOuzK6cmp-Bqp_0CfxV9btIyskkJJCctucTXsmx6lYScEgpu15qX8kb5p1Crn0IcZlVnipH9BneV-1zZHw",
+    "p": "5YIY4RSvemB3Car1B8WVUUnwen9C-VgloE4nlMZ8xAY6cuviItui1BNATLrFAVmaBsehGQNU5yYOvcV6EDE2NifUbKXqjpj92ObB7caUVt6kI10fu0WCLctuX4Y4TbR7SCqc3uEDCEP8eRJ_Pkzml8ZBRZXh3ubbc_Mq6GGLP_8",
+    "q": "1UfmUoEpZ5w01ca6Gfg7ER4bl_7EF2MEENNbKzP1YrT7QAo1MoYFXSQ0VpuoB0mZnc3jiVCo0vRue_6wezGLSS5Mc5iLDRgQczJuYgvx4xzut4-SmiwCa5M365_WAt7jUkT474-bnGQZmvyeWeA2IFzGzmcCUvGMjtcSu7lJduM",
+    "dp": "ncRXy-oHUq2bRrcRZ31ITq_wMpTm-jbA7riq9teXDr1lUniaY_HttbFiIxzErk_k1MJIGMS0iY0c1xE3_oeFx6aLnQBVBB9haMgACa7Xa_vygyjR1k9K1KYiQmImtCvcD1jTq1asWfM6TBQOCkqcvTqYxffpY-v4cXV4SnQ7YAs",
+    "dq": "PadgNF90Gah1OYsOBy3T3VnnviN-iggsh7SheTa268bHjraktCs757Xsj1DF3P1ws8ZtzScM9paETcHNQH-M9SW2IgBpyeo37yUX9a3gSbf2ZgfR6FFqjbBsDOgSlJfb_M9FavMHl8j0AfKez_pZizdmnQn4CQQcjrorhyrDyuM",
+    "qi": "Kw4RwtPyxMpFM2AdWjFX9o6wndJgIafzJElMUmqkbooJr9vQLoeY-tO27cGNwM6_rjTAXi0Tdv4VWRngsLeuUy3QRfpe3KP5Lb4aU5tTa2tOmTWZLkZj111yCy2rZfui0VNmXvA7bEWWwsicHEquQx8nb5et76rNewTfy0bEpQg",
+    "kid": "test-key-1",
+    "alg": "RS256"
+  },
+  "jwks": {
+    "keys": [
+      {
+        "kty": "RSA",
+        "n": "vzW0RQZ0m25GFHZ7Zz4Kr-lcPeadNgqAbutjRs_SO00gWl785AKsevp_u3PxCyKP7fPQaCz_U4rxRMo1eG4wGpc6WrvqHJcuColcUOT6mjC7KbyfDu_E1zFpJC3oJ20NIlYR1_HvavCDELZ_SQvJCRqnqIWTVzGu1KT0WxUgZbP2xYR6XdrHvkWTiQUGe3VtoZeV6xYzVetWM7hyoxgynZ0JCWyOQDPYzxBALn_b5GO4LC6ZuiUJ7A3vyL3Jc9cVuSJ1n6qWHLLh5_UJw60gMJJcY8VmGy63-4v3rycJy4QL6s1fE3cKiHXfqFVgYEFxo-scgBpsjORNiEg-NLBJHQ",
+        "e": "AQAB",
+        "kid": "test-key-1",
+        "alg": "RS256",
+        "use": "sig"
+      }
+    ]
+  }
+}

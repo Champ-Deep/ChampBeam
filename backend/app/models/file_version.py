@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, BigInteger, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.postgres import Base
 
@@ -32,3 +32,6 @@ class FileVersion(Base):
     sha256 = Column(String(64), nullable=True)
     filename = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Link-rewrite audit for this version: [{from_href, to_url, kind}]. The
+    # served bytes are the rewritten HTML; this report is the "why".
+    rewrite_report = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)

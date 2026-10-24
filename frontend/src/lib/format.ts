@@ -32,3 +32,8 @@ export function formatRelative(iso: string | null | undefined, fallback = 'never
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? fallback : formatDistanceToNow(d, { addSuffix: true });
 }
+
+/** Same tracked link, but the browser saves the original file instead of rendering it. */
+export function downloadLink(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}dl=1`;
+}
