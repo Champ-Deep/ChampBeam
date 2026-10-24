@@ -117,6 +117,17 @@ with sync_playwright() as pw:
         shot(page, 'host-pdf-result-1440')
         return f'{url} -> {r.headers["content-type"]} {r.headers["content-disposition"]}'
 
+    @step('composer: QR code for the hosted address renders (image decoded, not a broken fixture)')
+    def _():
+        page.get_by_role('button', name='Show QR code', exact=True).click()
+        img = page.get_by_role('img', name=re.compile('QR code for'))
+        expect(img).to_be_visible(timeout=10000)
+        src = img.get_attribute('src'); r = page.request.get(src if src.startswith('http') else APP + src)
+        assert r.status == 200 and 'svg' in r.headers['content-type'] and b'<svg' in r.body(), (r.status, r.headers.get('content-type'))
+        page.wait_for_function("() => { const i = document.querySelector('img[alt^=\"QR code for\"]'); return i && i.complete && i.naturalWidth > 0 && i.getBoundingClientRect().width > 50 }", timeout=8000)
+        shot(page, 'host-qr-1440')
+        page.keyboard.press('Escape')
+
     for key, want in (('png', 'image/png'), ('mp4', 'video/mp4'), ('html', 'text/html')):
         @step(f'composer: host {key} publishes, share-plane response is {want}')
         def _(key=key, want=want):
