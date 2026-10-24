@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '@clerk/react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Bot, Send, Sparkles, X } from 'lucide-react';
@@ -6,24 +7,23 @@ import { assistantApi } from '../api/assistant';
 import type { AssistantConfig, AssistantMessage } from '../api/assistant';
 import { apiErrorDetail } from '../api/_shared';
 
-const THREAD_KEY = 'champbeam_assistant_thread';
 
 /** The guided feature-helper thread, persisted locally per browser. */
-function loadThread(): AssistantMessage[] {
+function loadThread(key: string): AssistantMessage[] {
   try {
-    const raw = localStorage.getItem(THREAD_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as AssistantMessage[]) : [];
   } catch {
-    localStorage.removeItem(THREAD_KEY);
+    localStorage.removeItem(key);
     return [];
   }
 }
 
-function saveThread(messages: AssistantMessage[]) {
+function saveThread(key: string, messages: AssistantMessage[]) {
   try {
-    localStorage.setItem(THREAD_KEY, JSON.stringify(messages.slice(-40)));
+    localStorage.setItem(key, JSON.stringify(messages.slice(-40)));
   } catch {
     // private mode etc.; the chat still works for the session
   }
@@ -97,6 +97,8 @@ function InlineRich({ text }: { text: string }) {
 }
 
 export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolean }) {
+  const { userId, orgId } = useAuth();
+  const threadKey = `champbeam_assistant_thread:${userId ?? 'guest'}:${orgId ?? 'personal'}`;
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState('');
@@ -111,8 +113,8 @@ export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolea
   });
 
   useEffect(() => {
-    if (open && messages.length === 0) setMessages(loadThread());
-  }, [open, messages.length]);
+    if (open && messages.length === 0) setMessages(loadThread(threadKey));
+  }, [open, messages.length, threadKey]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -135,7 +137,7 @@ export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolea
         { role: 'assistant', content: result.reply },
       ];
       setMessages(withReply);
-      saveThread(withReply);
+      saveThread(threadKey, withReply);
     } catch (err: unknown) {
       setError(apiErrorDetail(err) ?? 'The assistant could not reply right now.');
       // Keep the user message so retry keeps context; drop nothing.
@@ -147,7 +149,7 @@ export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolea
 
   const reset = () => {
     setMessages([]);
-    localStorage.removeItem(THREAD_KEY);
+    localStorage.removeItem(threadKey);
     toast.info('Fresh start. New conversation.');
   };
 

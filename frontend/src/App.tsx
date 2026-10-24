@@ -1,9 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Show, SignIn, SignUp, useAuth } from '@clerk/react';
-import { useEffect } from 'react';
+
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
-import { AssistantLauncher } from './components/AssistantDrawer';
+
 import { HomePage } from './pages/HomePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LinksPage } from './pages/LinksPage';
@@ -20,15 +20,7 @@ import { ContentLibraryPage } from './pages/ContentLibraryPage';
 import { TeamAnalyticsPage } from './pages/TeamAnalyticsPage';
 import { VaultPage } from './pages/VaultPage';
 import { useOrgContext } from './hooks/useOrgContext';
-import { setTokenGetter } from './api/client';
 
-function ClerkTokenSync() {
-  const { getToken } = useAuth();
-  useEffect(() => {
-    setTokenGetter(() => getToken());
-  }, [getToken]);
-  return null;
-}
 
 // Standalone auth pages. These MUST exist because ProtectedRoute and the API
 // 401 handler both send signed-out users to /sign-in; without a mounted Clerk
@@ -70,9 +62,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // (admins + leaders). The backend enforces the real authorization — this just
 // keeps the UI honest.
 function OrgRoute({ team = false, children }: { team?: boolean; children: React.ReactNode }) {
-  const { inOrg, canManageTeam } = useOrgContext();
+  const { inOrg, canReport, isLoading, error } = useOrgContext();
+  if (isLoading) return <p role="status">Loading workspace access…</p>;
+  if (error) return <p role="alert">Workspace access could not be verified. Reload or sign in again.</p>;
   if (!inOrg) return <Navigate to="/" replace />;
-  if (team && !canManageTeam) return <Navigate to="/library" replace />;
+  if (team && !canReport) return <div className="cb-workspace"><h1>Reporting</h1><p role="alert">Reporting access has not been granted in this workspace.</p></div>;
   return <>{children}</>;
 }
 
@@ -85,8 +79,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar />
-        <main className="min-w-0 flex-1">{children}</main>
-        <AssistantLauncher isAuthenticated />
+        <main id="main-content" className="min-w-0 flex-1">{children}</main>
       </div>
     );
   }
@@ -101,7 +94,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--cb-bg)' }}>
-      <ClerkTokenSync />
+
       <Routes>
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignUpPage />} />
@@ -113,7 +106,7 @@ export default function App() {
                     content (signed-out) and the full app (signed-in). */}
                 <Route path="/welcome" element={<Navigate to="/" replace />} />
                 {/* Presets moved into Settings. Redirect the old route so existing links don't 404. */}
-                <Route path="/presets" element={<Navigate to="/settings?tab=presets" replace />} />
+                <Route path="/presets" element={<Navigate to="/links?tab=utm&panel=presets" replace />} />
                 <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
                 <Route path="/performance" element={<Navigate to="/analytics" replace />} />
                 <Route path="/links" element={<ProtectedRoute><LinksPage /></ProtectedRoute>} />

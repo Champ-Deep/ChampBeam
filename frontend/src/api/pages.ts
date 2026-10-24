@@ -7,10 +7,12 @@ import type { DateRangeOpts, GeoBreakdownItem, DeviceBreakdown } from './utm';
 // ============================================================
 
 export interface BeamPage {
+  kind?: 'html' | 'image' | 'video' | 'pdf' | 'other';
   page_id: string;
   short_code: string;
   slug: string | null;
   url: string;
+  public_url?: string;
   legacy_url: string;
   title: string;
   size_bytes: number;
@@ -139,32 +141,43 @@ export interface PageLinksApplyResult {
 // API
 // ============================================================
 
+/** The Worker returns `url` as the legacy /p/{slug} address; `public_url` is the canonical root-slug address the composer shows. */
+const canonical = (page: BeamPage): BeamPage => (page.public_url ? { ...page, url: page.public_url } : page);
+
 export const pagesApi = {
+  async availability(pageId: string): Promise<{ status: 'available'; size: number; etag: string } | { status: 'missing' }> {
+    const response = await api.get<{ status: 'available'; size: number; etag: string } | { status: 'missing' }>(`/pages/${pageId}/availability`);
+    return response.data;
+  },
+  async suggestSlug(filename: string, domainId?: string): Promise<{ slug: string; base: string; collided: boolean; host: string; public_url: string }> {
+    const response = await api.get<{ slug: string; base: string; collided: boolean; host: string; public_url: string }>('/pages/slug-suggestion', { params: { filename, domain_id: domainId } });
+    return response.data;
+  },
   async list(): Promise<BeamPage[]> {
     const response = await api.get<BeamPage[]>('/pages');
-    return asArray<BeamPage>(response.data);
+    return asArray<BeamPage>(response.data).map(canonical);
   },
 
   async get(pageId: string): Promise<BeamPage> {
     const response = await api.get<BeamPage>(`/pages/${pageId}`);
-    return response.data;
+    return canonical(response.data);
   },
 
   /** Publish from an HTML string (a dropped file is read with `file.text()`). */
   async create(data: PagePublish): Promise<BeamPage> {
     const response = await api.post<BeamPage>('/pages', data);
-    return response.data;
+    return canonical(response.data);
   },
 
   /** Replace content; URL, slug and QR stay identical. */
   async update(pageId: string, data: { html: string; title?: string }): Promise<BeamPage> {
     const response = await api.put<BeamPage>(`/pages/${pageId}`, data);
-    return response.data;
+    return canonical(response.data);
   },
 
   async patch(pageId: string, data: PagePatch): Promise<BeamPage> {
     const response = await api.patch<BeamPage>(`/pages/${pageId}`, data);
-    return response.data;
+    return canonical(response.data);
   },
 
   async delete(pageId: string): Promise<void> {

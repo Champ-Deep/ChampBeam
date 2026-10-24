@@ -1,0 +1,7 @@
+.cb-share-list button { min-width: 44px; min-height: 44px; }
+.cb-share-list .text-gray-400, .cb-share-list .text-slate-400 { color: #475569; }
+.cb-share-list button.rounded-full { color: var(--cb-ink); }
+.cb-share-list input[type="checkbox"] { width: 24px; height: 24px; font-size: 16px; }
+@media (max-width: 699px) {
+  .cb-share-list input[type="checkbox"] { width: 44px; height: 44px; }
+}
