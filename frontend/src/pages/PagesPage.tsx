@@ -2,6 +2,9 @@ import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAssets } from '../lib/assetCache';
+import { ShareComposer } from '../components/ShareComposer';
+import { filesApi } from '../api/files';
+import { useOrgContext } from '../hooks/useOrgContext';
 import { toast } from 'sonner';
 import {
   BarChart3,
@@ -47,7 +50,7 @@ const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 const BEAM_STATE_DOCS_URL = 'https://github.com/Champ-Deep/ChampUTM/blob/main/docs/API.md#pages';
 
 type PublishMode = 'upload' | 'paste';
-type RowPanel = { mode: 'idle' } | { mode: 'edit' } | { mode: 'versions' } | { mode: 'links' };
+type RowPanel = { mode: 'idle' } | { mode: 'edit' } | { mode: 'versions' } | { mode: 'links' } | { mode: 'availability' };
 
 function isHtmlFile(file: File): boolean {
   return /\.html?$/i.test(file.name) || file.type === 'text/html';
@@ -63,11 +66,13 @@ function publishErrorMessage(err: unknown): string {
 }
 
 export function PagesPage() {
+  const { canShare } = useOrgContext();
   const confirm = useConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: pages = [], isLoading } = useQuery({ queryKey: ['pages'], queryFn: () => pagesApi.list() });
+  const { data: pages = [], isLoading, error, refetch } = useQuery({ queryKey: ['pages'], queryFn: () => pagesApi.list(), retry: false });
+  const { data: assets = [], error: assetError, refetch: refetchAssets } = useQuery({ queryKey: ['files'], queryFn: () => filesApi.list(), retry: false });
   const { data: domains = [] } = useQuery({ queryKey: ['domains'], queryFn: () => utmApi.listDomains() });
   const activeDomains = useMemo(() => domains.filter((d) => d.status === 'active'), [domains]);
 
@@ -136,16 +141,16 @@ export function PagesPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4">
+    <div className="cb-workspace max-w-5xl mx-auto py-8 px-4">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900">Pages</h1>
         <p className="text-slate-600 mt-1">
-          Publish a single HTML file on your domain. Every open is tracked — views, revisits and time on page — and
-          Beam State (comments + shared checklist state) is on by default.
+          Hosted HTML, images, video and PDFs. Download-only shares belong in Files. Existing addresses stay valid.
         </p>
       </div>
 
-      <PublishCard
+      {canShare && <ShareComposer />}
+      {canShare && <details><summary>Advanced HTML publishing</summary><PublishCard
         domains={activeDomains}
         isPublishing={createMutation.isPending}
         onPublish={(data) => createMutation.mutate(data)}
@@ -159,8 +164,10 @@ export function PagesPage() {
       {batchMutation.data && batchMutation.data.length > 0 && (
         <BatchResults results={batchMutation.data} />
       )}
+      </details>}
 
       <Card padding="none">
+        {assetError && <div role="alert" className="p-6"><p>Page types could not load. HTML-only tools are unavailable until types are verified.</p><Button onClick={() => void refetchAssets()}>Retry page types</Button></div>}
         <div className="p-6 pb-0">
           <CardHeader>
             <CardTitle>Your pages</CardTitle>
@@ -169,12 +176,14 @@ export function PagesPage() {
         </div>
         {isLoading ? (
           <div className="py-10"><LoadingSpinner /></div>
+        ) : error ? (
+          <div role="alert" className="p-6"><h2>{apiErrorStatus(error) === 401 || apiErrorStatus(error) === 403 ? 'Page access failed' : 'Pages could not load'}</h2><p>{apiErrorDetail(error) ?? 'The list is unavailable. This does not mean your pages were deleted.'}</p><Button onClick={() => void refetch()}>Retry pages</Button></div>
         ) : pages.length === 0 ? (
           <div className="px-6 pb-6">
             <EmptyState
               icon={Globe}
               title="No pages yet"
-              description="Drop an .html file above to publish it on your domain with view, dwell and revisit tracking."
+              description="No hosted pages are returned for this account. Check your account and workspace before treating an empty list as lost content."
             />
           </div>
         ) : (
@@ -182,7 +191,7 @@ export function PagesPage() {
             {pages.map((page) => (
               <PageRow
                 key={page.page_id}
-                page={page}
+                page={{ ...page, kind: page.kind ?? assets.find((asset) => asset.id === page.page_id)?.kind }}
                 onCopy={() => copyUrl(page.url)}
                 onAnalytics={() => navigate(`/pages/${page.page_id}/analytics`)}
                 onReplace={(html) => replaceMutation.mutate({ id: page.page_id, html })}
@@ -277,6 +286,7 @@ function PublishCard({ domains, isPublishing, onPublish }: PublishCardProps) {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Host on</label>
             <select
+              aria-label="Host on"
               value={domainId}
               onChange={(e) => setDomainId(e.target.value)}
               disabled={isPublishing}
@@ -306,6 +316,7 @@ function PublishCard({ domains, isPublishing, onPublish }: PublishCardProps) {
       ) : (
         <div className="space-y-3">
           <textarea
+            aria-label="HTML content"
             value={pasted}
             onChange={(e) => setPasted(e.target.value)}
             rows={10}
@@ -347,10 +358,11 @@ interface PageRowProps {
 function statusBadge(page: BeamPage) {
   if (!page.enabled) return <Badge variant="warning" size="sm">Disabled</Badge>;
   if (page.has_access_code) return <Badge variant="info" size="sm">Gated</Badge>;
-  return <Badge variant="success" size="sm">Live</Badge>;
+  return <Badge variant="success" size="sm">Enabled</Badge>;
 }
 
 function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRollback }: PageRowProps) {
+  const { canShare } = useOrgContext();
   const [panel, setPanel] = useState<RowPanel>({ mode: 'idle' });
   const fileInput = useRef<HTMLInputElement>(null);
   const avgDwell = page.view_count > 0 ? page.total_dwell_ms / page.view_count : 0;
@@ -374,8 +386,8 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
 
   return (
     <div className="px-6 py-4 hover:bg-gray-50 transition-colors">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
+      <div className="flex flex-col xl:flex-row items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0 w-full xl:w-auto flex-1">
           <div className="h-10 w-10 rounded-lg bg-brand-purple/10 flex items-center justify-center flex-shrink-0">
             <Globe className="h-5 w-5 text-brand-purple" />
           </div>
@@ -383,6 +395,7 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-sm text-slate-900 truncate">{page.title}</span>
               {statusBadge(page)}
+              <Badge variant="default" size="sm">{page.kind ? page.kind.toUpperCase() : 'Type unavailable'}</Badge>
               {page.current_version > 0 && (
                 <Badge variant="default" size="sm">v{page.current_version}</Badge>
               )}
@@ -397,51 +410,55 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
             </div>
             <div className="mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
               <code className="text-xs font-mono text-slate-900 break-all flex-1">{page.url}</code>
-              <button type="button" onClick={onCopy} className="text-slate-400 hover:text-slate-700" aria-label="Copy link">
+              <button type="button" onClick={onCopy} className="min-w-11 inline-flex items-center justify-center text-slate-400 hover:text-slate-700" aria-label="Copy link">
                 <Copy className="h-3.5 w-3.5" />
               </button>
               <QrButton value={page.url} filename={`${page.slug ?? page.short_code}.svg`} />
             </div>
-            <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2 flex-wrap">
+            <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
               {page.legacy_url !== page.url && (
                 <>
-                  <span>legacy {page.legacy_url}</span>
+                  <span className="break-all">legacy {page.legacy_url}</span>
                   <span>·</span>
                 </>
               )}
-              <span>
+              {page.kind === 'html' && <span>
                 Beam State: on ·{' '}
                 <a href={BEAM_STATE_DOCS_URL} target="_blank" rel="noreferrer" className="underline hover:text-slate-600">
                   how it works
                 </a>
-              </span>
+              </span>}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+        <div className="flex items-center gap-1 max-w-full flex-wrap">
+          <Button variant="ghost" size="sm" onClick={() => toggle('availability')} aria-expanded={panel.mode === 'availability'}>
+            Check storage
+          </Button>
           <Button variant="ghost" size="sm" onClick={onAnalytics} className="text-brand-purple hover:bg-brand-purple/10" leftIcon={<BarChart3 className="h-4 w-4" />}>
             Analytics
           </Button>
-          <input ref={fileInput} type="file" accept={PAGE_ACCEPT} className="hidden" onChange={handleReplaceFile} />
-          <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()} leftIcon={<RefreshCw className="h-4 w-4" />} title="Upload new content at the same URL">
+          <input aria-label="Replace page HTML" ref={fileInput} type="file" accept={PAGE_ACCEPT} className="hidden" onChange={handleReplaceFile} />
+          {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()} leftIcon={<RefreshCw className="h-4 w-4" />} title="Upload new content at the same URL">
             Replace
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => toggle('edit')} leftIcon={<Pencil className="h-4 w-4" />}>
+          </Button>}
+          {canShare && <Button variant="ghost" size="sm" onClick={() => toggle('edit')} leftIcon={<Pencil className="h-4 w-4" />}>
             Edit
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => toggle('links')} leftIcon={<Link2 className="h-4 w-4" />} title="See and reroute the links inside this page">
+          </Button>}
+          {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => toggle('links')} leftIcon={<Link2 className="h-4 w-4" />} title="See and reroute the links inside this page">
             Links
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => toggle('versions')} leftIcon={<History className="h-4 w-4" />}>
+          </Button>}
+          {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => toggle('versions')} leftIcon={<History className="h-4 w-4" />}>
             Versions
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50" leftIcon={<Trash2 className="h-4 w-4" />}>
+          </Button>}
+          {canShare && <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50" leftIcon={<Trash2 className="h-4 w-4" />}>
             Remove
-          </Button>
+          </Button>}
         </div>
       </div>
 
+      {panel.mode === 'availability' && <PageAvailability page={page} />}
       {panel.mode === 'edit' && (
         <EditPanel page={page} onPatch={onPatch} onDone={() => setPanel({ mode: 'idle' })} />
       )}
@@ -458,6 +475,31 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
 // ---------------------------------------------------------------------------
 // Inline edit panel
 // ---------------------------------------------------------------------------
+
+function PageAvailability({ page }: { page: BeamPage }) {
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey: ['pages', page.page_id, 'availability'],
+    queryFn: () => pagesApi.availability(page.page_id),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const status = apiErrorStatus(error);
+  return (
+    <div className="mt-4" aria-label={`Storage for ${page.title}`}>
+      {isFetching ? <p role="status">Checking stored content...</p> : error ? (
+        <div role="alert">
+          <strong>{status === 401 || status === 403 ? 'Storage access failed' : status === 404 ? 'Page record unavailable' : 'Storage check unavailable'}</strong>
+          <p>{status === 401 || status === 403 ? 'Your session cannot check this page. Confirm your account and workspace, then retry.' : status === 404 ? 'This page record was not found. Refresh the page list to check whether it was removed.' : 'Storage could not be checked. This does not mean the content is missing.'}</p>
+        </div>
+      ) : data?.status === 'missing' ? (
+        <div role="alert"><strong>Stored content missing</strong><p>The page record exists, but its stored content was not found. Ask your workspace administrator to investigate recovery. No content has been restored.</p></div>
+      ) : data?.status === 'available' ? (
+        <div role="status"><strong>Stored content available</strong><p>{formatBytes(data.size)} found in storage. Access codes and page settings still apply.</p><a href={page.url} target="_blank" rel="noreferrer">Open page</a></div>
+      ) : null}
+      <Button variant="ghost" size="sm" disabled={isFetching} onClick={() => void refetch()}>Retry storage check</Button>
+    </div>
+  );
+}
 
 function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRowProps['onPatch']; onDone: () => void }) {
   const [slug, setSlug] = useState(page.slug ?? '');
@@ -479,7 +521,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
 
   const save = async () => {
     if (!slugValid) {
-      setSlugError('Use 3–60 lowercase letters, numbers and hyphens.');
+      setSlugError('Use 3 to 60 lowercase letters, numbers and hyphens.');
       return;
     }
     const data: PagePatch = {};
@@ -519,7 +561,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
             setSlug(e.target.value.toLowerCase());
             setSlugError(undefined);
           }}
-          error={slugError ?? (slugValid ? undefined : 'Use 3–60 lowercase letters, numbers and hyphens.')}
+          error={slugError ?? (slugValid ? undefined : 'Use 3 to 60 lowercase letters, numbers and hyphens.')}
           helperText={host && slug ? `https://${host}/p/${slug}` : undefined}
           placeholder="pallab-northstar"
           maxLength={60}
@@ -546,7 +588,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
               inputMode="numeric"
               value={accessCode}
               onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-              placeholder={page.has_access_code ? 'Replace with a new 4–8 digit code' : '4–8 digits (optional)'}
+              placeholder={page.has_access_code ? 'Replace with a new 4 to 8 digit code' : '4 to 8 digits (optional)'}
               helperText="Visitors must enter this before the page renders."
             />
           )}
@@ -651,6 +693,7 @@ function BatchPublishCard({
       </p>
       <div className="flex items-center gap-3 flex-wrap">
         <input
+          aria-label="HTML files to publish as a set"
           type="file"
           multiple
           accept={PAGE_ACCEPT}
@@ -677,6 +720,7 @@ function BatchPublishCard({
         )}
         {domains.length > 0 && (
           <select
+            aria-label="Publish set domain"
             value={domainId}
             onChange={(e) => setDomainId(e.target.value)}
             disabled={isPublishing}

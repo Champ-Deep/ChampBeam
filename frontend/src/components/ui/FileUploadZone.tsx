@@ -97,6 +97,7 @@ export function FileUploadZone({
       <input
         ref={fileInputRef}
         type="file"
+        aria-label={label ?? 'Upload CSV file'}
         accept={accept}
         onChange={handleFileInput}
         className="hidden"

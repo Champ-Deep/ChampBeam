@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { BarChart3, ChevronDown, ChevronRight, Crown, Inbox, Shield, Trash2, Users } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, Inbox, Trash2, Users } from 'lucide-react';
 import { Badge, Card, CardHeader, CardTitle, EmptyState, LoadingSpinner } from '../components/ui';
 import {
   assignmentsApi,
@@ -13,14 +13,9 @@ import {
   type OrgContext,
 } from '../api/org';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { ReportingSummary } from '../components/ReportingSummary';
 import { apiErrorDetail } from '../api/_shared';
 
-function isAdminRole(role: string) {
-  return role.toLowerCase().endsWith('admin');
-}
-function isLeaderRole(role: string) {
-  return role.toLowerCase() === 'leader';
-}
 
 function StatTile({ label, value }: { label: string; value: string | number }) {
   return (
@@ -34,6 +29,11 @@ function StatTile({ label, value }: { label: string; value: string | number }) {
 }
 
 export function TeamAnalyticsPage() {
+  const { canManageTeam } = useOrgContext();
+  return <div className="cb-workspace"><h1>Reporting</h1><ReportingSummary />{canManageTeam && <details><summary>Content performance and team operations</summary><TeamOperations /></details>}</div>;
+}
+
+function TeamOperations() {
   const { isAdmin } = useOrgContext();
   const { data: context } = useQuery<OrgContext>({
     queryKey: ['org-context'],
@@ -53,18 +53,18 @@ export function TeamAnalyticsPage() {
   return (
     <div className="max-w-5xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">Team Analytics</h1>
+        <h2 className="text-2xl font-bold text-slate-900">Team operations</h2>
         <p className="text-slate-600 mt-1">
-          Consolidated content performance across {context?.name ?? 'your team'} — the same content
+          Consolidated content performance across {context?.name ?? 'your team'}. The same content
           shared by different members rolls up to one item.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-6">
-        <StatTile label="Members" value={context?.member_count ?? '—'} />
-        <StatTile label="Content items" value={report?.total_content ?? '—'} />
-        <StatTile label="Total shares" value={report?.total_shares ?? '—'} />
-        <StatTile label="Total opens" value={report?.total_opens ?? '—'} />
+        <StatTile label="Members" value={context?.member_count ?? 'Unavailable'} />
+        <StatTile label="Content items" value={report?.total_content ?? 'Unavailable'} />
+        <StatTile label="Total shares" value={report?.total_shares ?? 'Unavailable'} />
+        <StatTile label="Total opens" value={report?.total_opens ?? 'Unavailable'} />
       </div>
 
       <Card className="mb-6">
@@ -122,7 +122,8 @@ function AssignmentsCard({ members }: { members: MemberStats[] }) {
     onError: () => toast.error('Could not withdraw the assignment.'),
   });
 
-  const sentCount = assignments.filter((a) => a.sent).length;
+  // The API's legacy sent flag records a created share, not email delivery.
+  const sharedCount = assignments.filter((a) => a.sent).length;
 
   return (
     <Card className="mb-6">
@@ -132,7 +133,7 @@ function AssignmentsCard({ members }: { members: MemberStats[] }) {
           Assignments
           {assignments.length > 0 && (
             <span className="text-sm font-normal text-slate-400">
-              · {sentCount}/{assignments.length} sent
+              · {sharedCount}/{assignments.length} shared
             </span>
           )}
         </CardTitle>
@@ -145,7 +146,7 @@ function AssignmentsCard({ members }: { members: MemberStats[] }) {
         <EmptyState
           icon={Inbox}
           title="No assignments yet"
-          description="Recommend an asset to a rep from the Library — assign an asset and it shows up here with follow-through."
+          description="Recommend an asset to a rep from the Library. Assign an asset and it shows up here with follow-through."
         />
       ) : (
         <div className="overflow-x-auto -mx-6 -mb-6">
@@ -170,9 +171,9 @@ function AssignmentsCard({ members }: { members: MemberStats[] }) {
                   </td>
                   <td className="px-6 py-3">
                     {a.sent ? (
-                      <Badge variant="success" size="sm">Sent</Badge>
+                      <Badge variant="success" size="sm">Share created</Badge>
                     ) : (
-                      <Badge variant="warning" size="sm">Not sent</Badge>
+                      <Badge variant="warning" size="sm">Not shared</Badge>
                     )}
                   </td>
                   <td className="px-6 py-3 text-right">
@@ -205,11 +206,6 @@ function MembersCard({ members, canAssignLeaders }: { members: MemberStats[]; ca
     return map;
   }, [members]);
 
-  // Candidate leaders a rep can report to (leaders + admins).
-  const leaders = useMemo(
-    () => members.filter((m) => isLeaderRole(m.role) || isAdminRole(m.role)),
-    [members],
-  );
 
   const assign = useMutation({
     mutationFn: ({ userId, leaderId }: { userId: string; leaderId: string | null }) =>
@@ -250,34 +246,30 @@ function MembersCard({ members, canAssignLeaders }: { members: MemberStats[]; ca
             </thead>
             <tbody>
               {members.map((m) => {
-                const admin = isAdminRole(m.role);
-                const leader = isLeaderRole(m.role);
-                // Only plain members report to a leader.
-                const assignable = canAssignLeaders && !admin && !leader;
                 return (
                   <tr key={m.user_id} className="border-b border-slate-50">
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
-                        {admin && <Crown className="h-3.5 w-3.5 text-amber-500" />}
-                        {leader && <Shield className="h-3.5 w-3.5 text-brand-purple" />}
+
                         <span className="text-slate-900">{m.full_name || m.email || 'Unknown'}</span>
                       </div>
                     </td>
                     <td className="px-6 py-3">
-                      <Badge variant={admin ? 'info' : leader ? 'default' : 'default'} size="sm">
+                      <Badge variant="default" size="sm">
                         {m.role}
                       </Badge>
                     </td>
                     <td className="px-6 py-3">
-                      {assignable ? (
+                      {canAssignLeaders ? (
                         <select
+                          aria-label={`Team leader for ${m.full_name || m.email || m.user_id}`}
                           value={m.leader_user_id ?? ''}
                           onChange={(e) => assign.mutate({ userId: m.user_id, leaderId: e.target.value || null })}
                           disabled={assign.isPending}
                           className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
                         >
                           <option value="">Unassigned</option>
-                          {leaders.map((l) => (
+                          {members.map((l) => (
                             <option key={l.user_id} value={l.user_id}>
                               {l.full_name || l.email || l.user_id.slice(0, 8)}
                             </option>
@@ -285,7 +277,7 @@ function MembersCard({ members, canAssignLeaders }: { members: MemberStats[]; ca
                         </select>
                       ) : (
                         <span className="text-slate-400">
-                          {m.leader_user_id ? nameById.get(m.leader_user_id) ?? '—' : '—'}
+                          {m.leader_user_id ? nameById.get(m.leader_user_id) ?? m.leader_user_id : 'Unassigned'}
                         </span>
                       )}
                     </td>

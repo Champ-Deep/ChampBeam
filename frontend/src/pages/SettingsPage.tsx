@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { OrganizationSettings } from '../components/OrganizationSettings';
+import { useOrgContext } from '../hooks/useOrgContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
@@ -9,16 +11,16 @@ import { ApiKeysSettings } from '../components/ApiKeysSettings';
 import { AssistantSettings } from '../components/AssistantSettings';
 import { utmApi } from '../api/utm';
 import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '../api/utm';
-import { PresetsManager } from './PresetsManager';
+
 import { SystemSettings } from '../components/SystemSettings';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 import { systemApi } from '../api/system';
 import { useAuth } from '@clerk/react';
 
-type SettingsTab = 'domains' | 'presets' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
+type SettingsTab = 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
 
 function initialTab(param: string | null): SettingsTab {
-  if (param === 'presets' || param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system' || param === 'assistant')
+  if (param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system' || param === 'assistant')
     return param;
   return 'domains';
 }
@@ -51,6 +53,15 @@ function validateSlug(slug: string): string | null {
 }
 
 export function SettingsPage() {
+  const [params] = useSearchParams();
+  const { inOrg, permissions, isLoading, error } = useOrgContext();
+  if (params.get('tab') === 'presets' || params.get('tab') === 'utm') return <Navigate to="/links?tab=utm&panel=presets" replace />;
+  if (isLoading) return <p role="status">Loading workspace settings…</p>;
+  if (error) return <p role="alert">Could not verify workspace access. Reload or sign in again.</p>;
+  return <div className="cb-workspace"><h1>Settings</h1>{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
+}
+
+function PersonalSettings() {
   const { userId } = useAuth();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -163,15 +174,15 @@ export function SettingsPage() {
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">Settings</h1>
+        <h2 className="text-2xl font-bold text-slate-900">Personal settings</h2>
         <p className="text-slate-600 mt-1">
-          Manage your custom domains and saved UTM presets.
+          Manage your domains and account preferences. UTM presets live in Links.
         </p>
       </div>
 
       {/* Sub-tab bar */}
       <div className="border-b border-slate-200 mb-6">
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
           <button
             onClick={() => setTab('domains')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
@@ -183,17 +194,13 @@ export function SettingsPage() {
             <Globe className="h-4 w-4 inline mr-1.5 -mt-0.5" />
             Domains
           </button>
-          <button
-            onClick={() => setTab('presets')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'presets'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
+          <Link
+            to="/links?tab=utm&panel=presets"
+            className="pb-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700"
           >
             <BookmarkCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Presets
-          </button>
+            UTM presets
+          </Link>
           <button
             onClick={() => setTab('apikeys')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
@@ -306,7 +313,7 @@ export function SettingsPage() {
 
       {tab === 'apikeys' && <ApiKeysSettings />}
 
-      {tab === 'presets' && <PresetsManager />}
+
     </div>
   );
 }
@@ -407,8 +414,8 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
           Add your own domain
         </CardTitle>
       </CardHeader>
-      <form onSubmit={handleSubmit} className="flex items-start gap-3">
-        <div className="flex-1">
+      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-start gap-3">
+        <div className="w-full min-w-0 flex-1">
           <Input
             label="Domain"
             placeholder="track.acme.com"
@@ -421,7 +428,7 @@ function AddOwnDomainCard({ config, onAdd, submitting }: AddOwnDomainCardProps) 
           type="submit"
           isLoading={submitting}
           leftIcon={<Plus className="h-4 w-4" />}
-          className="mt-7 whitespace-nowrap"
+          className="sm:mt-7 whitespace-nowrap"
         >
           Add domain
         </Button>
@@ -455,7 +462,7 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
 
   return (
     <div className="px-6 py-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col lg:flex-row items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-sm font-medium text-slate-900 break-all">
@@ -478,7 +485,7 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
             <p className="text-xs text-slate-500 mt-1">SSL: {domain.ssl_status}</p>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 max-w-full">
           <Button
             variant="ghost"
             size="sm"
@@ -569,11 +576,11 @@ function SetupInstructions({
             <CopyableField label="Value" value={cname} />
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Where to add it: <span className="font-medium">Namecheap</span> — Domain List
+            Where to add it: <span className="font-medium">Namecheap</span>: Domain List
             &rarr; Manage &rarr; Advanced DNS &rarr; Add New Record (Type: CNAME, Host:{' '}
             <code className="font-mono">{label}</code>, Value: the target above).{' '}
-            <span className="font-medium">GoDaddy</span> — DNS &rarr; Add &rarr; CNAME.{' '}
-            <span className="font-medium">Cloudflare</span> — DNS &rarr; Add record (set
+            <span className="font-medium">GoDaddy</span>: DNS &rarr; Add &rarr; CNAME.{' '}
+            <span className="font-medium">Cloudflare</span>: DNS &rarr; Add record (set
             it to "DNS only" while verifying).
           </p>
         </li>
@@ -645,7 +652,7 @@ function BuyDomainCard() {
             placeholder="acme, acmepitch.com…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            helperText="We register it and wire it up automatically — no DNS steps."
+            helperText="We register it and wire it up automatically. No DNS steps."
           />
         </div>
         <Button
