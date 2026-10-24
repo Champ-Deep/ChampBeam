@@ -24,6 +24,8 @@ export type AppEnv = {
     db: Db;
     /** Memoized auth result for this request (undefined = not resolved yet). */
     authUser?: TokenData | null;
+    /** True when this request hit a share-only host (no control plane served). */
+    sharePlane?: boolean;
   };
 };
 
@@ -92,6 +94,13 @@ export function buildSettings(env: Env) {
     redirectBaseUrl: str(env, "REDIRECT_BASE_URL"),
     platformRedirectHost: str(env, "PLATFORM_REDIRECT_HOST"),
     platformSubdomainBase: str(env, "PLATFORM_SUBDOMAIN_BASE"),
+    /**
+     * Dedicated sharing origin(s), e.g. "share.champbeam.com". Hosted content is
+     * untrusted: it is served from these hosts, which carry no signed-in control
+     * plane (no SPA, no /api/v1) and so share no cookies with it. Empty = not
+     * configured (legacy single-origin behaviour).
+     */
+    shareOriginHosts: str(env, "SHARE_ORIGIN_HOSTS"),
 
     // Cloudflare for SaaS + Registrar
     cloudflareApiToken: str(env, "CLOUDFLARE_API_TOKEN"),
@@ -145,6 +154,9 @@ export function buildSettings(env: Env) {
   for (const h of splitCsv(s.platformRedirectHost)) platformRedirectHosts.add(h.toLowerCase());
   const derived = hostnameOf(s.redirectBaseUrl);
   if (derived) platformRedirectHosts.add(derived);
+  const shareHosts = splitCsv(s.shareOriginHosts).map((h) => h.toLowerCase());
+  // A share origin is a platform-bucket host: same short codes and slugs resolve there.
+  for (const h of shareHosts) platformRedirectHosts.add(h);
 
   return {
     ...s,
@@ -153,6 +165,12 @@ export function buildSettings(env: Env) {
     resolvedPlatformRedirectHost:
       splitCsv(s.platformRedirectHost)[0]?.toLowerCase() ?? hostnameOf(s.redirectBaseUrl),
     platformRedirectHosts,
+    shareHosts,
+    /** Host new shares are minted on when no domain is chosen. */
+    resolvedShareHost: shareHosts[0] ?? "",
+    isShareOrigin(this: { shareHosts: string[] }, host: string | null | undefined): boolean {
+      return this.shareHosts.includes((host ?? "").toLowerCase().trim());
+    },
     isPlatformHost(host: string | null | undefined): boolean {
       const h = (host ?? "").toLowerCase().trim();
       if (!h) return true;

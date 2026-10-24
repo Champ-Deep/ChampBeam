@@ -1,4 +1,4 @@
-"""Served disposition: sent files download as the full original, hosted kinds render."""
+"""Served disposition: legacy defaults are unchanged; ?dl=1 forces a download; KIND_OTHER never renders."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ async def test_disposition_defaults_and_dl_override(app_client, tmp_path, monkey
     headers = {"X-API-Key": key}
 
     cases = {  # filename, mime -> default disposition
-        ("pic.png", "image/png"): "attachment",
+        ("pic.png", "image/png"): "inline",
         ("bundle.zip", "application/zip"): "attachment",
         ("doc.pdf", "application/pdf"): "inline",
         ("clip.mp4", "video/mp4"): "inline",
@@ -43,5 +43,6 @@ async def test_disposition_defaults_and_dl_override(app_client, tmp_path, monkey
         r = await app_client.get(f"/f/{code}")
         assert r.status_code == 200 and cd(r) == default, (name, r.headers["content-disposition"])
         assert cd(await app_client.get(f"/f/{code}?dl=1")) == "attachment", name
-        assert cd(await app_client.get(f"/f/{code}?dl=0")) == "inline", name
+        # ?dl=0 never turns an untrusted KIND_OTHER download into inline.
+        assert cd(await app_client.get(f"/f/{code}?dl=0")) == ("attachment" if default == "attachment" else "inline"), name
         assert name in (await app_client.get(f"/f/{code}?dl=1")).headers["content-disposition"]

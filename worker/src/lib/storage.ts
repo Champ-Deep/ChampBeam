@@ -105,6 +105,7 @@ export async function generatePresignedGet(
   key: string,
   filename?: string | null,
   expires = 300,
+  attachment = false,
 ): Promise<string> {
   if (!backendIsS3(settings)) {
     throw new StorageError("R2 binding serves files by streaming, not redirect.");
@@ -113,7 +114,7 @@ export async function generatePresignedGet(
   url.searchParams.set("X-Amz-Expires", String(expires));
   if (filename) {
     const safe = filename.replace(/"/g, "").replace(/\n/g, " ");
-    url.searchParams.set("response-content-disposition", `inline; filename="${safe}"`);
+    url.searchParams.set("response-content-disposition", `${attachment ? "attachment" : "inline"}; filename="${safe}"`);
   }
   const signed = await aws(settings).sign(new Request(url, { method: "GET" }), { aws: { signQuery: true } });
   return signed.url;

@@ -41,6 +41,7 @@ import type { Settings } from "../env";
 import { randomString } from "../lib/crypto";
 import { httpError } from "../lib/errors";
 import { nowIso } from "../lib/time";
+import { findUsableDomain } from "./domains";
 import { type FileAsset, type LinkClick, recordLink } from "./utm";
 
 export type Content = typeof contentItems.$inferSelect;
@@ -79,15 +80,13 @@ export async function resolveMemberDomain(
   db: Db,
   userId: string,
   domainId: string | null | undefined,
+  /** The caller's active org (only when their role may share): lets them pick that org's domains. */
+  orgUuid: string | null = null,
 ): Promise<Domain | null> {
   if (!domainId) return null;
   const did = normalizeUuid(domainId);
   if (!did) httpError(400, "Invalid domain_id.");
-  const domain = await db
-    .select()
-    .from(domains)
-    .where(and(eq(domains.id, did), eq(domains.userId, userId), eq(domains.status, DOMAIN_STATUS_ACTIVE)))
-    .get();
+  const domain = await findUsableDomain(db, userId, orgUuid, did);
   if (!domain) httpError(400, "Domain not found, not yours, or not active.");
   return domain;
 }
@@ -151,7 +150,7 @@ export async function mintShare(
   opts: { champvaultDeliveryUrl?: string | null } = {},
 ): Promise<{ share: ContentShare; shareUrl: string }> {
   const delivery = opts.champvaultDeliveryUrl ?? null;
-  const domain = await resolveMemberDomain(db, memberUserId, domainId);
+  const domain = await resolveMemberDomain(db, memberUserId, domainId, content.organizationId);
   const domainUuid = domain ? domain.id : null;
   const hostname = domain ? domain.hostname : platformHost(settings);
 

@@ -9,7 +9,7 @@ import { Hono } from "hono";
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
-import { getCurrentUser, requireAuth } from "../auth/security";
+import { getCurrentUser, requireAuth, type TokenData } from "../auth/security";
 import {
   accessLeads,
   clickEvents,
@@ -24,6 +24,7 @@ import { httpError, HTTPError } from "../lib/errors";
 import { requestOrigin } from "../lib/request";
 import { isoUtc, nowIso, parseIso } from "../lib/time";
 import { parseJson, parseQuery, qStr } from "../lib/validate";
+import { defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
 import { generateUtmUrl, processBulkCsv, recordLink, UTM_KEYS, type LinkClick, type UtmParams } from "../services/utm";
 import { buildRedirectUrl, getUserLink, normUuid } from "./_utmHelpers";
 import { registerAnalytics } from "./_utmAnalytics";
@@ -145,26 +146,17 @@ function presetParams(p: Preset | undefined): UtmParams {
  * `_resolve_link_domain`: an explicit domain_id must be the user's and active;
  * otherwise the user's active primary domain (or none -> platform default).
  */
-async function resolveLinkDomain(c: Ctx, userId: string, domainId: string | null | undefined): Promise<Domain | null> {
+async function resolveLinkDomain(c: Ctx, user: TokenData, domainId: string | null | undefined): Promise<Domain | null> {
   const db = c.var.db;
+  const userId = user.userId;
   if (domainId) {
     const id = normUuid(domainId);
     if (!id) httpError(400, "Invalid domain_id.");
-    const d = await db
-      .select()
-      .from(domains)
-      .where(and(eq(domains.id, id!), eq(domains.userId, userId), eq(domains.status, DOMAIN_STATUS_ACTIVE)))
-      .get();
+    const d = await findUsableDomain(db, userId, shareOrgUuid(user), id!);
     if (!d) httpError(404, "Active domain not found.");
     return d!;
   }
-  return (
-    (await db
-      .select()
-      .from(domains)
-      .where(and(eq(domains.userId, userId), eq(domains.isPrimary, true), eq(domains.status, DOMAIN_STATUS_ACTIVE)))
-      .get()) ?? null
-  );
+  return defaultDomainFor(db, user);
 }
 
 /** Parse a link-id path param for the delete/patch endpoints (400 "Invalid link ID."). */
@@ -205,9 +197,10 @@ router.post("/generate", async (c) => {
       projectId = normUuid(data.project_id);
       if (!projectId) httpError(400, "Invalid project_id.");
     }
-    const domain = await resolveLinkDomain(c, user.userId, data.domain_id);
+    const domain = await resolveLinkDomain(c, user, data.domain_id);
     const link = await recordLink(c.var.db, {
       userId: user.userId,
+      organizationId: shareOrgUuid(user),
       originalUrl: baseUrl,
       trackedUrl,
       utmParams,

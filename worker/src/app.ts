@@ -11,6 +11,7 @@ import { getDb } from "./db/client";
 import { HTTPError } from "./lib/errors";
 import { allowedOrigin, cors, withCors } from "./lib/cors";
 import { serviceKeyGate } from "./auth/serviceAuth";
+import { shareOriginGuard } from "./lib/shareOrigin";
 
 import { router as health } from "./routes/health";
 import { router as redirect } from "./routes/redirect";
@@ -41,6 +42,7 @@ app.use("*", async (c, next) => {
   await next();
 });
 app.use("*", cors);
+app.use("*", shareOriginGuard);
 app.use("*", serviceKeyGate);
 
 app.onError((err, c) => {
@@ -58,7 +60,7 @@ app.onError((err, c) => {
 app.notFound(async (c) => {
   const path = new URL(c.req.url).pathname;
   const isApi = path === "/api" || path.startsWith("/api/") || path === "/health";
-  if (!isApi && c.env.ASSETS && (c.req.method === "GET" || c.req.method === "HEAD")) {
+  if (!isApi && !c.var.sharePlane && c.env.ASSETS && (c.req.method === "GET" || c.req.method === "HEAD")) {
     return c.env.ASSETS.fetch(c.req.raw);
   }
   return c.json({ detail: "Not Found" }, 404);

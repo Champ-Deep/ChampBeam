@@ -108,6 +108,26 @@ describe("slugs", () => {
     expect(pages.slugify("a")).toBe("a-page");
     expect(pages.slugify("API")).toBe("api-page");
     expect(pages.slugify("x".repeat(80))).toHaveLength(60);
+    expect(pages.slugify("Café Menü")).toBe("cafe-menu");
+  });
+
+  it("slugFromFilename drops only the final extension", () => {
+    expect(pages.slugFromFilename("Quarterly Brief.pdf")).toBe("quarterly-brief");
+    expect(pages.slugFromFilename("proposal.final.html")).toBe("proposal-final");
+    expect(pages.slugFromFilename("C:\\tmp\\../etc/passwd")).toBe("passwd");
+    expect(pages.slugFromFilename("admin.html")).toBe("admin-page");
+    expect(pages.slugFromFilename("")).toBe("page");
+  });
+
+  it("suggestSlug numbers collisions and retired slugs stay reserved", async () => {
+    const user = await createUser();
+    const a = await insertAsset(user.id, { slug: "quarterly-brief" });
+    expect(await pages.suggestSlug(db, "quarterly-brief", null)).toBe("quarterly-brief-2");
+    await insertAsset(user.id, { slug: "quarterly-brief-2" });
+    expect(await pages.suggestSlug(db, "quarterly-brief", null)).toBe("quarterly-brief-3");
+    await pages.retireSlug(db, { id: a.id, domainId: null, slug: "old-name" });
+    expect(await pages.slugTaken(db, "old-name", null)).toBe(true);
+    expect(await pages.slugTaken(db, "old-name", null, { excludeId: a.id })).toBe(false);
   });
 
   it("slugTaken / uniqueSlug are namespace-scoped and ignore deleted rows", async () => {
@@ -116,7 +136,7 @@ describe("slugs", () => {
     expect(await pages.slugTaken(db, "taken-slug", null)).toBe(true);
     expect(await pages.slugTaken(db, "taken-slug", null, { excludeId: a.id })).toBe(false);
     const next = await pages.uniqueSlug(db, "Taken Slug", null);
-    expect(next).toMatch(/^taken-slug-[a-z0-9]{6}$/);
+    expect(next).toBe("taken-slug-2");
     await insertAsset(user.id, { slug: "gone-slug", status: "deleted" });
     expect(await pages.slugTaken(db, "gone-slug", null)).toBe(false);
   });

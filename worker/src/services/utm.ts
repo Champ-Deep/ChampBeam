@@ -233,9 +233,12 @@ export async function recordLink(
     projectName?: string | null;
     projectId?: string | null;
     domainId?: string | null;
+    /** Org the link is shared under (reporting). Part of the dedup key: no silent reassignment. */
+    organizationId?: string | null;
   },
 ): Promise<LinkClick> {
   const { userId, originalUrl, trackedUrl, utmParams } = args;
+  const organizationId = args.organizationId ?? null;
   const projectId = args.projectId ?? null;
   const domainId = args.domainId ?? null;
   const src = utmParams.utm_source ?? null;
@@ -257,6 +260,7 @@ export async function recordLink(
         con ? eq(linkClicks.utmContent, con) : isNull(linkClicks.utmContent),
         trm ? eq(linkClicks.utmTerm, trm) : isNull(linkClicks.utmTerm),
         domainId ? eq(linkClicks.domainId, domainId) : isNull(linkClicks.domainId),
+        organizationId ? eq(linkClicks.organizationId, organizationId) : isNull(linkClicks.organizationId),
       ),
     )
     .limit(1)
@@ -278,6 +282,7 @@ export async function recordLink(
       projectId,
       projectName: args.projectName ?? null,
       domainId,
+      organizationId,
       originalUrl,
       trackedUrl,
       utmSource: src,

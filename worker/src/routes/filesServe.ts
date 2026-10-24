@@ -36,7 +36,8 @@ import {
 } from "../lib/accessControl";
 import { blockedPage, codeGatePage, emailGatePage } from "../lib/accessPages";
 import { background } from "../lib/background";
-import { cfGeo, getCookie } from "../lib/request";
+import { cfGeo, getCookie, requestHost } from "../lib/request";
+import { schemeFor } from "../services/content";
 import { StorageError, StorageNotConfigured, backendIsS3, generatePresignedGet, getObject } from "../lib/storage";
 import { diffSeconds, nowIso, parseIso } from "../lib/time";
 import { parseJson } from "../lib/validate";
@@ -44,6 +45,8 @@ import { type Domain, type FileAsset, lookupAsset, resolveHost } from "../servic
 import { expireAsset } from "../services/fileExpiry";
 import { ensureStateToken, recordPageEvent } from "../services/pageState";
 import {
+  RESERVED_SLUGS,
+  SLUG_RE,
   VISITOR_COOKIE,
   VISITOR_COOKIE_MAX_AGE,
   injectSnippet,
@@ -79,11 +82,19 @@ function safeFilename(name: string): string {
   return [...name.replace(/"/g, "").replace(/\n/g, " ")].slice(0, 255).join("");
 }
 
-function commonHeaders(asset: FileAsset): Record<string, string> {
-  // Arbitrary or unknown files (KIND_OTHER: zip, docs, archives) download
-  // rather than render inline, which is also the safe default for untrusted
-  // bytes served from our own origin.
-  const disposition = asset.kind === FILE_KIND_OTHER ? "attachment" : "inline";
+/**
+ * Download vs inline. Arbitrary or unknown files (KIND_OTHER) always download:
+ * the safe default for untrusted bytes. ?dl=1 forces a download for any file.
+ * A share created with intent "download" is attachment. Everything else
+ * (legacy rows have no intent) keeps its existing inline behaviour, so old
+ * /f and /p links do not change.
+ */
+export function wantsDownload(asset: Pick<FileAsset, "kind" | "shareIntent">, dl: string | undefined): boolean {
+  return asset.kind === FILE_KIND_OTHER || dl === "1" || asset.shareIntent === "download";
+}
+
+function commonHeaders(c: Ctx, asset: FileAsset): Record<string, string> {
+  const disposition = wantsDownload(asset, c.req.query("dl")) ? "attachment" : "inline";
   const headers: Record<string, string> = {
     "Content-Type": asset.mimeType,
     "Content-Disposition": `${disposition}; filename="${safeFilename(asset.filename)}"`,
@@ -141,7 +152,7 @@ function isContinuationRange(header: string | undefined): boolean {
 
 /** Stream the blob from R2, honouring a single Range. */
 async function streamBlob(c: Ctx, asset: FileAsset): Promise<Response> {
-  const headers = new Headers(commonHeaders(asset));
+  const headers = new Headers(commonHeaders(c, asset));
   headers.set("Accept-Ranges", "bytes");
   const bucket = c.env.FILES;
   const rangeHeader = c.req.header("range");
@@ -175,6 +186,20 @@ async function serveAsset(c: Ctx, asset: FileAsset, domain: Domain | null): Prom
   const shortCode = asset.shortCode;
   const brand = asset.branded && domain ? domain.hostname : null;
   const ip = clientIp(c);
+
+  // Executable content (HTML, SVG) must not run on the signed-in control-plane
+  // origin. When a dedicated share origin is configured, legacy /f and /p links
+  // on any other platform host redirect there: same path, so old links keep working.
+  const reqHost = requestHost(c);
+  if (
+    settings.shareHosts.length &&
+    domain === null &&
+    !settings.isShareOrigin(reqHost) &&
+    (asset.kind === FILE_KIND_HTML || /svg|xml/i.test(asset.mimeType))
+  ) {
+    const u = new URL(c.req.url);
+    return redirectResponse(`${schemeFor(settings.shareHosts[0])}://${settings.shareHosts[0]}${u.pathname}${u.search}`, 302);
+  }
 
   // --- Access gates (before serving / counting a view) -----------------
   // Access-code gate first: authorize before identify, so uninvited visitors
@@ -244,7 +269,7 @@ async function serveAsset(c: Ctx, asset: FileAsset, domain: Domain | null): Prom
   if (asset.serveMode === SERVE_REDIRECT && backendIsS3(settings)) {
     let url: string;
     try {
-      url = await generatePresignedGet(settings, asset.storageKey, asset.filename, 300);
+      url = await generatePresignedGet(settings, asset.storageKey, asset.filename, 300, wantsDownload(asset, c.req.query("dl")));
     } catch (err) {
       if (err instanceof StorageNotConfigured) return text("Storage not configured.", 503);
       console.error(`presigned_get failed for key=${asset.storageKey}`, err);
@@ -266,7 +291,7 @@ async function serveAsset(c: Ctx, asset: FileAsset, domain: Domain | null): Prom
         extraJs: stateSnippetJs(asset),
       });
       const body = injectSnippet(payload, snippet);
-      const headers = new Headers(commonHeaders(asset));
+      const headers = new Headers(commonHeaders(c, asset));
       headers.set("Cache-Control", "no-store");
       headers.set("Content-Length", String(body.length));
       resp = new Response(body, { status: 200, headers });
@@ -320,6 +345,24 @@ router.get("/p/:slug", async (c) => {
   if (!asset || asset.kind !== FILE_KIND_HTML) return text("Page not found.", 404);
   return serveAsset(c, asset, domain);
 });
+
+/**
+ * Root-slug hosting: https://<share-host>/<slug>. Only on a share plane (a
+ * dedicated share origin or an org-owned verified domain); on the control
+ * plane this falls through so SPA routes keep working. Host + slug picks the
+ * page: a slug is unique per host, and an org domain serves only what was
+ * shared on it. Serves hosted HTML and any file shared with intent "host".
+ */
+async function serveRootSlug(c: Ctx, next: () => Promise<void>, slug: string): Promise<Response | void> {
+  const { host, domain } = await resolveHost(c);
+  const plane = c.var.settings.isShareOrigin(host) || !!domain?.organizationId;
+  if (!plane || RESERVED_SLUGS.has(slug) || !SLUG_RE.test(slug)) return next();
+  const asset = await lookupAsset(c.var.db, domain, { slug });
+  if (!asset || (asset.kind !== FILE_KIND_HTML && asset.shareIntent !== "host")) return text("Page not found.", 404);
+  return serveAsset(c, asset, domain);
+}
+
+router.get("/:slug", (c, next) => serveRootSlug(c, next, c.req.param("slug").trim().toLowerCase()));
 
 // ---------------------------------------------------------------------------
 // Per-page dwell beacons
@@ -414,7 +457,7 @@ async function unlockCode(c: Ctx, ident: { shortCode: string } | { slug: string 
   const asset = await lookupAsset(db, domain, ident);
   if (!asset) return text("Page not found.", 404);
   const brand = asset.branded && domain ? domain.hostname : null;
-  const back = asset.slug ? `/p/${asset.slug}` : `/f/${asset.shortCode}`;
+  const back = asset.slug ? (asset.kind === FILE_KIND_HTML ? `/p/${asset.slug}` : `/${asset.slug}`) : `/f/${asset.shortCode}`;
   const action = `/f/${asset.shortCode}/unlock-code`;
 
   if (!asset.accessCodeHash) return redirectResponse(back, 303);
@@ -450,3 +493,4 @@ async function unlockCode(c: Ctx, ident: { shortCode: string } | { slug: string 
 /** Access-code gate submit (Beam Pages): verify, set cookie, re-enter the page. */
 router.post("/f/:short_code/unlock-code", (c) => unlockCode(c, { shortCode: c.req.param("short_code") }));
 router.post("/p/:slug/unlock-code", (c) => unlockCode(c, { slug: c.req.param("slug").trim().toLowerCase() }));
+router.post("/:slug/unlock-code", (c) => unlockCode(c, { slug: c.req.param("slug").trim().toLowerCase() }));

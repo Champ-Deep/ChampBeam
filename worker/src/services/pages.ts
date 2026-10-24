@@ -38,6 +38,7 @@
  *   types FileAsset, FileVersion, VersionFields
  */
 import { and, desc, eq, inArray, isNull, max, ne } from "drizzle-orm";
+import { slugAliases } from "../db/schema";
 import type { Settings } from "../env";
 import { chunk, type Db } from "../db/client";
 import { FILE_STATUS_DELETED, fileAssets, fileVersions } from "../db/schema";
@@ -64,7 +65,8 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "api", "f", "p", "r", "s", "rooms", "health", "docs", "redoc", "openapi.json",
   "static", "assets", "admin", "login", "logout", "sign-in", "sign-up",
   "unlock", "unlock-code", "page-events", "_beam", "beam", "www", "null",
-  "undefined",
+  "undefined", "files", "links", "pages", "settings", "analytics", "org", "domains",
+  "projects", "champvault", "favicon", "robots", "sitemap", "index", "new", "edit",
 ]);
 
 const SLUG_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -84,7 +86,10 @@ export function validateSlug(raw: string | null | undefined): string {
 
 /** Derive a slug candidate from a title (never throws; may need a suffix). */
 export function slugify(title: string | null | undefined): string {
+  // NFKD + strip combining marks so "Café Menü" -> "cafe-menu" (deterministic, ASCII).
   let base = (title ?? "")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -96,6 +101,17 @@ export function slugify(title: string | null | undefined): string {
 
 function rand(n = 6): string {
   return randomString(n, SLUG_ALPHABET);
+}
+
+/**
+ * Slug suggestion from an upload's filename: basename without its FINAL
+ * extension ("Quarterly Brief.pdf" -> quarterly-brief, "proposal.final.html"
+ * -> proposal-final). Same normalizer as titles; never throws.
+ */
+export function slugFromFilename(filename: string | null | undefined): string {
+  const name = (filename ?? "").split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  return slugify(dot > 0 ? name.slice(0, dot) : name);
 }
 
 /**
@@ -120,13 +136,48 @@ export async function slugTaken(
     .from(fileAssets)
     .where(and(...conds))
     .limit(1);
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+  // A retired slug still belongs to its page: it must not be reissued to another.
+  const alias = await db
+    .select({ id: slugAliases.id })
+    .from(slugAliases)
+    .where(
+      and(
+        eq(slugAliases.slug, slug),
+        domainId === null ? isNull(slugAliases.domainId) : eq(slugAliases.domainId, domainId),
+        ...(opts.excludeId != null ? [ne(slugAliases.fileId, opts.excludeId)] : []),
+      ),
+    )
+    .limit(1);
+  return alias.length > 0;
+}
+
+/** Keep the old address working after an explicit slug change. */
+export async function retireSlug(db: Db, asset: Pick<FileAsset, "id" | "domainId" | "slug">): Promise<void> {
+  if (!asset.slug) return;
+  await db
+    .insert(slugAliases)
+    .values({ id: crypto.randomUUID(), fileId: asset.id, domainId: asset.domainId ?? null, slug: asset.slug, createdAt: nowIso() })
+    .onConflictDoNothing();
+}
+
+/** First free slug: `base`, then `base-2`, `base-3` ... Never overwrites an existing page. */
+export async function suggestSlug(db: Db, base: string, domainId: string | null): Promise<string> {
+  for (let n = 1; n <= 50; n++) {
+    const candidate = n === 1 ? base : `${base.slice(0, 56)}-${n}`;
+    if (!RESERVED_SLUGS.has(candidate) && !(await slugTaken(db, candidate, domainId))) return candidate;
+  }
+  return httpError(503, "Could not allocate a unique slug.");
 }
 
 /** Title-derived slug, unique in its namespace (random suffix on collision). */
 export async function uniqueSlug(db: Db, title: string, domainId: string | null): Promise<string> {
   const base = slugify(title);
-  const candidates = [base, ...Array.from({ length: 8 }, () => `${base.slice(0, 52)}-${rand()}`)];
+  const candidates = [
+    base,
+    ...Array.from({ length: 8 }, (_, i) => `${base.slice(0, 56)}-${i + 2}`),
+    ...Array.from({ length: 4 }, () => `${base.slice(0, 52)}-${rand()}`),
+  ];
   for (const candidate of candidates) {
     if (!(await slugTaken(db, candidate, domainId))) return candidate;
   }

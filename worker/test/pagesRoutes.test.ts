@@ -213,11 +213,12 @@ describe("slugs (test_slug_rules)", () => {
     expect(moved.status).toBe(200);
     expect((await json(moved)).url.endsWith("/p/weekly-plan-v2")).toBe(true);
     expect((await row(first.page_id)).slug).toBe("weekly-plan-v2");
-    // The freed slug is reusable; a title-derived duplicate gets a suffix.
-    const reuse = await publish(headers, { slug: "weekly-plan" });
-    expect(reuse.slug).toBe("weekly-plan");
+    // The retired slug stays reserved (it still resolves to the moved page) and cannot be reissued.
+    const reuse = await api("/api/v1/pages", { method: "POST", json: { html: HTML, slug: "weekly-plan" }, headers });
+    expect(reuse.status).toBe(409);
+    // A title-derived duplicate is numbered deterministically.
     const again = await publish(headers, { title: "Other" });
-    expect(again.slug).toMatch(/^other-[a-z0-9]{6}$/);
+    expect(again.slug).toBe("other-2");
   });
 });
 

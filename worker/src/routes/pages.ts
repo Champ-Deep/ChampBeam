@@ -36,7 +36,8 @@ import { httpError } from "../lib/errors";
 import { StorageError, StorageNotConfigured, getObject, putBytes } from "../lib/storage";
 import { isoUtc, nowIso } from "../lib/time";
 import { parseQuery, qInt, qStr } from "../lib/validate";
-import { resolveMemberDomain } from "../services/content";
+import { resolveMemberDomain, schemeFor } from "../services/content";
+import { shareOrgUuid } from "../services/domains";
 import * as pagesService from "../services/pages";
 import { rotateStateToken } from "../services/pageState";
 import {
@@ -46,6 +47,7 @@ import {
   deleteBlobQuiet,
   ensureStorage,
   parseBodyWithFields,
+  publicUrl,
   serveHost,
   storageKey,
   type FileAsset,
@@ -124,7 +126,7 @@ async function getOwnedPage(c: Ctx, pageId: string, user: TokenData): Promise<Fi
 }
 
 async function resolveDomainId(c: Ctx, user: TokenData, domainId: string | null | undefined): Promise<string | null> {
-  const d = await resolveMemberDomain(c.var.db, user.userId, domainId);
+  const d = await resolveMemberDomain(c.var.db, user.userId, domainId, shareOrgUuid(user));
   return d ? d.id : null;
 }
 
@@ -178,6 +180,7 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
     short_code: asset.shortCode,
     slug,
     url: slug ? `https://${host}/p/${slug}` : legacy,
+    public_url: publicUrl(host, asset),
     legacy_url: legacy,
     title: titleFromFilename(asset.filename),
     size_bytes: asset.sizeBytes,
@@ -241,6 +244,8 @@ async function publish(
           id: fileId,
           userId: opts.user.userId,
           domainId,
+          organizationId: shareOrgUuid(opts.user),
+          shareIntent: "host",
           shortCode,
           slug,
           filename: storedName,
@@ -328,6 +333,21 @@ router.post("/upload", async (c) => {
     contentType: file.type || null,
   });
   return c.json(await pageResponse(c, asset), 201);
+});
+
+/**
+ * Slug the composer should offer for an upload: basename without its final
+ * extension, numbered on collision in the chosen host's namespace. Read-only:
+ * nothing is reserved until the page is created.
+ */
+router.get("/slug-suggestion", async (c) => {
+  const user = await requireAuth(c);
+  const q = parseQuery(c, z.object({ filename: qStr(""), domain_id: qStr("") }));
+  const domainId = await resolveDomainId(c, user, q.domain_id || null);
+  const base = pagesService.slugFromFilename(q.filename);
+  const slug = await pagesService.suggestSlug(c.var.db, base, domainId);
+  const host = await serveHost(c.var.db, c.var.settings, user.userId, domainId);
+  return c.json({ slug, base, collided: slug !== base, host, public_url: `${schemeFor(host)}://${host}/${slug}` });
 });
 
 /** Your pages, newest first. */
@@ -422,6 +442,7 @@ router.patch("/:page_id", async (c) => {
     if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id })) {
       httpError(409, "That slug is already taken.");
     }
+    if (slug !== asset.slug) await pagesService.retireSlug(db, asset);
     updates.slug = asset.slug = slug;
   }
   if (fields.has("title") && data.title) {

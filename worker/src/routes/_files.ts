@@ -16,7 +16,7 @@
  *   computeSha256Async(bucket, db, fileId, key) (_compute_sha256_async)
  *   dateRange(days, startDate, endDate)         (_file_date_range / pages._date_range)
  */
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { z } from "zod";
 import { parseJson } from "../lib/validate";
 import type { Db } from "../db/client";
@@ -142,18 +142,19 @@ export async function serveHost(
       const d = await db
         .select({ hostname: domains.hostname })
         .from(domains)
-        .where(and(eq(domains.id, domainId), eq(domains.userId, userId), eq(domains.status, DOMAIN_STATUS_ACTIVE)))
+        // asset.domain_id was authorized at write time; an org domain is not owned by the member.
+        .where(and(eq(domains.id, domainId), eq(domains.status, DOMAIN_STATUS_ACTIVE), or(eq(domains.userId, userId), isNotNull(domains.organizationId))))
         .get();
       if (d) return d.hostname;
     }
     const primary = await db
       .select({ hostname: domains.hostname })
       .from(domains)
-      .where(and(eq(domains.userId, userId), eq(domains.isPrimary, true), eq(domains.status, DOMAIN_STATUS_ACTIVE)))
+      .where(and(eq(domains.userId, userId), eq(domains.isPrimary, true), eq(domains.status, DOMAIN_STATUS_ACTIVE), isNull(domains.organizationId)))
       .get();
     if (primary) return primary.hostname;
   }
-  return settings.resolvedPlatformRedirectHost || hostFromBaseUrl(settings);
+  return settings.resolvedShareHost || settings.resolvedPlatformRedirectHost || hostFromBaseUrl(settings);
 }
 
 export function buildServeUrl(host: string, shortCode: string, filename: string): string {
@@ -174,10 +175,26 @@ export function accessStatus(asset: FileAsset, now = Date.now()): string {
   return "tracking";
 }
 
+/** "file" (Files, download) or "page" (Pages, hosted). Legacy rows: a slugged page is a page. */
+export function outputKind(asset: Pick<FileAsset, "shareIntent" | "slug">): "file" | "page" {
+  if (asset.shareIntent) return asset.shareIntent === "host" ? "page" : "file";
+  return asset.slug ? "page" : "file";
+}
+
+/** https://<host>/<slug> for hosted shares (root-slug form); null when there is no root-slug address. */
+export function publicUrl(host: string, asset: Pick<FileAsset, "kind" | "shareIntent" | "slug">): string | null {
+  if (!asset.slug || (asset.shareIntent !== "host" && asset.kind !== FILE_KIND_HTML)) return null;
+  return `${schemeFor(host)}://${host}/${asset.slug}`;
+}
+
 export async function fileResponse(db: Db, settings: Settings, asset: FileAsset) {
   const host = await serveHost(db, settings, asset.userId, asset.domainId);
   const views = asset.viewCount ?? 0;
   return {
+    intent: asset.shareIntent ?? null,
+    output_kind: outputKind(asset),
+    slug: asset.slug ?? null,
+    public_url: publicUrl(host, asset),
     id: asset.id,
     short_code: asset.shortCode,
     filename: asset.filename,

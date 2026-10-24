@@ -27,7 +27,6 @@ from app.models.domain import Domain, STATUS_ACTIVE as DOMAIN_STATUS_ACTIVE
 from app.models.file_asset import (
     FileAsset,
     KIND_HTML,
-    KIND_IMAGE,
     KIND_OTHER,
     SERVE_REDIRECT,
     STATUS_ACTIVE,
@@ -82,13 +81,13 @@ def _safe_filename(name: str) -> str:
 
 
 def _wants_download(asset: FileAsset, dl: Optional[str]) -> bool:
-    # ?dl=1 forces a download, ?dl=0 forces inline. Default: files you send
-    # (images, zips, docs) download as the full original; only pages, PDFs and
-    # video are hosted/previewed in the browser. Also the safe default for
-    # untrusted bytes served from our own origin.
-    if dl in ("1", "0"):
-        return dl == "1"
-    return asset.kind in (KIND_OTHER, KIND_IMAGE)
+    # ?dl=1 forces a download. ?dl=0 forces inline except for KIND_OTHER, which
+    # always downloads (untrusted bytes served from our own origin). Default is
+    # unchanged for every existing link: only KIND_OTHER downloads, so a stored
+    # inline image or PDF URL keeps rendering (no retroactive behaviour change).
+    if asset.kind == KIND_OTHER:
+        return True
+    return dl == "1"
 
 
 def _common_headers(asset: FileAsset, dl: Optional[str] = None) -> dict[str, str]:

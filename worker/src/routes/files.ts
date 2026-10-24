@@ -13,6 +13,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth } from "../auth/security";
+import { findUsableDomain, shareOrgUuid } from "../services/domains";
 import {
   FILE_STATUS_ACTIVE,
   FILE_STATUS_DELETED,
@@ -73,6 +74,8 @@ const FileInit = z.object({
   content_type: z.string().min(1).max(127),
   size_bytes: z.number().int().min(1),
   domain_id: z.string().nullable().optional(),
+  /** What the sender chose: "download" (attachment) or "host" (inline viewer). Omitted = legacy behaviour. */
+  intent: z.enum(["download", "host"]).nullable().optional(),
 });
 
 const FileFinalizeRequest = z.object({ owner_token: z.string().nullable().optional() });
@@ -158,11 +161,7 @@ router.post("/", async (c) => {
     if (data.domain_id) {
       domainId = canonicalUuid(data.domain_id);
       if (!domainId) httpError(400, "Invalid domain_id.");
-      const d = await db
-        .select({ id: domains.id })
-        .from(domains)
-        .where(and(eq(domains.id, domainId), eq(domains.userId, user.userId), eq(domains.status, DOMAIN_STATUS_ACTIVE)))
-        .get();
+      const d = await findUsableDomain(db, user.userId, shareOrgUuid(user), domainId);
       if (!d) httpError(400, "Domain not found, not yours, or not active.");
     }
   }
@@ -205,6 +204,8 @@ router.post("/", async (c) => {
     id: fileId,
     userId: ownerUserId,
     domainId,
+    organizationId: user ? shareOrgUuid(user) : null,
+    shareIntent: user ? (data.intent ?? null) : null,
     shortCode,
     filename: data.filename,
     kind,
