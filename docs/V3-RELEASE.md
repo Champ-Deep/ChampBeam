@@ -225,6 +225,7 @@ CI constraints), a live TLS and hostname check, a live Clerk webhook.
 | Workers Builds: champbeam | **FAILURE on 7fe7c9a, cause not readable** (below). Success on #41. |
 | CodeQL | no result on this head: needs-validation |
 | Cloudflare preview | failing: needs-validation |
+| Worker tests in CI | **none**: `ci` has no Worker job (D10). The 407 passed only locally. |
 
 Workers Builds failure. The build log lives behind the Cloudflare dashboard (build
 `148e4664-fc06-426b-a9b0-c6bd0175c4b6`) and needs an authenticated session; the GitHub check
@@ -234,7 +235,7 @@ it. Local reproduction on the same tree with Node 22: `npm run build:frontend` (
 bindings. So the failure is NOT a compile, lockfile or config-parse error that reproduces
 offline. Unproven candidates: the dashboard build is wired to deploy the production Worker
 `champbeam` (a non-production branch should not), a missing build-time variable, or an
-account-side step. Treat red as red; no pass claim is made on the preview.
+account-side step. The second Workers Build on the final head (`0f9683c0-502a-481a-bab2-496fa6fbb4e0`) also fails. Treat red as red; no pass claim is made on the preview.
 
 ## 8. Test fixture boundary
 
@@ -256,6 +257,7 @@ Format: DECISION; A (recommended); B; C hold. Default if silent: hold. Reply A o
 | D6 | Close superseded PRs #28 #35 #38 and delete the three fully-merged branches | After Deep approves the merge candidate and the ancestry check passes | Close but keep branches | Hold |
 | D7 | Workers Builds on this branch | Read the dashboard log, then fix or disable non-production builds | Leave | Hold |
 | D8 | Normalize legacy timestamps before reporting windows | Run a one-off normalization after backup | Accept edge skew | Hold |
+| D10 | The `ci` workflow has no Worker job: the 407 Worker tests, the Worker typecheck and the dry-run bundle are not a CI gate, so a green PR says nothing about the Worker | Add a `worker` job (Node 22: `npm ci`, `tsc --noEmit`, `vitest run`) and require it in the `gate` job | Leave as local-only | Hold |
 | D9 | Production page recovery | Needs read-only prod access (capability), then inventory, backup, restore | Hold | n/a |
 
 Also not done in this release (UI lives on the dependent frontend card): composer intent
