@@ -27,6 +27,10 @@ export interface FileAsset {
   domain_id: string | null;
   project_id?: string | null;
   expires_at?: string | null;
+  intent?: 'host' | 'download' | null;
+  output_kind?: 'file' | 'page';
+  slug?: string | null;
+  public_url?: string;
 }
 
 export interface FileInitRequest {
@@ -34,6 +38,8 @@ export interface FileInitRequest {
   content_type: string;
   size_bytes: number;
   domain_id?: string;
+  intent?: 'download' | 'host';
+  slug?: string;
 }
 
 export interface FileInitResponse {

@@ -7,10 +7,12 @@ import type { DateRangeOpts, GeoBreakdownItem, DeviceBreakdown } from './utm';
 // ============================================================
 
 export interface BeamPage {
+  kind?: 'html' | 'image' | 'video' | 'pdf' | 'other';
   page_id: string;
   short_code: string;
   slug: string | null;
   url: string;
+  public_url?: string;
   legacy_url: string;
   title: string;
   size_bytes: number;
@@ -140,6 +142,14 @@ export interface PageLinksApplyResult {
 // ============================================================
 
 export const pagesApi = {
+  async availability(pageId: string): Promise<{ status: 'available'; size: number; etag: string } | { status: 'missing' }> {
+    const response = await api.get<{ status: 'available'; size: number; etag: string } | { status: 'missing' }>(`/pages/${pageId}/availability`);
+    return response.data;
+  },
+  async suggestSlug(filename: string, domainId?: string): Promise<{ slug: string; base: string; collided: boolean; host: string; public_url: string }> {
+    const response = await api.get<{ slug: string; base: string; collided: boolean; host: string; public_url: string }>('/pages/slug-suggestion', { params: { filename, domain_id: domainId } });
+    return response.data;
+  },
   async list(): Promise<BeamPage[]> {
     const response = await api.get<BeamPage[]>('/pages');
     return asArray<BeamPage>(response.data);
