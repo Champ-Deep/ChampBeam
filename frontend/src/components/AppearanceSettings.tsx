@@ -97,7 +97,7 @@ export function AppearanceSettings() {
         Workspace theme
       </h3>
       <p className="mt-1 mb-5 text-sm" style={{ color: 'var(--cb-muted)' }}>
-        Paper is the Champbeam default. Pick the look that fits your workspace — it applies across
+        Paper is the Champbeam default. Pick the look that fits your workspace. It applies across
         the whole app and is remembered on this device.
       </p>
 
