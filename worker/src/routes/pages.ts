@@ -37,7 +37,7 @@ import { StorageError, StorageNotConfigured, getObject, putBytes } from "../lib/
 import { isoUtc, nowIso } from "../lib/time";
 import { parseQuery, qInt, qStr } from "../lib/validate";
 import { resolveMemberDomain, schemeFor } from "../services/content";
-import { shareOrgUuid } from "../services/domains";
+import { assertCanShare, shareOrgUuid } from "../services/domains";
 import * as pagesService from "../services/pages";
 import { rotateStateToken } from "../services/pageState";
 import {
@@ -45,6 +45,7 @@ import {
   canonicalUuid,
   dateRange,
   deleteBlobQuiet,
+  hostedCond,
   ensureStorage,
   parseBodyWithFields,
   publicUrl,
@@ -116,7 +117,7 @@ async function getOwnedPage(c: Ctx, pageId: string, user: TokenData): Promise<Fi
       and(
         eq(fileAssets.id, pid),
         eq(fileAssets.userId, user.userId),
-        eq(fileAssets.kind, FILE_KIND_HTML),
+        hostedCond,
         ne(fileAssets.status, FILE_STATUS_DELETED),
       ),
     )
@@ -219,6 +220,7 @@ async function publish(
     opts.payload,
   );
   const domainId = await resolveDomainId(c, opts.user, opts.domainId);
+  assertCanShare(opts.user);
 
   let slug: string;
   if (opts.slug) {
@@ -358,7 +360,7 @@ router.get("/", async (c) => {
     .select()
     .from(fileAssets)
     .where(
-      and(eq(fileAssets.userId, user.userId), eq(fileAssets.kind, FILE_KIND_HTML), ne(fileAssets.status, FILE_STATUS_DELETED)),
+      and(eq(fileAssets.userId, user.userId), hostedCond, ne(fileAssets.status, FILE_STATUS_DELETED)),
     )
     .orderBy(desc(fileAssets.createdAt));
   // Pre-Beam-Pages uploads get a slug on first sight (persisted by ensureSlug).
@@ -409,6 +411,7 @@ router.put("/:page_id", async (c) => {
   ensureStorage(settings);
   const asset = await getOwnedPage(c, c.req.param("page_id"), user);
   if (asset.status !== FILE_STATUS_ACTIVE) httpError(409, `Page is in status '${asset.status}'.`);
+  if (asset.kind !== FILE_KIND_HTML) httpError(409, "Only HTML pages take inline content; replace media through /files.");
 
   const payload = utf8(data.html);
   pagesService.validateHtmlUpload(settings, asset.filename, HTML_MIME, payload);

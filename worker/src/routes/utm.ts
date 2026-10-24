@@ -24,7 +24,7 @@ import { httpError, HTTPError } from "../lib/errors";
 import { requestOrigin } from "../lib/request";
 import { isoUtc, nowIso, parseIso } from "../lib/time";
 import { parseJson, parseQuery, qStr } from "../lib/validate";
-import { defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
+import { assertCanShare, defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
 import { generateUtmUrl, processBulkCsv, recordLink, UTM_KEYS, type LinkClick, type UtmParams } from "../services/utm";
 import { buildRedirectUrl, getUserLink, normUuid } from "./_utmHelpers";
 import { registerAnalytics } from "./_utmAnalytics";
@@ -198,6 +198,7 @@ router.post("/generate", async (c) => {
       if (!projectId) httpError(400, "Invalid project_id.");
     }
     const domain = await resolveLinkDomain(c, user, data.domain_id);
+    assertCanShare(user);
     const link = await recordLink(c.var.db, {
       userId: user.userId,
       organizationId: shareOrgUuid(user),

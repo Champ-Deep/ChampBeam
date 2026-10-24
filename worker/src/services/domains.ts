@@ -14,12 +14,21 @@ import { can, type TokenData } from "../auth/security";
 import type { Db } from "../db/client";
 import { DOMAIN_STATUS_ACTIVE, domains } from "../db/schema";
 import type { Settings } from "../env";
+import { httpError } from "../lib/errors";
 
 export type Domain = typeof domains.$inferSelect;
 
 /** The active org uuid the caller may share under, else null (personal only). */
 export const shareOrgUuid = (u: Pick<TokenData, "orgId" | "orgRole" | "orgUuid">): string | null =>
   u.orgUuid && can(u as TokenData, "share.create") ? u.orgUuid : null;
+
+/**
+ * Creating a share needs share.create when the caller is acting inside an org.
+ * Without this, a viewer silently fell back to a personal (org-less) share.
+ */
+export function assertCanShare(u: Pick<TokenData, "orgId" | "orgRole" | "orgUuid">): void {
+  if (u.orgUuid && !can(u as TokenData, "share.create")) httpError(403, "Your role cannot create shares in this organization.");
+}
 
 export async function findUsableDomain(
   db: Db,

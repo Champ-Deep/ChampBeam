@@ -13,7 +13,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth } from "../auth/security";
-import { findUsableDomain, shareOrgUuid } from "../services/domains";
+import { assertCanShare, findUsableDomain, shareOrgUuid } from "../services/domains";
 import {
   FILE_STATUS_ACTIVE,
   FILE_STATUS_DELETED,
@@ -29,6 +29,8 @@ import {
   projects,
 } from "../db/schema";
 import { sha256Hex, tokenUrlsafe } from "../lib/crypto";
+import * as pagesService from "../services/pages";
+import { isUniqueViolation } from "../db/client";
 import { HTTPError, httpError } from "../lib/errors";
 import { background } from "../lib/background";
 import {
@@ -76,6 +78,8 @@ const FileInit = z.object({
   domain_id: z.string().nullable().optional(),
   /** What the sender chose: "download" (attachment) or "host" (inline viewer). Omitted = legacy behaviour. */
   intent: z.enum(["download", "host"]).nullable().optional(),
+  /** Hosted shares only: the address the sender chose; omitted = derived from the filename. */
+  slug: z.string().max(80).nullable().optional(),
 });
 
 const FileFinalizeRequest = z.object({ owner_token: z.string().nullable().optional() });
@@ -164,11 +168,24 @@ router.post("/", async (c) => {
       const d = await findUsableDomain(db, user.userId, shareOrgUuid(user), domainId);
       if (!d) httpError(400, "Domain not found, not yours, or not active.");
     }
+    // After the domain check so a viewer naming a domain keeps its 400; with none it must not fall back to a personal share.
+    assertCanShare(user);
   }
 
   // Worker-proxied uploads are bounded by the plan's request-body limit.
   if (!backendIsS3(settings) && data.size_bytes > settings.workerUploadMaxBytes) {
     httpError(413, `Uploads are capped at ${Math.floor(settings.workerUploadMaxBytes / MB)} MB on this deployment.`);
+  }
+
+  // Hosted media gets a slug exactly like hosted HTML (pages.publish).
+  let slug: string | null = null;
+  if (user && data.intent === "host") {
+    if (data.slug) {
+      slug = pagesService.validateSlug(data.slug);
+      if (await pagesService.slugTaken(db, slug, domainId)) httpError(409, "That slug is already taken.");
+    } else {
+      slug = await pagesService.suggestSlug(db, pagesService.slugFromFilename(data.filename), domainId);
+    }
   }
 
   const shortCode = await allocateUniqueShortCode(db, domainId);
@@ -200,13 +217,15 @@ router.post("/", async (c) => {
     ownerTokenHash = await sha256Hex(ownerTokenRaw);
   }
 
-  await db.insert(fileAssets).values({
+  try {
+    await db.insert(fileAssets).values({
     id: fileId,
     userId: ownerUserId,
     domainId,
     organizationId: user ? shareOrgUuid(user) : null,
     shareIntent: user ? (data.intent ?? null) : null,
     shortCode,
+    slug,
     filename: data.filename,
     kind,
     mimeType: data.content_type,
@@ -219,6 +238,10 @@ router.post("/", async (c) => {
     expiresAt,
     ownerTokenHash,
   });
+  } catch (err) {
+    if (isUniqueViolation(err)) httpError(409, "That slug is already taken.");
+    throw err;
+  }
 
   return c.json(
     {

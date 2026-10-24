@@ -181,6 +181,12 @@ export function outputKind(asset: Pick<FileAsset, "shareIntent" | "slug">): "fil
   return asset.slug ? "page" : "file";
 }
 
+/** SQL twin of outputKind=="page": every hosted kind (PDF, image, video, HTML), never download-intent. */
+export const hostedCond = or(
+  eq(fileAssets.shareIntent, "host"),
+  and(isNull(fileAssets.shareIntent), eq(fileAssets.kind, FILE_KIND_HTML)),
+);
+
 /** https://<host>/<slug> for hosted shares (root-slug form); null when there is no root-slug address. */
 export function publicUrl(host: string, asset: Pick<FileAsset, "kind" | "shareIntent" | "slug">): string | null {
   if (!asset.slug || (asset.shareIntent !== "host" && asset.kind !== FILE_KIND_HTML)) return null;
