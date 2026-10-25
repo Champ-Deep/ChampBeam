@@ -120,6 +120,8 @@ export function buildSettings(env: Env) {
     pagesInjectMaxBytes: int(env, "PAGES_INJECT_MAX_BYTES", 5 * 1024 * 1024),
     pagesVersionsKeep: int(env, "PAGES_VERSIONS_KEEP", 10),
     pagesRevisitWindowS: int(env, "PAGES_REVISIT_WINDOW_S", 1800),
+    /** Flag for the hosted-HTML CSP sandbox (D3). Off = no page is sandboxed and new pages are not marked. */
+    htmlSandbox: bool(env, "HTML_SANDBOX", true),
 
     champvaultUrl: str(env, "CHAMPVAULT_URL"),
     champvaultApiKey: str(env, "CHAMPVAULT_API_KEY"),

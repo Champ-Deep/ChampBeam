@@ -9,7 +9,7 @@ import type { AppEnv } from "./env";
 import { getSettings } from "./env";
 import { getDb } from "./db/client";
 import { HTTPError } from "./lib/errors";
-import { allowedOrigin, cors, withCors } from "./lib/cors";
+import { cors, requestOrigin, withCors } from "./lib/cors";
 import { serviceKeyGate } from "./auth/serviceAuth";
 import { shareOriginGuard } from "./lib/shareOrigin";
 
@@ -55,7 +55,7 @@ app.onError((err, c) => {
     console.error(`Unhandled exception on ${c.req.method} ${new URL(c.req.url).pathname}`, err);
     res = c.json({ detail: "Internal server error" }, 500);
   }
-  return withCors(res, allowedOrigin(c.var.settings ?? getSettings(c.env), c.req.header("origin")));
+  return withCors(res, requestOrigin(c.var.settings ?? getSettings(c.env), c.req.header("origin"), c.req.url));
 });
 
 app.notFound(async (c) => {

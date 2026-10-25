@@ -254,6 +254,8 @@ export const fileAssets = sqliteTable("file_assets", {
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   /** "download" | "host"; null = legacy asset, behaviour unchanged. */
   shareIntent: text("share_intent"),
+  /** Hosted HTML CSP sandbox: null = legacy (off), 1 = on, 0 = owner opted out. */
+  htmlSandbox: integer("html_sandbox"),
 });
 
 export const fileVersions = sqliteTable("file_versions", {

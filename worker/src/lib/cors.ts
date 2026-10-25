@@ -14,7 +14,7 @@ const DEFAULT_ORIGIN_REGEX =
   "^https://(champbeam(-[a-z0-9-]+)?|champ-utm(-[a-z0-9-]+)?|[a-z0-9-]+-deep-5245s-projects)\\.vercel\\.app$";
 
 const ALLOW_METHODS = "GET, POST, PUT, DELETE, PATCH, OPTIONS";
-const ALLOW_HEADERS = "Authorization, Content-Type, X-Requested-With, Accept";
+const ALLOW_HEADERS = "Authorization, Content-Type, X-Requested-With, Accept, X-Beam-Token";
 
 const cache = new WeakMap<Settings, { origins: Set<string>; re: RegExp | null }>();
 
@@ -54,6 +54,18 @@ export function allowedOrigin(settings: Settings, origin: string | undefined | n
   return null;
 }
 
+/**
+ * Sandboxed hosted HTML runs in an opaque origin and sends `Origin: null`. Allow that origin ONLY on
+ * the two public endpoints the injected snippet calls (Beam State, dwell beacon). Both authenticate
+ * by page token or carry no secret, and a null origin carries no cookies.
+ */
+const SANDBOX_PUBLIC = /^\/(api\/pages\/|f\/[^/]+\/page-events$)/;
+
+export function requestOrigin(settings: Settings, origin: string | undefined | null, url: string): string | null {
+  if (origin === "null") return SANDBOX_PUBLIC.test(new URL(url).pathname) ? "null" : null;
+  return allowedOrigin(settings, origin);
+}
+
 export function withCors(res: Response, origin: string | null): Response {
   if (!origin) return res;
   let out = res;
@@ -69,7 +81,7 @@ export function withCors(res: Response, origin: string | null): Response {
 }
 
 export const cors: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const origin = allowedOrigin(c.var.settings, c.req.header("origin"));
+  const origin = requestOrigin(c.var.settings, c.req.header("origin"), c.req.url);
   if (c.req.method === "OPTIONS" && c.req.header("access-control-request-method")) {
     if (!origin) return c.text("Disallowed CORS origin", 400);
     return new Response("OK", {

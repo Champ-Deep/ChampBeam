@@ -82,6 +82,8 @@ const PagePatch = z.object({
   domain_id: z.string().nullable().optional(),
   // 4–8 digit access code; null clears.
   access_code: z.string().max(8).nullable().optional(),
+  // Owner opt-in/out of the CSP sandbox (legacy pages are off until the owner opts in).
+  html_sandbox: z.boolean().nullable().optional(),
 });
 
 const DateQuery = { days: qInt(30, { ge: 1, le: 365 }), start_date: qStr(), end_date: qStr() };
@@ -192,6 +194,7 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
     total_dwell_ms: stats.total_dwell_ms,
     enabled: asset.revokedAt == null,
     has_access_code: !!asset.accessCodeHash,
+    html_sandbox: asset.htmlSandbox === 1,
     domain_id: asset.domainId ?? null,
     created_at: isoUtc(asset.createdAt) ?? "",
     updated_at: isoUtc(latest?.at || asset.createdAt) ?? "",
@@ -249,6 +252,7 @@ async function publish(
           domainId,
           organizationId: shareOrgUuid(opts.user),
           shareIntent: "host",
+          htmlSandbox: settings.htmlSandbox ? 1 : null,
           shortCode,
           slug,
           filename: storedName,
@@ -459,6 +463,9 @@ router.patch("/:page_id", async (c) => {
   }
   if (fields.has("enabled") && data.enabled != null) {
     updates.revokedAt = asset.revokedAt = data.enabled ? null : nowIso();
+  }
+  if (fields.has("html_sandbox") && data.html_sandbox != null) {
+    updates.htmlSandbox = asset.htmlSandbox = data.html_sandbox ? 1 : 0;
   }
   if (fields.has("access_code")) {
     updates.accessCodeHash = await setAccessCode(c.var.settings, asset, data.access_code);

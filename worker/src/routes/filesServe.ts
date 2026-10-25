@@ -78,6 +78,8 @@ const HTML_CSP =
   "form-action 'self'; " +
   "base-uri 'self'";
 
+const HTML_SANDBOX = "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox";
+
 function safeFilename(name: string): string {
   return [...name.replace(/"/g, "").replace(/\n/g, " ")].slice(0, 255).join("");
 }
@@ -102,7 +104,12 @@ function commonHeaders(c: Ctx, asset: FileAsset): Record<string, string> {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
   };
-  if (asset.kind === FILE_KIND_HTML) headers["Content-Security-Policy"] = HTML_CSP;
+  if (asset.kind === FILE_KIND_HTML) {
+    // D3: opaque origin for hosted HTML (no allow-same-origin), so a hostile page cannot read gate
+    // cookies or call the API as the viewer. Legacy pages (null) are untouched.
+    const sandboxed = asset.htmlSandbox === 1 && c.var.settings.htmlSandbox;
+    headers["Content-Security-Policy"] = HTML_CSP + (sandboxed ? "; " + HTML_SANDBOX : "");
+  }
   return headers;
 }
 

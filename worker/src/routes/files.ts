@@ -15,6 +15,7 @@ import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth } from "../auth/security";
 import { assertCanShare, findUsableDomain, shareOrgUuid } from "../services/domains";
 import {
+  FILE_KIND_HTML,
   FILE_STATUS_ACTIVE,
   FILE_STATUS_DELETED,
   FILE_STATUS_FAILED,
@@ -225,6 +226,7 @@ router.post("/", async (c) => {
     domainId,
     organizationId: user ? shareOrgUuid(user) : null,
     shareIntent: user ? (data.intent ?? null) : null,
+    htmlSandbox: kind === FILE_KIND_HTML && settings.htmlSandbox ? 1 : null,
     shortCode,
     slug,
     filename: data.filename,
