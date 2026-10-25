@@ -18,6 +18,30 @@ export interface OrgContext {
   member_count: number;
 }
 
+export interface Profile {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  org: { id: string; name: string; slug: string } | null;
+  role: string | null;
+  permissions: string[];
+  report_scope: 'org' | 'team' | 'own' | 'none';
+  share_host: { default: string; default_domain_id: string | null };
+  available_hosts: { id: string; hostname: string; org_default: boolean }[];
+}
+
+export interface ReportingFilters { team?: string; user?: string; kind?: string; from?: string; to?: string }
+export interface OrgDomain { id: string; hostname: string; status: string; is_org_default: boolean }
+export interface ViewerGrant { id: string; user_id: string; scope: 'org' | 'team'; leader_user_id: string | null }
+export interface ReportTotals { shares_created: number; opens: number; clicks: number }
+export interface ReportingSummary {
+  scope: Profile['report_scope'];
+  totals: ReportTotals;
+  by_kind: Record<string, ReportTotals>;
+  by_member: (ReportTotals & { user_id: string; full_name: string | null })[];
+  emails_sent: { status: 'not_measured'; count: null; note: string };
+}
+
 export interface MemberStats {
   user_id: string;
   email: string | null;
@@ -121,6 +145,18 @@ export interface CreateContentInput {
 // ============================================================
 
 export const orgApi = {
+  async domains(): Promise<OrgDomain[]> { return (await api.get<OrgDomain[]>('/org/domains')).data; },
+  async attachDomain(id: string): Promise<OrgDomain> { return (await api.post<OrgDomain>(`/org/domains/${id}/attach`)).data; },
+  async defaultDomain(id: string): Promise<OrgDomain> { return (await api.post<OrgDomain>(`/org/domains/${id}/default`)).data; },
+  async viewers(): Promise<ViewerGrant[]> { return (await api.get<ViewerGrant[]>('/org/viewers')).data; },
+  async grantViewer(input: Omit<ViewerGrant, 'id'>): Promise<ViewerGrant> { return (await api.post<ViewerGrant>('/org/viewers', input)).data; },
+  async revokeViewer(id: string): Promise<void> { await api.delete(`/org/viewers/${id}`); },
+  async profile(): Promise<Profile> {
+    return (await api.get<Profile>('/org/profile')).data;
+  },
+  async reporting(filters: ReportingFilters): Promise<ReportingSummary> {
+    return (await api.get<ReportingSummary>('/org/reporting/summary', { params: filters })).data;
+  },
   async getContext(): Promise<OrgContext> {
     const response = await api.get<OrgContext>('/org/context');
     return response.data;

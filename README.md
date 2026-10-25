@@ -2,6 +2,11 @@
 
 **Champbeam** is a powerful, user-friendly UTM tracking and analytics platform that helps marketers create, manage, and analyze campaign links with ease.
 
+> **Cloudflare edition (`cloudflare` branch):** the whole app — SPA, API, share
+> links and files — runs as one Cloudflare Worker on D1 + R2 (`worker/`). See
+> [CLOUDFLARE_DEPLOY.md](CLOUDFLARE_DEPLOY.md). The `backend/` FastAPI app is
+> kept as the reference implementation until cutover.
+
 ## Features
 
 ### 🔗 Public Link Generator
@@ -272,6 +277,20 @@ against the backend. `frontend/vercel.json` rewrites every path to
 `index.html` (the SPA fallback), so `/r/*` on the Vercel hostname just
 renders the SPA, not a redirect. To put short links on a branded URL,
 use Custom Domains below.
+
+### System settings and spend
+
+Set `SYSTEM_ADMIN_CLERK_IDS` on the backend to a comma-separated list of
+platform operator Clerk user IDs (`user_...`). Only these users may view the
+System settings or call `/api/v1/system/maxmind` and `/api/v1/system/status`.
+An API key used by the fleet monitor must belong to an allowlisted user.
+Organization admin roles do not grant access to platform-wide spend.
+
+MaxMind balance is supplied by the paid web service on successful lookups.
+Configure `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` for the web service;
+set `MAXMIND_UNIT_PRICE_USD` to the actual USD cost per query to display
+estimated spend. Without a price, usage remains visible but spend has no
+dollar estimate. Changes to deployment variables require a backend restart.
 
 ### Custom Domains
 

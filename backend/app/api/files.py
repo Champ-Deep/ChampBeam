@@ -80,11 +80,18 @@ def _safe_filename(name: str) -> str:
     return name.replace('"', "").replace("\n", " ")[:255]
 
 
-def _common_headers(asset: FileAsset) -> dict[str, str]:
-    # Arbitrary or unknown files (KIND_OTHER: zip, docs, archives) download
-    # rather than render inline, which is also the safe default for untrusted
-    # bytes served from our own origin.
-    disposition = "attachment" if asset.kind == KIND_OTHER else "inline"
+def _wants_download(asset: FileAsset, dl: Optional[str]) -> bool:
+    # ?dl=1 forces a download. ?dl=0 forces inline except for KIND_OTHER, which
+    # always downloads (untrusted bytes served from our own origin). Default is
+    # unchanged for every existing link: only KIND_OTHER downloads, so a stored
+    # inline image or PDF URL keeps rendering (no retroactive behaviour change).
+    if asset.kind == KIND_OTHER:
+        return True
+    return dl == "1"
+
+
+def _common_headers(asset: FileAsset, dl: Optional[str] = None) -> dict[str, str]:
+    disposition = "attachment" if _wants_download(asset, dl) else "inline"
     headers = {
         "Content-Type": asset.mime_type,
         "Content-Disposition": f'{disposition}; filename="{_safe_filename(asset.filename)}"',
@@ -156,6 +163,7 @@ async def _serve_asset(
 ):
     """Gates → count the view → serve. Shared by /f/{code} and /p/{slug}."""
     short_code = asset.short_code
+    dl = request.query_params.get("dl")
     brand = domain.hostname if (asset.branded and domain) else None
     ip_address = ac.client_ip(request)
 
@@ -230,7 +238,8 @@ async def _serve_asset(
     if asset.serve_mode == SERVE_REDIRECT and storage.backend_is_s3():
         try:
             url = storage.generate_presigned_get(
-                asset.storage_key, filename=asset.filename, expires=300
+                asset.storage_key, filename=asset.filename, expires=300,
+                attachment=_wants_download(asset, dl),
             )
         except storage.StorageNotConfigured:
             return Response(status_code=503, content="Storage not configured.")
@@ -250,7 +259,7 @@ async def _serve_asset(
                 beacon_url=f"/f/{short_code}/page-events",
                 extra_js=pages_service.state_snippet_js(asset),
             )
-            headers = _common_headers(asset)
+            headers = _common_headers(asset, dl)
             headers["Cache-Control"] = "no-store"
             resp: Response = Response(
                 content=pages_service.inject_snippet(payload, snippet),
@@ -263,7 +272,7 @@ async def _serve_asset(
             resp = StreamingResponse(
                 storage.stream_object(asset.storage_key),
                 status_code=200,
-                headers=_common_headers(asset),
+                headers=_common_headers(asset, dl),
                 media_type=asset.mime_type,
             )
     except storage.StorageNotConfigured:

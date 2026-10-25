@@ -42,10 +42,10 @@ export function FileAnalyticsPage() {
   const [dateRange, setDateRange] = useState<DateRangeOpts>({ days: 30 });
   const [loading, setLoading] = useState(true);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (silent = false) => {
     if (!fileId) return;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [fileSummary, events, geo, devices] = await Promise.all([
         filesApi.getFileSummary(fileId),
         filesApi.getFileEvents(fileId, dateRange),
@@ -64,7 +64,13 @@ export function FileAnalyticsPage() {
     }
   }, [fileId, dateRange, geoLevel]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
+
+  // Opens arrive after this page does (you upload, then share), so keep it current.
+  useEffect(() => {
+    const timer = setInterval(() => { void loadData(true); }, 15_000);
+    return () => clearInterval(timer);
+  }, [loadData]);
 
   const handleGeoLevelChange = async (level: 'country' | 'region' | 'city') => {
     setGeoLevel(level);

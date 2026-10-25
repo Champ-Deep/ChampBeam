@@ -6,14 +6,15 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { OrganizationSwitcher, UserButton, useAuth } from '@clerk/react';
+import { UserButton, useAuth } from '@clerk/react';
+import { AccountFooter } from '../AccountFooter';
+import { AssistantLauncher } from '../AssistantDrawer';
+import { useShareLists } from '../../hooks/useShareLists';
 import { Logo } from '../ui/Logo';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { champvaultApi } from '../../api/champvault';
-import { utmApi } from '../../api/utm';
-import { filesApi } from '../../api/files';
-import { pagesApi } from '../../api/pages';
+
 
 interface NavItem {
   to: string;
@@ -35,9 +36,9 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       onClick={onClick}
       className={clsx(
         'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-        active ? 'text-white' : 'text-white/60 hover:text-white hover:bg-white/5'
+        active ? 'text-white' : 'text-[#eee0d8] hover:text-white hover:bg-white/5'
       )}
-      style={active ? { background: 'rgba(255,255,255,.08)', boxShadow: 'inset 2.5px 0 0 var(--cb-accent-light)' } : undefined}
+      style={active ? { background: 'var(--cb-side3)' } : undefined}
     >
       <Icon className="h-[18px] w-[18px] flex-shrink-0" />
       <span className="flex-1">{item.label}</span>
@@ -52,13 +53,15 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
 
 export function Sidebar() {
   const location = useLocation();
-  const { isSignedIn } = useAuth();
-  const { inOrg, canManageTeam } = useOrgContext();
-  const { recentClicks } = useClickNotifications(!!isSignedIn);
+  const { isSignedIn, userId } = useAuth();
+  const { inOrg, canReport } = useOrgContext();
+  const { recentClicks, clearAll } = useClickNotifications(!!isSignedIn, userId);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showBell, setShowBell] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (mobileOpen) menuRef.current?.showModal(); }, [mobileOpen]);
 
   const { data: vaultConfig } = useQuery({
     queryKey: ['champvault-config'],
@@ -70,24 +73,7 @@ export function Sidebar() {
 
   // Counts share the pages' query keys, so these are cache hits once a page has
   // loaded and they refresh together.
-  const { data: links } = useQuery({
-    queryKey: ['utm', 'links', 365],
-    queryFn: () => utmApi.getLinkPerformance({ days: 365 }),
-    enabled: !!isSignedIn,
-    staleTime: 60 * 1000,
-  });
-  const { data: files } = useQuery({
-    queryKey: ['files'],
-    queryFn: () => filesApi.list(),
-    enabled: !!isSignedIn,
-    staleTime: 60 * 1000,
-  });
-  const { data: pages } = useQuery({
-    queryKey: ['pages'],
-    queryFn: () => pagesApi.list(),
-    enabled: !!isSignedIn,
-    staleTime: 60 * 1000,
-  });
+  const { files, pages, links } = useShareLists(!!isSignedIn);
 
   useEffect(() => {
     function onAway(e: MouseEvent) {
@@ -105,20 +91,20 @@ export function Sidebar() {
   }
 
   const items: NavItem[] = [
-    { to: '/', label: 'Generator', icon: Zap, end: true },
-    { to: '/links', label: 'Links', icon: Link2, count: links?.length },
-    { to: '/files', label: 'Files', icon: FileText, count: files?.length },
-    { to: '/pages', label: 'Pages', icon: Globe, count: pages?.length },
+    { to: '/', label: 'Share', icon: Zap, end: true },
+    { to: '/links', label: 'Links', icon: Link2, count: links.data?.length },
+    { to: '/files', label: 'Files', icon: FileText, count: files.data?.length },
+    { to: '/pages', label: 'Pages', icon: Globe, count: pages.data?.length },
     { to: '/vault', label: 'Vault', icon: Radio, requiresVault: true },
     { to: '/library', label: 'Library', icon: Library, requiresOrg: 'member' },
-    { to: '/team', label: 'Team', icon: Users, requiresOrg: 'team' },
+    { to: '/team', label: 'Reporting', icon: Users, requiresOrg: 'team' },
     { to: '/analytics', label: 'Analytics', icon: BarChart3 },
     { to: '/settings', label: 'Settings', icon: Settings },
   ];
 
   const visible = items.filter((it) => {
     if (it.requiresOrg === 'member' && !inOrg) return false;
-    if (it.requiresOrg === 'team' && !(inOrg && canManageTeam)) return false;
+    if (it.requiresOrg === 'team' && !(inOrg && canReport)) return false;
     if (it.requiresVault && !vaultEnabled) return false;
     return true;
   });
@@ -127,7 +113,7 @@ export function Sidebar() {
     it.end ? location.pathname === it.to : location.pathname.startsWith(it.to);
 
   const railInner = (
-    <div className="flex h-full flex-col" style={{ background: 'var(--cb-side1)' }}>
+    <div className="cb-sidebar flex h-full flex-col overflow-y-auto" style={{ background: 'var(--cb-side1)', color: '#ffffff' }}>
       <div className="flex items-center justify-between px-5 pb-4 pt-5">
         <Link to="/" className="flex items-center">
           <Logo tone="dark" />
@@ -172,6 +158,8 @@ export function Sidebar() {
             >
               <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--cb-divider)' }}>
                 <p className="text-sm font-semibold" style={{ color: 'var(--cb-ink)' }}>Recent opens</p>
+                {recentClicks.length > 0 && <button type="button" onClick={() => void clearAll()}
+                  className="text-xs text-brand-purple hover:underline">Clear All</button>}
               </div>
               {recentClicks.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm" style={{ color: 'var(--cb-muted)' }}>
@@ -180,8 +168,8 @@ export function Sidebar() {
               ) : (
                 recentClicks.slice(0, 10).map((click) => (
                   <div key={click.id} className="rounded-xl px-3 py-2.5 hover:bg-[var(--cb-bg)]">
-                    <p className="truncate text-sm" style={{ color: 'var(--cb-ink)' }} title={click.original_url}>
-                      {click.original_url.length > 34 ? click.original_url.slice(0, 34) + '…' : click.original_url}
+                    <p className="truncate text-sm" style={{ color: 'var(--cb-ink)' }} title={click.filename || click.original_url || undefined}>
+                      {(click.filename || click.original_url || 'Link open').slice(0, 34)}
                     </p>
                     <p className="mt-0.5 text-xs" style={{ color: 'var(--cb-muted)' }}>
                       {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}
@@ -195,32 +183,15 @@ export function Sidebar() {
           )}
         </div>
 
-        <div
-          className="flex items-center gap-3 rounded-xl border px-3 py-2.5"
-          style={{ background: 'rgba(255,255,255,.06)', borderColor: 'rgba(255,255,255,.1)' }}
-        >
-          <UserButton appearance={{ elements: { userButtonAvatarBox: 'h-8 w-8' } }} />
-          <div className="min-w-0 flex-1">
-            <OrganizationSwitcher
-              hidePersonal={false}
-              afterSelectOrganizationUrl="/library"
-              afterSelectPersonalUrl="/"
-              appearance={{
-                elements: {
-                  rootBox: 'w-full',
-                  organizationSwitcherTrigger: 'text-white/80 hover:bg-white/10 w-full justify-start px-0 py-0',
-                  organizationPreviewMainIdentifier: 'text-white text-sm',
-                },
-              }}
-            />
-          </div>
-        </div>
+        <div className="cb-assistant-sidebar"><AssistantLauncher isAuthenticated={!!isSignedIn} /></div>
+        <AccountFooter />
       </div>
     </div>
   );
 
   return (
     <>
+      <a href="#main-content" className="cb-skip">Skip to content</a>
       {/* Desktop rail */}
       <aside className="sticky top-0 hidden h-screen w-60 flex-shrink-0 md:block">
         {railInner}
@@ -229,7 +200,7 @@ export function Sidebar() {
       {/* Mobile top bar */}
       <div
         className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 md:hidden"
-        style={{ background: 'var(--cb-side1)' }}
+        style={{ background: 'var(--cb-side1)', color: '#ffffff' }}
       >
         <Link to="/" className="flex items-center">
           <Logo tone="dark" size={30} />
@@ -248,10 +219,7 @@ export function Sidebar() {
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <div className="absolute inset-y-0 left-0 w-64">{railInner}</div>
-        </div>
+        <dialog ref={menuRef} aria-label="Workspace navigation" onClose={() => setMobileOpen(false)} className="cb-mobile-menu md:hidden">{railInner}</dialog>
       )}
     </>
   );

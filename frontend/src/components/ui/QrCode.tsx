@@ -125,6 +125,7 @@ export function QrButton({
         title="QR code"
         aria-label="Show QR code"
         aria-expanded={open}
+        className="min-w-11 min-h-11"
       >
         {withLabel ? 'QR' : null}
       </Button>

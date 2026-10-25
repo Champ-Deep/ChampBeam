@@ -1,12 +1,18 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateAssets } from '../lib/assetCache';
+import { isDownload } from '../hooks/useShareLists';
+import './share-views.css';
+import { useOrgContext } from '../hooks/useOrgContext';
+import { ShareComposer } from '../components/ShareComposer';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
   BarChart3,
   Clock,
   Copy,
+  Download,
   Eye,
   FileText,
   FileVideo,
@@ -37,7 +43,7 @@ import {
 import { filesApi } from '../api/files';
 import type { FileAsset, FileKind } from '../api/files';
 import { UPLOAD_ACCEPT, UPLOAD_HINT, UPLOAD_LABEL } from '../config/uploadLimits';
-import { formatBytes } from '../lib/format';
+import { downloadLink, formatBytes } from '../lib/format';
 import { utmApi } from '../api/utm';
 import type { Domain, Project, ProjectCreate } from '../api/utm';
 import { apiErrorDetail } from '../api/_shared';
@@ -75,6 +81,14 @@ interface DragPayload {
 
 
 export function FilesPage() {
+  const { canShare, isLoading, error } = useOrgContext();
+  if (isLoading) return <p role="status">Loading file permissions…</p>;
+  if (error) return <p role="alert">File access could not be verified. Reload or sign in again.</p>;
+  if (!canShare) return <div className="cb-workspace"><h1>Files</h1><ShareComposer /></div>;
+  return <ManageFiles />;
+}
+
+function ManageFiles() {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -83,9 +97,11 @@ export function FilesPage() {
   const [selectedDomainId, setSelectedDomainId] = useState<string>('');
 
   // --- Data (react-query) ---
-  const { data: files = [], isLoading } = useQuery<FileAsset[]>({
+  const { data: files = [], isLoading, error: listError, refetch } = useQuery<FileAsset[]>({
     queryKey: ['files'],
     queryFn: () => filesApi.list(),
+    retry: false,
+    select: (rows) => rows.filter(isDownload),
   });
 
   const { data: domains = [] } = useQuery<Domain[]>({
@@ -105,8 +121,7 @@ export function FilesPage() {
 
   const refresh = useCallback(() => {
     // Counts (projects) and rows (files) both move when files are reassigned.
-    queryClient.invalidateQueries({ queryKey: ['projects'] });
-    queryClient.invalidateQueries({ queryKey: ['files'] });
+    void invalidateAssets(queryClient);
   }, [queryClient]);
 
   // --- Project form state ---
@@ -315,8 +330,7 @@ export function FilesPage() {
         next.delete(id);
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void invalidateAssets(queryClient);
     },
     onError: () => toast.error('Could not remove file.'),
   });
@@ -332,6 +346,7 @@ export function FilesPage() {
     setProgress(0);
     try {
       const intent = await filesApi.initUpload({
+        intent: 'download',
         filename: file.name,
         content_type: file.type || 'application/octet-stream',
         size_bytes: file.size,
@@ -353,7 +368,7 @@ export function FilesPage() {
         const next = prev ? [finalized, ...prev.filter((f) => f.id !== finalized.id)] : [finalized];
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ['files'] });
+      void invalidateAssets(queryClient);
     } catch (err: unknown) {
       const detail =
         apiErrorDetail(err);
@@ -433,19 +448,20 @@ export function FilesPage() {
   // ---------------------------------------------------------------
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4">
+    <div className="cb-workspace cb-share-list max-w-7xl mx-auto py-8 px-4">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Files</h1>
         <p className="text-slate-600 mt-1">
-          Host PDFs, videos, HTML, and images on your domain. Every view is tracked. Drag files onto a folder to file them.
+          Download-only shares. Hosted HTML, images, video and PDFs are in Pages. Drag files onto a folder to file them.
         </p>
       </div>
 
+      {listError && <div role="alert"><p>{apiErrorDetail(listError) ?? 'Files could not load. No empty list is inferred.'}</p><Button onClick={() => void refetch()}>Retry files</Button></div>}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Upload a file
+            Send as file
           </CardTitle>
         </CardHeader>
 
@@ -455,6 +471,7 @@ export function FilesPage() {
               Host on
             </label>
             <select
+              aria-label="Download domain"
               value={selectedDomainId}
               onChange={(e) => setSelectedDomainId(e.target.value)}
               disabled={isUploading}
@@ -728,8 +745,8 @@ function FileRow({
         isSelected ? 'bg-brand-purple/5' : 'hover:bg-gray-50'
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
+      <div className="flex flex-col xl:flex-row items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0 w-full xl:w-auto flex-1">
           {/* Select + grip */}
           <div className="flex items-center gap-1 pt-0.5">
             <GripVertical className="h-4 w-4 text-gray-300 group-hover:text-gray-400 flex-shrink-0" />
@@ -804,8 +821,8 @@ function FileRow({
                 {file.serve_mode === 'redirect' ? 'Redirect serve' : 'Stream serve'}
               </span>
             </div>
-            <div className="mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-              <code className="text-xs font-mono text-slate-900 break-all flex-1">
+            <div className="mt-2 flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+              <code className="text-xs font-mono text-slate-900 break-all min-w-0 basis-full sm:basis-auto sm:flex-1">
                 {file.serve_url}
               </code>
               <button
@@ -816,8 +833,22 @@ function FileRow({
                 }}
                 className="text-slate-400 hover:text-slate-700"
                 aria-label="Copy link"
+                title="Copy link. Pages, PDFs and video open in the browser; images, ZIPs and docs download."
               >
                 <Copy className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void navigator.clipboard.writeText(downloadLink(file.serve_url));
+                  toast.success('Download link copied.');
+                }}
+                className="text-slate-400 hover:text-slate-700"
+                aria-label="Copy download link"
+                title="Copy download link. Always saves the original file; the download still counts as an open."
+              >
+                <Download className="h-3.5 w-3.5" />
               </button>
               <span onClick={(e) => e.stopPropagation()} className="inline-flex">
                 <QrButton value={file.serve_url} filename={`${file.short_code}.svg`} />

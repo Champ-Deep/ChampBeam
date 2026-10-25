@@ -1,6 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateAssets } from '../lib/assetCache';
+import { ShareComposer } from '../components/ShareComposer';
+import { filesApi } from '../api/files';
+import { useOrgContext } from '../hooks/useOrgContext';
 import { toast } from 'sonner';
 import {
   BarChart3,
@@ -11,6 +15,8 @@ import {
   Globe,
   History,
   KeyRound,
+  Layers,
+  Link2,
   Pencil,
   RefreshCw,
   Repeat,
@@ -33,7 +39,7 @@ import {
   useConfirm
 } from '../components/ui';
 import { pagesApi } from '../api/pages';
-import type { BeamPage, PagePatch, PageVersion } from '../api/pages';
+import type { BatchPageResult, BeamPage, PageLinksResponse, PagePatch, PageVersion } from '../api/pages';
 import { utmApi } from '../api/utm';
 import type { Domain } from '../api/utm';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
@@ -44,7 +50,7 @@ const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 const BEAM_STATE_DOCS_URL = 'https://github.com/Champ-Deep/ChampUTM/blob/main/docs/API.md#pages';
 
 type PublishMode = 'upload' | 'paste';
-type RowPanel = { mode: 'idle' } | { mode: 'edit' } | { mode: 'versions' };
+type RowPanel = { mode: 'idle' } | { mode: 'edit' } | { mode: 'versions' } | { mode: 'links' } | { mode: 'availability' };
 
 function isHtmlFile(file: File): boolean {
   return /\.html?$/i.test(file.name) || file.type === 'text/html';
@@ -60,15 +66,17 @@ function publishErrorMessage(err: unknown): string {
 }
 
 export function PagesPage() {
+  const { canShare } = useOrgContext();
   const confirm = useConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: pages = [], isLoading } = useQuery({ queryKey: ['pages'], queryFn: () => pagesApi.list() });
+  const { data: pages = [], isLoading, error, refetch } = useQuery({ queryKey: ['pages'], queryFn: () => pagesApi.list(), retry: false });
+  const { data: assets = [], error: assetError, refetch: refetchAssets } = useQuery({ queryKey: ['files'], queryFn: () => filesApi.list(), retry: false });
   const { data: domains = [] } = useQuery({ queryKey: ['domains'], queryFn: () => utmApi.listDomains() });
   const activeDomains = useMemo(() => domains.filter((d) => d.status === 'active'), [domains]);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['pages'] });
+  const invalidate = () => invalidateAssets(queryClient);
 
   const createMutation = useMutation({
     mutationFn: (data: { html: string; title?: string; domain_id?: string }) => pagesApi.create(data),
@@ -113,6 +121,16 @@ export function PagesPage() {
     onError: (err: unknown) => toast.error(apiErrorDetail(err) ?? 'Rollback failed.'),
   });
 
+  const batchMutation = useMutation({
+    mutationFn: ({ files, domainId }: { files: File[]; domainId?: string }) =>
+      pagesApi.batch(files, domainId),
+    onSuccess: () => {
+      toast.success('Published as a set. Cross-links were rewritten automatically.');
+      invalidate();
+    },
+    onError: (err: unknown) => toast.error(publishErrorMessage(err)),
+  });
+
   const copyUrl = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
@@ -123,22 +141,33 @@ export function PagesPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-8 px-4">
+    <div className="cb-workspace max-w-5xl mx-auto py-8 px-4">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-900">Pages</h1>
         <p className="text-slate-600 mt-1">
-          Publish a single HTML file on your domain. Every open is tracked — views, revisits and time on page — and
-          Beam State (comments + shared checklist state) is on by default.
+          Hosted HTML, images, video and PDFs. Download-only shares belong in Files. Existing addresses stay valid.
         </p>
       </div>
 
-      <PublishCard
+      {canShare && <ShareComposer />}
+      {canShare && <details><summary>Advanced HTML publishing</summary><PublishCard
         domains={activeDomains}
         isPublishing={createMutation.isPending}
         onPublish={(data) => createMutation.mutate(data)}
       />
 
+      <BatchPublishCard
+        domains={activeDomains}
+        isPublishing={batchMutation.isPending}
+        onPublish={(files, domainId) => batchMutation.mutate({ files, domainId })}
+      />
+      {batchMutation.data && batchMutation.data.length > 0 && (
+        <BatchResults results={batchMutation.data} />
+      )}
+      </details>}
+
       <Card padding="none">
+        {assetError && <div role="alert" className="p-6"><p>Page types could not load. HTML-only tools are unavailable until types are verified.</p><Button onClick={() => void refetchAssets()}>Retry page types</Button></div>}
         <div className="p-6 pb-0">
           <CardHeader>
             <CardTitle>Your pages</CardTitle>
@@ -147,12 +176,14 @@ export function PagesPage() {
         </div>
         {isLoading ? (
           <div className="py-10"><LoadingSpinner /></div>
+        ) : error ? (
+          <div role="alert" className="p-6"><h2>{apiErrorStatus(error) === 401 || apiErrorStatus(error) === 403 ? 'Page access failed' : 'Pages could not load'}</h2><p>{apiErrorDetail(error) ?? 'The list is unavailable. This does not mean your pages were deleted.'}</p><Button onClick={() => void refetch()}>Retry pages</Button></div>
         ) : pages.length === 0 ? (
           <div className="px-6 pb-6">
             <EmptyState
               icon={Globe}
               title="No pages yet"
-              description="Drop an .html file above to publish it on your domain with view, dwell and revisit tracking."
+              description="No hosted pages are returned for this account. Check your account and workspace before treating an empty list as lost content."
             />
           </div>
         ) : (
@@ -160,7 +191,7 @@ export function PagesPage() {
             {pages.map((page) => (
               <PageRow
                 key={page.page_id}
-                page={page}
+                page={{ ...page, kind: page.kind ?? assets.find((asset) => asset.id === page.page_id)?.kind }}
                 onCopy={() => copyUrl(page.url)}
                 onAnalytics={() => navigate(`/pages/${page.page_id}/analytics`)}
                 onReplace={(html) => replaceMutation.mutate({ id: page.page_id, html })}
@@ -255,6 +286,7 @@ function PublishCard({ domains, isPublishing, onPublish }: PublishCardProps) {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Host on</label>
             <select
+              aria-label="Host on"
               value={domainId}
               onChange={(e) => setDomainId(e.target.value)}
               disabled={isPublishing}
@@ -284,6 +316,7 @@ function PublishCard({ domains, isPublishing, onPublish }: PublishCardProps) {
       ) : (
         <div className="space-y-3">
           <textarea
+            aria-label="HTML content"
             value={pasted}
             onChange={(e) => setPasted(e.target.value)}
             rows={10}
@@ -325,10 +358,11 @@ interface PageRowProps {
 function statusBadge(page: BeamPage) {
   if (!page.enabled) return <Badge variant="warning" size="sm">Disabled</Badge>;
   if (page.has_access_code) return <Badge variant="info" size="sm">Gated</Badge>;
-  return <Badge variant="success" size="sm">Live</Badge>;
+  return <Badge variant="success" size="sm">Enabled</Badge>;
 }
 
 function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRollback }: PageRowProps) {
+  const { canShare } = useOrgContext();
   const [panel, setPanel] = useState<RowPanel>({ mode: 'idle' });
   const fileInput = useRef<HTMLInputElement>(null);
   const avgDwell = page.view_count > 0 ? page.total_dwell_ms / page.view_count : 0;
@@ -352,8 +386,8 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
 
   return (
     <div className="px-6 py-4 hover:bg-gray-50 transition-colors">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
+      <div className="flex flex-col xl:flex-row items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0 w-full xl:w-auto flex-1">
           <div className="h-10 w-10 rounded-lg bg-brand-purple/10 flex items-center justify-center flex-shrink-0">
             <Globe className="h-5 w-5 text-brand-purple" />
           </div>
@@ -361,6 +395,7 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-sm text-slate-900 truncate">{page.title}</span>
               {statusBadge(page)}
+              <Badge variant="default" size="sm">{page.kind ? page.kind.toUpperCase() : 'Type unavailable'}</Badge>
               {page.current_version > 0 && (
                 <Badge variant="default" size="sm">v{page.current_version}</Badge>
               )}
@@ -374,54 +409,64 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
               <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Updated {formatRelative(page.updated_at)}</span>
             </div>
             <div className="mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-              <code className="text-xs font-mono text-slate-900 break-all flex-1">{page.url}</code>
-              <button type="button" onClick={onCopy} className="text-slate-400 hover:text-slate-700" aria-label="Copy link">
+              <code className="text-xs font-mono text-slate-900 [overflow-wrap:anywhere] flex-1">{breakAfterPathSlash(page.url)}</code>
+              <button type="button" onClick={onCopy} className="min-w-11 inline-flex items-center justify-center text-slate-400 hover:text-slate-700" aria-label="Copy link">
                 <Copy className="h-3.5 w-3.5" />
               </button>
               <QrButton value={page.url} filename={`${page.slug ?? page.short_code}.svg`} />
             </div>
-            <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-2 flex-wrap">
+            <div className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
               {page.legacy_url !== page.url && (
                 <>
-                  <span>legacy {page.legacy_url}</span>
+                  <span className="break-all">legacy {page.legacy_url}</span>
                   <span>·</span>
                 </>
               )}
-              <span>
+              {page.kind === 'html' && <span>
                 Beam State: on ·{' '}
                 <a href={BEAM_STATE_DOCS_URL} target="_blank" rel="noreferrer" className="underline hover:text-slate-600">
                   how it works
                 </a>
-              </span>
+              </span>}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+        <div className="flex items-center gap-1 max-w-full flex-wrap">
+          <Button variant="ghost" size="sm" onClick={() => toggle('availability')} aria-expanded={panel.mode === 'availability'}>
+            Check storage
+          </Button>
           <Button variant="ghost" size="sm" onClick={onAnalytics} className="text-brand-purple hover:bg-brand-purple/10" leftIcon={<BarChart3 className="h-4 w-4" />}>
             Analytics
           </Button>
-          <input ref={fileInput} type="file" accept={PAGE_ACCEPT} className="hidden" onChange={handleReplaceFile} />
-          <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()} leftIcon={<RefreshCw className="h-4 w-4" />} title="Upload new content at the same URL">
+          <input aria-label="Replace page HTML" ref={fileInput} type="file" accept={PAGE_ACCEPT} className="hidden" onChange={handleReplaceFile} />
+          {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()} leftIcon={<RefreshCw className="h-4 w-4" />} title="Upload new content at the same URL">
             Replace
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => toggle('edit')} leftIcon={<Pencil className="h-4 w-4" />}>
+          </Button>}
+          {canShare && <Button variant="ghost" size="sm" onClick={() => toggle('edit')} leftIcon={<Pencil className="h-4 w-4" />}>
             Edit
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => toggle('versions')} leftIcon={<History className="h-4 w-4" />}>
+          </Button>}
+          {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => toggle('links')} leftIcon={<Link2 className="h-4 w-4" />} title="See and reroute the links inside this page">
+            Links
+          </Button>}
+          {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => toggle('versions')} leftIcon={<History className="h-4 w-4" />}>
             Versions
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50" leftIcon={<Trash2 className="h-4 w-4" />}>
+          </Button>}
+          {canShare && <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50" leftIcon={<Trash2 className="h-4 w-4" />}>
             Remove
-          </Button>
+          </Button>}
         </div>
       </div>
 
+      {panel.mode === 'availability' && <PageAvailability page={page} />}
       {panel.mode === 'edit' && (
         <EditPanel page={page} onPatch={onPatch} onDone={() => setPanel({ mode: 'idle' })} />
       )}
       {panel.mode === 'versions' && (
         <VersionsPanel page={page} onRollback={onRollback} />
+      )}
+      {panel.mode === 'links' && (
+        <LinksPanel page={page} onDone={() => setPanel({ mode: 'idle' })} />
       )}
     </div>
   );
@@ -430,6 +475,36 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
 // ---------------------------------------------------------------------------
 // Inline edit panel
 // ---------------------------------------------------------------------------
+
+function PageAvailability({ page }: { page: BeamPage }) {
+  const { data, error, isFetching, refetch } = useQuery({
+    queryKey: ['pages', page.page_id, 'availability'],
+    queryFn: () => pagesApi.availability(page.page_id),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const status = apiErrorStatus(error);
+  return (
+    <div className="mt-4" aria-label={`Storage for ${page.title}`}>
+      {isFetching ? <p role="status">Checking stored content...</p> : error ? (
+        <div role="alert">
+          <strong>{status === 401 || status === 403 ? 'Storage access failed' : status === 404 ? 'Page record unavailable' : 'Storage check unavailable'}</strong>
+          <p>{status === 401 || status === 403 ? 'Your session cannot check this page. Confirm your account and workspace, then retry.' : status === 404 ? 'This page record was not found. Refresh the page list to check whether it was removed.' : 'Storage could not be checked. This does not mean the content is missing.'}</p>
+        </div>
+      ) : data?.status === 'missing' ? (
+        <div role="alert"><strong>Stored content missing</strong><p>The record for {page.title} ({page.slug ?? page.short_code}) exists, but its stored content was not found. Ask your workspace administrator to investigate recovery. No content has been restored.</p></div>
+      ) : data?.status === 'available' ? (
+        <div role="status"><strong>Stored content available</strong><p>{formatBytes(data.size)} found in storage. Access codes and page settings still apply.</p><a href={page.url} target="_blank" rel="noreferrer">Open page</a></div>
+      ) : null}
+      <Button variant="ghost" size="sm" disabled={isFetching} onClick={() => void refetch()}>Retry storage check</Button>
+    </div>
+  );
+}
+
+/** Offer line breaks after path slashes (not inside "//") so a narrow address wraps at a slash, not mid-hostname. */
+function breakAfterPathSlash(url: string) {
+  return url.split(/(?<=[^/]\/)(?=[^/])/).map((part, i) => <Fragment key={i}>{i > 0 && <wbr />}{part}</Fragment>);
+}
 
 function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRowProps['onPatch']; onDone: () => void }) {
   const [slug, setSlug] = useState(page.slug ?? '');
@@ -451,7 +526,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
 
   const save = async () => {
     if (!slugValid) {
-      setSlugError('Use 3–60 lowercase letters, numbers and hyphens.');
+      setSlugError('Use 3 to 60 lowercase letters, numbers and hyphens.');
       return;
     }
     const data: PagePatch = {};
@@ -491,7 +566,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
             setSlug(e.target.value.toLowerCase());
             setSlugError(undefined);
           }}
-          error={slugError ?? (slugValid ? undefined : 'Use 3–60 lowercase letters, numbers and hyphens.')}
+          error={slugError ?? (slugValid ? undefined : 'Use 3 to 60 lowercase letters, numbers and hyphens.')}
           helperText={host && slug ? `https://${host}/p/${slug}` : undefined}
           placeholder="pallab-northstar"
           maxLength={60}
@@ -518,7 +593,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
               inputMode="numeric"
               value={accessCode}
               onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-              placeholder={page.has_access_code ? 'Replace with a new 4–8 digit code' : '4–8 digits (optional)'}
+              placeholder={page.has_access_code ? 'Replace with a new 4 to 8 digit code' : '4 to 8 digits (optional)'}
               helperText="Visitors must enter this before the page renders."
             />
           )}
@@ -579,6 +654,271 @@ function VersionsPanel({ page, onRollback }: { page: BeamPage; onRollback: (vers
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Batch publish ("publish a set")
+// ---------------------------------------------------------------------------
+
+function BatchPublishCard({
+  domains,
+  isPublishing,
+  onPublish,
+}: {
+  domains: Domain[];
+  isPublishing: boolean;
+  onPublish: (files: File[], domainId?: string) => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [domainId, setDomainId] = useState('');
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []).filter(isHtmlFile);
+    if (picked.length !== (e.target.files?.length ?? 0)) {
+      toast.error('Only .html files can be published in a set.');
+    }
+    setFiles((prev) => [...prev, ...picked]);
+    e.target.value = '';
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Layers className="h-5 w-5" />
+          Publish a set
+        </CardTitle>
+      </CardHeader>
+      <p className="text-sm text-slate-600 mb-4">
+        Drop several HTML pages together and their links to each other are rewritten
+        automatically to clean /p/ URLs. Great for multi-page plans, funnels and dashboards.
+      </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <input
+          aria-label="HTML files to publish as a set"
+          type="file"
+          multiple
+          accept={PAGE_ACCEPT}
+          onChange={pick}
+          disabled={isPublishing}
+          className="block w-full sm:w-auto text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-purple/10 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-brand-purple hover:file:bg-brand-purple/20 disabled:opacity-50"
+        />
+        {files.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {files.map((f, i) => (
+              <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                {f.name}
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  className="text-slate-400 hover:text-slate-700"
+                  aria-label={`Remove ${f.name}`}
+                >
+                  <Upload className="h-3 w-3 rotate-45" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {domains.length > 0 && (
+          <select
+            aria-label="Publish set domain"
+            value={domainId}
+            onChange={(e) => setDomainId(e.target.value)}
+            disabled={isPublishing}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple disabled:opacity-50"
+          >
+            <option value="">Platform default</option>
+            {domains.map((d) => (
+              <option key={d.id} value={d.id}>{d.hostname}</option>
+            ))}
+          </select>
+        )}
+        <Button
+          onClick={() => {
+            if (files.length === 0) {
+              toast.error('Pick at least one .html file first.');
+              return;
+            }
+            onPublish(files, domainId || undefined);
+          }}
+          disabled={isPublishing || files.length === 0}
+          leftIcon={<Layers className="h-4 w-4" />}
+        >
+          {isPublishing ? `Publishing ${files.length}…` : `Publish ${files.length || ''} ${files.length === 1 ? 'page' : 'pages'}`}
+        </Button>
+      </div>
+      {isPublishing && files.length > 1 && (
+        <p className="text-xs text-slate-500 mt-3">
+          Links between these files are being rewritten to their new /p/ slugs.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/** Result list after a batch publish: per-file rewritten/unresolved counts. */
+function BatchResults({ results }: { results: BatchPageResult[] }) {
+  const [open, setOpen] = useState(false);
+  const totalRewritten = results.reduce((n, r) => n + r.rewritten.length, 0);
+  const totalUnresolved = results.reduce((n, r) => n + r.unresolved.length, 0);
+  return (
+    <Card className="mb-6 border-brand-purple/30">
+      <div className="p-4 sm:p-5">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-3 text-left"
+          onClick={() => setOpen((o) => !o)}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-slate-900">
+              {results.length} {results.length === 1 ? 'page' : 'pages'} published
+            </span>
+            {totalRewritten > 0 && <Badge variant="success" size="sm">{totalRewritten} links rerouted</Badge>}
+            {totalUnresolved > 0 && <Badge variant="warning" size="sm">{totalUnresolved} unresolved</Badge>}
+          </div>
+          <span className="text-xs text-slate-500">{open ? 'Hide' : 'Show'} details</span>
+        </button>
+        {open && (
+          <div className="mt-4 space-y-3">
+            {results.map((r) => (
+              <div key={r.slug} className="rounded-lg border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-slate-900 truncate">{r.title}</span>
+                  <a href={r.url} target="_blank" rel="noreferrer" className="text-xs font-mono text-brand-purple hover:underline truncate">
+                    {r.url}
+                  </a>
+                </div>
+                {r.rewritten.length > 0 && (
+                  <ul className="mt-2 space-y-0.5">
+                    {r.rewritten.map((x) => (
+                      <li key={x.from_href} className="text-xs text-slate-600 font-mono break-all">
+                        {x.from_href} → {x.to}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {r.unresolved.length > 0 && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    Could not map: {r.unresolved.map((x) => x.from_href).join(', ')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Link inventory + reroute panel
+// ---------------------------------------------------------------------------
+
+const LINK_KIND_LABEL: Record<string, string> = {
+  external: 'External',
+  'platform-page': 'Page link',
+  'platform-file': 'File link',
+  internal: 'Sibling file',
+  fragment: 'Anchor',
+};
+
+function LinksPanel({ page, onDone }: { page: BeamPage; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [applying, setApplying] = useState(false);
+
+  const { data, isLoading } = useQuery<PageLinksResponse>({
+    queryKey: ['pages', page.page_id, 'links'],
+    queryFn: () => pagesApi.links(page.page_id),
+  });
+  const links = data?.links ?? [];
+  const existingRoutes = data?.routes ?? [];
+
+  // Reroutable rows: file/platform-file links plus exact-href routes already
+  // recorded (external anchors can be rerouted too via the override input).
+  const reroutable = links.filter((l) => l.kind !== 'fragment' && l.kind !== 'platform-page');
+
+  const apply = async () => {
+    const routes = Object.entries(overrides)
+      .filter(([, target]) => target.trim())
+      .map(([src_href, target_url]) => ({ src_href, target_url: target_url.trim() }));
+    setApplying(true);
+    try {
+      const result = await pagesApi.applyLinks(page.page_id, { routes, auto_map: true });
+      queryClient.invalidateQueries({ queryKey: ['pages'] });
+      queryClient.invalidateQueries({ queryKey: ['pages', page.page_id, 'links'] });
+      if (result.rewritten.length > 0) {
+        toast.success(`Rewired ${result.rewritten.length} link${result.rewritten.length === 1 ? '' : 's'}. New version live.`);
+      } else {
+        toast.info('No links needed changing.');
+      }
+      if (result.unresolved.length > 0) {
+        toast.warning(`${result.unresolved.length} link${result.unresolved.length === 1 ? '' : 's'} could not be mapped. Set a target below for those.`);
+      }
+      onDone();
+    } catch (err: unknown) {
+      toast.error(apiErrorDetail(err) ?? 'Could not apply link changes.');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const routeTarget = (href: string): string => overrides[href] ?? existingRoutes.find((r) => r.src_href === href)?.target_url ?? '';
+
+  return (
+    <div className="mt-4 rounded-lg border border-brand-purple/30 bg-white p-4 space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Link2 className="h-4 w-4 text-brand-purple" />
+          <span className="text-sm font-semibold text-slate-900">Links on this page</span>
+          <span className="text-xs text-slate-500">{reroutable.length} reroutable</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onDone}>Cancel</Button>
+          <Button size="sm" onClick={apply} disabled={applying || isLoading}>
+            {applying ? 'Rewiring…' : 'Apply changes'}
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs text-slate-500 -mt-2">
+        Sibling file references and old /f/ links are auto-matched to your pages. Set a target on any
+        row to force it. Changes are baked into a new version you can roll back.
+      </p>
+
+      {isLoading ? (
+        <div className="py-4"><LoadingSpinner /></div>
+      ) : links.length === 0 ? (
+        <p className="text-sm text-slate-500 py-2">No links found on this page.</p>
+      ) : (
+        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          {reroutable.map((l) => (
+            <div key={l.href} className="rounded-md border border-slate-200 p-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="default" size="sm">{LINK_KIND_LABEL[l.kind] ?? l.kind}</Badge>
+                <code className="text-xs font-mono text-slate-700 break-all flex-1 min-w-0" title={l.href}>
+                  {l.href}
+                </code>
+                {l.anchor_text && (
+                  <span className="text-xs text-slate-400 italic truncate max-w-[200px]">“{l.anchor_text}”</span>
+                )}
+              </div>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 flex-shrink-0">Target</span>
+                <input
+                  value={routeTarget(l.href)}
+                  onChange={(e) => setOverrides((o) => ({ ...o, [l.href]: e.target.value }))}
+                  placeholder={l.kind === 'external' ? 'https://…' : 'auto /p/… (leave empty to auto-map)'}
+                  className="flex-1 min-w-0 rounded-md border border-slate-200 px-2 py-1 text-xs font-mono focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

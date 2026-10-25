@@ -1,0 +1,107 @@
+// ChampBeam on Cloudflare: ONE Worker serves everything.
+//
+//   /api/*, /r/*, /s/*, /f/*, /p/*, /rooms/*, /health  -> the API (Hono, src/)
+//   everything else                                    -> the React SPA (static
+//                                                         assets built from
+//                                                         ../frontend/dist)
+//
+// Bindings:
+//   DB     D1 (SQLite) — replaces Postgres. Schema lives in ./migrations.
+//   FILES  R2 bucket   — replaces Mongo GridFS / local disk / S3 for file bytes.
+//   ASSETS static assets (the built frontend).
+// Cron replaces the in-process background loops of the Python app.
+//
+// First-time setup (see ../CLOUDFLARE_DEPLOY.md):
+//   npx wrangler d1 create champbeam            -> paste database_id below
+//   npx wrangler r2 bucket create champbeam-files
+//   npx wrangler d1 migrations apply champbeam --remote
+//   npx wrangler secret put CLERK_SECRET_KEY    (and the other secrets)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "champbeam",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // The Worker runs first for everything except hashed build assets. Root-slug
+    // hosting (https://<share-host>/<slug>) cannot be listed as a path: the SPA
+    // fallback would answer it first. Non-matching GET/HEAD requests fall through
+    // to ASSETS in src/app.ts, so SPA routes still work.
+    "run_worker_first": ["/*", "!/assets/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "champbeam",
+      "database_id": "f4adff8c-771e-4e18-b792-dc9f8f3dbd99",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "champbeam-files"
+    }
+  ],
+
+  "triggers": {
+    // */15: expired-upload sweeper + rate-counter cleanup.
+    // */5 : custom-domain status refresh (Cloudflare for SaaS / DNS checks).
+    "crons": ["*/15 * * * *", "*/5 * * * *"]
+  },
+
+  "observability": { "enabled": true },
+
+  // Non-secret configuration. Secrets (CLERK_SECRET_KEY, CLERK_WEBHOOK_SECRET,
+  // STORAGE_UPLOAD_SECRET, R2_SECRET_ACCESS_KEY, CLOUDFLARE_API_TOKEN,
+  // CHAMPVAULT_API_KEY, SERVICE_API_KEYS, MAXMIND_LICENSE_KEY, IPINFO_API_TOKEN,
+  // PROVISIONER_TOKEN) go in `wrangler secret put` or .dev.vars locally.
+  "vars": {
+    "ENVIRONMENT": "production",
+    "DEBUG": "false",
+    "FRONTEND_URL": "https://www.champbeam.com",
+    "REDIRECT_BASE_URL": "",
+    "PLATFORM_REDIRECT_HOST": "",
+    "CLERK_PUBLISHABLE_KEY": "",
+    "CORS_ALLOW_ORIGINS": "",
+    "CORS_ALLOW_ORIGIN_REGEX": "",
+    "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files"
+  },
+
+  // Environment overlays. Bindings and vars are NOT inherited by wrangler environments, so each
+  // one is spelled out. Rules (checked by scripts/check-env-overlays.mjs):
+  //   * no environment shares a D1 database or R2 bucket with production
+  //   * ids marked TODO_ must be filled (by a human, in review) before that env is deployed
+  //   * staging/deepify never carry production Clerk keys, sender credentials or customer data
+  // Local dev needs no overlay: `wrangler dev` uses the top-level config with local persistence.
+  "env": {
+    // Runtime rehearsal on Deepify: pinned wrangler/workerd, local-persisted D1/R2, same bundle.
+    // Not the Cloudflare control plane (no real hostnames, certificates, Queues, managed latency).
+    "deepify": {
+      "name": "champbeam-deepify",
+      "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
+                  "run_worker_first": ["/*", "!/assets/*"] },
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
+      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify" }
+    },
+    // Real Cloudflare staging: managed D1/R2, real cron, Clerk callbacks with NON-production identities.
+    "staging": {
+      "name": "champbeam-staging",
+      "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
+                  "run_worker_first": ["/*", "!/assets/*"] },
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "TODO_STAGING_D1_ID", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
+      "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "TODO_STAGING_ORIGIN", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+                "CLERK_PUBLISHABLE_KEY": "TODO_NONPROD_CLERK_PK", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
+    }
+  }
+}

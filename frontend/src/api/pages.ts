@@ -7,10 +7,12 @@ import type { DateRangeOpts, GeoBreakdownItem, DeviceBreakdown } from './utm';
 // ============================================================
 
 export interface BeamPage {
+  kind?: 'html' | 'image' | 'video' | 'pdf' | 'other';
   page_id: string;
   short_code: string;
   slug: string | null;
   url: string;
+  public_url?: string;
   legacy_url: string;
   title: string;
   size_bytes: number;
@@ -92,36 +94,90 @@ export interface PagePatch {
   access_code?: string | null;
 }
 
+// ---- Pages V2: batch publish + link rerouting ----
+
+export interface RewriteReportRow {
+  from_href: string;
+  to: string | null;
+  kind: string;
+}
+
+export interface BatchPageResult {
+  filename: string;
+  title: string;
+  slug: string;
+  url: string;
+  legacy_url: string;
+  rewritten: RewriteReportRow[];
+  unresolved: RewriteReportRow[];
+}
+
+export type PageLinkKind = 'external' | 'platform-page' | 'platform-file' | 'internal' | 'fragment';
+
+export interface PageLinkInventory {
+  href: string;
+  anchor_text: string;
+  kind: PageLinkKind;
+}
+
+export interface PageLinkRoute {
+  src_href: string;
+  target_url: string;
+}
+
+export interface PageLinksResponse {
+  page_id: string;
+  links: PageLinkInventory[];
+  routes: PageLinkRoute[];
+}
+
+export interface PageLinksApplyResult {
+  page: BeamPage;
+  rewritten: RewriteReportRow[];
+  unresolved: RewriteReportRow[];
+}
+
 // ============================================================
 // API
 // ============================================================
 
+/** The Worker returns `url` as the legacy /p/{slug} address; `public_url` is the canonical root-slug address the composer shows. */
+const canonical = (page: BeamPage): BeamPage => (page.public_url ? { ...page, url: page.public_url } : page);
+
 export const pagesApi = {
+  async availability(pageId: string): Promise<{ status: 'available'; size: number; etag: string } | { status: 'missing' }> {
+    const response = await api.get<{ status: 'available'; size: number; etag: string } | { status: 'missing' }>(`/pages/${pageId}/availability`);
+    return response.data;
+  },
+  async suggestSlug(filename: string, domainId?: string): Promise<{ slug: string; base: string; collided: boolean; host: string; public_url: string }> {
+    const response = await api.get<{ slug: string; base: string; collided: boolean; host: string; public_url: string }>('/pages/slug-suggestion', { params: { filename, domain_id: domainId } });
+    return response.data;
+  },
   async list(): Promise<BeamPage[]> {
     const response = await api.get<BeamPage[]>('/pages');
-    return asArray<BeamPage>(response.data);
+    return asArray<BeamPage>(response.data).map(canonical);
   },
 
   async get(pageId: string): Promise<BeamPage> {
     const response = await api.get<BeamPage>(`/pages/${pageId}`);
-    return response.data;
+    return canonical(response.data);
   },
 
   /** Publish from an HTML string (a dropped file is read with `file.text()`). */
   async create(data: PagePublish): Promise<BeamPage> {
     const response = await api.post<BeamPage>('/pages', data);
-    return response.data;
+    return canonical(response.data);
   },
 
   /** Replace content; URL, slug and QR stay identical. */
   async update(pageId: string, data: { html: string; title?: string }): Promise<BeamPage> {
     const response = await api.put<BeamPage>(`/pages/${pageId}`, data);
-    return response.data;
+    return canonical(response.data);
   },
 
   async patch(pageId: string, data: PagePatch): Promise<BeamPage> {
     const response = await api.patch<BeamPage>(`/pages/${pageId}`, data);
-    return response.data;
+    return canonical(response.data);
   },
 
   async delete(pageId: string): Promise<void> {
@@ -193,6 +249,34 @@ export const pagesApi = {
     const response = await api.get<DeviceBreakdown>(
       appendQuery(`/files/${pageId}/devices`, dateParams(opts)),
     );
+    return response.data;
+  },
+
+  // ---- Pages V2: batch publish + link rerouting ----
+
+  /** Publish several HTML files as pages; cross-links between them are
+   * rewritten to /p/{slug} automatically. */
+  async batch(files: File[], domainId?: string): Promise<BatchPageResult[]> {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    if (domainId) form.append('domain_id', domainId);
+    const response = await api.post<BatchPageResult[]>('/pages/batch', form);
+    return asArray<BatchPageResult>(response.data);
+  },
+
+  /** Every <a href> on the page's current version, classified. */
+  async links(pageId: string): Promise<PageLinksResponse> {
+    const response = await api.get<PageLinksResponse>(`/pages/${pageId}/links`);
+    return response.data;
+  },
+
+  /** Rewire links without editing HTML: exact-href routes plus auto-mapping of
+   * /f/{code} and matching filenames. Produces a new versioned change. */
+  async applyLinks(
+    pageId: string,
+    data: { routes: PageLinkRoute[]; auto_map?: boolean },
+  ): Promise<PageLinksApplyResult> {
+    const response = await api.post<PageLinksApplyResult>(`/pages/${pageId}/links/apply`, data);
     return response.data;
   },
 };
