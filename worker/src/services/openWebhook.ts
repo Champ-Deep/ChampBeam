@@ -16,7 +16,9 @@ import { bytesToHex, hmacSha256 } from "../lib/crypto";
 import type { GeoDeps } from "./geoip";
 import { isHostingAsn } from "./geoip";
 
-export async function notifyOpen(deps: GeoDeps & { db: Db }, eventId: string): Promise<void> {
+export type NotifyDeps = GeoDeps & { db: Db; openWebhook?: Fetcher };
+
+export async function notifyOpen(deps: NotifyDeps, eventId: string): Promise<void> {
   const { openWebhookUrl, openWebhookSecret } = deps.settings;
   if (!openWebhookUrl || !openWebhookSecret) return;
 
@@ -48,7 +50,7 @@ export async function notifyOpen(deps: GeoDeps & { db: Db }, eventId: string): P
     likely_scanner: isHostingAsn(e.asnOrg),
   });
   const sig = bytesToHex(await hmacSha256(openWebhookSecret, body));
-  const f = deps.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
+  const f = deps.openWebhook ? deps.openWebhook.fetch.bind(deps.openWebhook) : deps.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const resp = await f(openWebhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Beam-Event-Id": e.id, "X-Beam-Signature": `sha256=${sig}` },

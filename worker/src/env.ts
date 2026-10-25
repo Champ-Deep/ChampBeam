@@ -14,6 +14,8 @@ export interface Env {
   DB: D1Database;
   FILES: R2Bucket;
   ASSETS?: Fetcher;
+  /** Service binding to the webhook receiver. workers.dev -> workers.dev fetches in one account 404 (error 1042). */
+  OPEN_WEBHOOK?: Fetcher;
   [key: string]: unknown;
 }
 

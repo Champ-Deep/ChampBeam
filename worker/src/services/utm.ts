@@ -41,7 +41,7 @@ import { cfGeo, clientIp as coreClientIp, type CfGeo } from "../lib/request";
 import { nowIso } from "../lib/time";
 import { resolveCompany } from "./companyIntel";
 import { type GeoDeps, lookupIp } from "./geoip";
-import { notifyOpen } from "./openWebhook";
+import { type NotifyDeps, notifyOpen } from "./openWebhook";
 import { parseUserAgent } from "./ua";
 
 export const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
@@ -542,7 +542,7 @@ export async function lastFileViewAt(db: Db, fileId: string, visitorId: string):
  * waitUntil task runs).
  */
 export async function resolveGeoForEvent(
-  deps: GeoDeps & { db: Db },
+  deps: NotifyDeps,
   eventId: string,
   ipAddress: string | null,
   opts: { cf?: CfGeo | null } = {},
@@ -617,7 +617,7 @@ export function captureVisit(c: Context, ip?: string | null): VisitContext {
  */
 export function scheduleGeoEnrichment(c: Ctx, eventId: string, visit: VisitContext = captureVisit(c)): void {
   if (!visit.ip) return;
-  const deps = { settings: c.var.settings, db: c.var.db };
+  const deps = { settings: c.var.settings, db: c.var.db, openWebhook: c.env.OPEN_WEBHOOK };
   background(c, () => resolveGeoForEvent(deps, eventId, visit.ip, { cf: visit.cf }), "resolveGeoForEvent");
 }
 
