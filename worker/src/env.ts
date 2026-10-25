@@ -116,6 +116,10 @@ export function buildSettings(env: Env) {
 
     serviceApiKeys: str(env, "SERVICE_API_KEYS"),
 
+    /** Signed "link opened" webhook for contact-bound links. Both must be set, else it is off. */
+    openWebhookUrl: str(env, "OPEN_WEBHOOK_URL"),
+    openWebhookSecret: str(env, "OPEN_WEBHOOK_SECRET"),
+
     pagesMaxBytes: int(env, "PAGES_MAX_BYTES", 2 * 1024 * 1024),
     pagesInjectMaxBytes: int(env, "PAGES_INJECT_MAX_BYTES", 5 * 1024 * 1024),
     pagesVersionsKeep: int(env, "PAGES_VERSIONS_KEEP", 10),

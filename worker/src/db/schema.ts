@@ -209,6 +209,8 @@ export const linkClicks = sqliteTable("link_clicks", {
   blockVpn: bool("block_vpn").notNull().default(false),
   branded: bool("branded").notNull().default(false),
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  /** Opaque external contact id (ChampVoice drop_id, Harbinger lead id). Null = anonymous link. */
+  contactRef: text("contact_ref"),
   createdAt: createdAt(true),
 });
 
