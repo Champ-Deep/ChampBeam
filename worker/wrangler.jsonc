@@ -72,5 +72,36 @@
     "CORS_ALLOW_ORIGINS": "",
     "CORS_ALLOW_ORIGIN_REGEX": "",
     "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files"
+  },
+
+  // Environment overlays. Bindings and vars are NOT inherited by wrangler environments, so each
+  // one is spelled out. Rules (checked by scripts/check-env-overlays.mjs):
+  //   * no environment shares a D1 database or R2 bucket with production
+  //   * ids marked TODO_ must be filled (by a human, in review) before that env is deployed
+  //   * staging/deepify never carry production Clerk keys, sender credentials or customer data
+  // Local dev needs no overlay: `wrangler dev` uses the top-level config with local persistence.
+  "env": {
+    // Runtime rehearsal on Deepify: pinned wrangler/workerd, local-persisted D1/R2, same bundle.
+    // Not the Cloudflare control plane (no real hostnames, certificates, Queues, managed latency).
+    "deepify": {
+      "name": "champbeam-deepify",
+      "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
+                  "run_worker_first": ["/api/*", "/r/*", "/s/*", "/f/*", "/p/*", "/rooms/*", "/health", "/docs"] },
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
+      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify" }
+    },
+    // Real Cloudflare staging: managed D1/R2, real cron, Clerk callbacks with NON-production identities.
+    "staging": {
+      "name": "champbeam-staging",
+      "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
+                  "run_worker_first": ["/api/*", "/r/*", "/s/*", "/f/*", "/p/*", "/rooms/*", "/health", "/docs"] },
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "TODO_STAGING_D1_ID", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
+      "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "TODO_STAGING_ORIGIN", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+                "CLERK_PUBLISHABLE_KEY": "TODO_NONPROD_CLERK_PK", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
+    }
   }
 }
