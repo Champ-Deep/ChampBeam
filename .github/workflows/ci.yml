@@ -65,6 +65,23 @@ jobs:
           VITE_API_URL: https://example.invalid
           VITE_CLERK_PUBLISHABLE_KEY: pk_test_build_only
 
+  worker:
+    name: worker (tsc, vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: worker }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # Workers Builds and local development use 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: node scripts/check-env-overlays.mjs
+      - run: npx vitest run
+
   image:
     name: backend image builds
     runs-on: ubuntu-latest
@@ -81,7 +98,7 @@ jobs:
   gate:
     # Single required status check for branch protection.
     name: gate
-    needs: [backend, frontend, image]
+    needs: [backend, frontend, worker, image]
     runs-on: ubuntu-latest
     steps:
       - run: echo "all checks green"
