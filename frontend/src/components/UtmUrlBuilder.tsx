@@ -78,6 +78,7 @@ export function UtmUrlBuilder({ onClose }: { onClose: () => void }) {
     <div>
       <label className="block text-xs font-medium text-slate-700 mb-1">{label}</label>
       <input
+        aria-label={label}
         value={value}
         onChange={(e) => set(e.target.value)}
         placeholder={label === 'Campaign' ? 'e.g. bts-2026' : ''}
@@ -104,14 +105,14 @@ export function UtmUrlBuilder({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={() => setBatch(false)}
-            className={`rounded-md px-2.5 py-1 font-medium ${!batch ? 'bg-brand-purple/10 text-brand-purple' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`rounded-md px-2.5 py-1 font-medium ${!batch ? 'bg-brand-purple/10 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Single
           </button>
           <button
             type="button"
             onClick={() => setBatch(true)}
-            className={`rounded-md px-2.5 py-1 font-medium ${batch ? 'bg-brand-purple/10 text-brand-purple' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`rounded-md px-2.5 py-1 font-medium ${batch ? 'bg-brand-purple/10 text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Batch
           </button>
@@ -122,6 +123,7 @@ export function UtmUrlBuilder({ onClose }: { onClose: () => void }) {
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">URLs (one per line)</label>
           <textarea
+            aria-label="URLs (one per line)"
             value={targets}
             onChange={(e) => setTargets(e.target.value)}
             rows={5}
@@ -143,6 +145,7 @@ export function UtmUrlBuilder({ onClose }: { onClose: () => void }) {
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Preset</label>
           <select
+            aria-label="UTM preset"
             value={presetId}
             onChange={(e) => applyPreset(e.target.value)}
             className="w-full h-9 rounded-md border border-gray-300 bg-white px-2.5 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"

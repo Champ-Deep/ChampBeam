@@ -1,0 +1,12 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": { "config": "", "css": "src/index.css", "baseColor": "neutral", "cssVariables": true },
+  "aliases": { "components": "@/components", "utils": "@/lib/utils", "ui": "@/components/ui", "lib": "@/lib", "hooks": "@/hooks" },
+  "registries": {
+    "@21st": { "url": "https://21st.dev/r/{name}", "params": { "api_key": "${TWENTY_FIRST_API_KEY}" } },
+    "@kokonutui": "https://kokonutui.com/r/{name}.json"
+  }
+}
