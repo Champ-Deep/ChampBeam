@@ -86,7 +86,7 @@
     "deepify": {
       "name": "champbeam-deepify",
       "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
-                  "run_worker_first": ["/api/*", "/r/*", "/s/*", "/f/*", "/p/*", "/rooms/*", "/health", "/docs"] },
+                  "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
       "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
@@ -96,7 +96,7 @@
     "staging": {
       "name": "champbeam-staging",
       "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
-                  "run_worker_first": ["/api/*", "/r/*", "/s/*", "/f/*", "/p/*", "/rooms/*", "/health", "/docs"] },
+                  "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "TODO_STAGING_D1_ID", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },

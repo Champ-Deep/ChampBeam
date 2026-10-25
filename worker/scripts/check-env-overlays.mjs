@@ -11,6 +11,7 @@ for (const [name, e] of Object.entries(cfg.env ?? {})) {
   const d1 = e.d1_databases?.[0]?.database_name, r2 = e.r2_buckets?.[0]?.bucket_name;
   if (d1 === prod.d1 || r2 === prod.r2) errs.push(`${name}: shares production D1/R2`);
   for (const k of [d1, r2]) { if (seen.has(k)) errs.push(`${name}: ${k} reused by another env`); seen.add(k); }
+  if (JSON.stringify(e.assets?.run_worker_first) !== JSON.stringify(cfg.assets.run_worker_first)) errs.push(`${name}: assets.run_worker_first must equal the top-level list (root-slug hosting)`);
   if (e.vars?.ENVIRONMENT !== name) errs.push(`${name}: vars.ENVIRONMENT must equal the env name`);
   if (process.argv.includes("--deployable") && /TODO_/.test(JSON.stringify(e))) errs.push(`${name}: unresolved TODO_ placeholder`);
 }
