@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Show, SignIn, SignUp, useAuth } from '@clerk/react';
 import { useEffect } from 'react';
+import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
 import { HomePage } from './pages/HomePage';
@@ -99,6 +100,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--cb-bg)' }}>
+      <AnnouncementBanner />
       <ClerkTokenSync />
       <Routes>
         <Route path="/sign-in/*" element={<SignInPage />} />
