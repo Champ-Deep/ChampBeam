@@ -258,6 +258,26 @@ describe("list / get / delete / kill switch (test_list_get_delete_and_kill_switc
     expect(await eventually(async () => (await keysUnder(`u/${user.id}/`)).length === 0)).toBe(true);
   });
 
+  it("a deleted page frees its slug for re-adding", async () => {
+    const { headers } = await authedUser();
+    const gone = await publish(headers, { slug: "weekly-plan" });
+    expect((await api(`/api/v1/pages/${gone.page_id}`, { method: "DELETE", headers })).status).toBe(204);
+    const again = await api("/api/v1/pages", { method: "POST", json: { html: HTML, title: "t", slug: "weekly-plan" }, headers });
+    expect(again.status, await again.clone().text()).toBe(201);
+  });
+
+  it("a deleted page's slug does not break the list backfill", async () => {
+    const { headers } = await authedUser();
+    const gone = await publish(headers, { slug: "weekly-plan" });
+    expect((await api(`/api/v1/pages/${gone.page_id}`, { method: "DELETE", headers })).status).toBe(204);
+    // A slug-less legacy row whose filename derives the deleted page's old slug: list backfills it.
+    const legacy = await publish(headers, { slug: "legacy-page" });
+    await env.DB.prepare("UPDATE file_assets SET slug = NULL, filename = 'weekly-plan.html' WHERE id = ?").bind(legacy.page_id).run();
+    const list = await api("/api/v1/pages", { headers });
+    expect(list.status, await list.clone().text()).toBe(200);
+    expect((await json(list)).map((p: any) => p.slug)).toEqual(["weekly-plan"]);
+  });
+
   it("patch title and access code", async () => {
     const { headers } = await authedUser();
     const page = await publish(headers);
