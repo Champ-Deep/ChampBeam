@@ -108,7 +108,7 @@ Or upload the file: `POST /api/v1/pages/upload` (multipart `file`, optional `tit
 
 **Existing HTML uploads.** Single-file HTML uploaded through the Files API before Pages existed shows up in `GET /api/v1/pages` too: it receives a slug (and `/p/` URL) the first time it is listed, its `/f/` link keeps working, and its first `PUT` snapshots the bytes currently being served as version 1 before swapping — so the original stays rollback-able.
 
-**Settings.** `PATCH /api/v1/pages/{id}` with any of `slug` (3–60 chars, lowercase/digits/hyphens; 409 if taken), `title`, `enabled` (`false` = kill switch: every URL and API route returns 410 immediately), `domain_id`, `access_code` (4–8 digits; `null` clears). `DELETE` removes the page and every version blob.
+**Settings.** `PATCH /api/v1/pages/{id}` with any of `slug` (3 to 60 chars, lowercase/digits/hyphens; 409 if taken), `title`, `enabled` (`false` = kill switch: every URL and API route returns 410 immediately), `domain_id`, `access_code` (4 to 8 digits; `null` clears), `html_sandbox` (`true` serves the page under a CSP `sandbox`, an opaque origin; pages created while the `HTML_SANDBOX` flag is on start `true`, legacy pages start `false` until the owner opts in; page responses carry `html_sandbox`). `DELETE` removes the page and every version blob.
 
 **Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates — rename the delimiter).
 
