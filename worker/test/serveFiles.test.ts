@@ -36,6 +36,11 @@ describe("file access controls (test_access_controls.py)", () => {
     expect(ok.headers.get("location")).toBe(`/f/${f.shortCode}`);
     const leads = await rows("SELECT email FROM access_leads WHERE file_id = ?", f.id);
     expect(leads.map((l) => l.email)).toEqual(["lead@corp.com"]);
+    // F3: gate cookie is Secure on https (test requests are https), plain on http.
+    expect(ok.headers.get("set-cookie")).toMatch(/^cbgate_.*; SameSite=lax; Secure$/);
+    const mail = form({ email: "lead@corp.com" });
+    const http = await api(`/f/${f.shortCode}/unlock`, { ...mail, headers: { ...mail.headers, "X-Forwarded-Proto": "http" } });
+    expect(http.headers.get("set-cookie")).not.toContain("Secure");
     // Cookie in the jar -> served.
     const served = await jar.fetch(`/f/${f.shortCode}`);
     expect(served.status).toBe(200);

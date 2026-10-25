@@ -444,7 +444,7 @@ router.post("/f/:short_code/unlock", async (c) => {
   const resp = redirectResponse(`/f/${shortCode}`, 303);
   resp.headers.append(
     "set-cookie",
-    starletteCookie(gateCookieName(shortCode), "1", { maxAge: GATE_COOKIE_MAX_AGE, httpOnly: true, sameSite: "lax" }),
+    starletteCookie(gateCookieName(shortCode), "1", { maxAge: GATE_COOKIE_MAX_AGE, httpOnly: true, sameSite: "lax", secure: isHttps(c) }),
   );
   return resp;
 });

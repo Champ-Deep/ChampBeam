@@ -128,13 +128,18 @@ describe("link access controls (test_access_controls.py)", () => {
     expect(ok.headers.get("location")).toBe(`/r/${sc}`);
     const sc_ = ok.headers.get("set-cookie") ?? "";
     expect(sc_).toContain("cbgate_");
-    expect(sc_).toBe(`cbgate_${sc}=1; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax`);
+    expect(sc_).toBe(`cbgate_${sc}=1; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax; Secure`); // F3: test requests are https
 
     // The cookie is now in the jar -> access granted.
     expect((await jar.fetch(`/r/${sc}`)).status).toBe(302);
 
     const leads = await rows("SELECT email, ip_address FROM access_leads WHERE link_id = ?", lid);
     expect(leads).toEqual([{ email: "buyer@corp.com", ip_address: "9.9.9.9" }]);
+
+    // F3: Secure on https, plain on http (local wrangler dev).
+    const email = form({ email: "buyer@corp.com" });
+    const http = await api(`/r/${sc}/unlock`, { ...email, headers: { ...email.headers, "X-Forwarded-Proto": "http" } });
+    expect(http.headers.get("set-cookie")).not.toContain("Secure");
   });
 
   it("blocks VPN visitors (block_vpn)", async () => {

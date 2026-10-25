@@ -23,7 +23,7 @@ import {
   type LinkViewStatus,
   scheduleGeoEnrichment,
 } from "../services/utm";
-import { formField, redirectResponse, starletteCookie } from "./_serveCommon";
+import { formField, isHttps, redirectResponse, starletteCookie } from "./_serveCommon";
 import { ChampVault, deliveryTarget } from "./_champvault";
 
 export const router = new Hono<AppEnv>({ strict: false });
@@ -162,7 +162,7 @@ router.post("/r/:short_code/unlock", async (c) => {
   const resp = redirectResponse(`/r/${shortCode}`, 303);
   resp.headers.append(
     "set-cookie",
-    starletteCookie(gateCookieName(shortCode), "1", { maxAge: GATE_COOKIE_MAX_AGE, httpOnly: true, sameSite: "lax" }),
+    starletteCookie(gateCookieName(shortCode), "1", { maxAge: GATE_COOKIE_MAX_AGE, httpOnly: true, sameSite: "lax", secure: isHttps(c) }),
   );
   return resp;
 });
