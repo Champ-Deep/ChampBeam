@@ -97,11 +97,11 @@
       "name": "champbeam-staging",
       "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
                   "run_worker_first": ["/*", "!/assets/*"] },
-      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "TODO_STAGING_D1_ID", "migrations_dir": "migrations" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "c924f4d4-85ea-4671-8c96-478ae229fe4a", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
-      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "TODO_STAGING_ORIGIN", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
-                "CLERK_PUBLISHABLE_KEY": "TODO_NONPROD_CLERK_PK", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://champbeam-staging.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-staging.deep-ae0.workers.dev", "PLATFORM_REDIRECT_HOST": "champbeam-staging.deep-ae0.workers.dev",
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
     }
   }
 }
