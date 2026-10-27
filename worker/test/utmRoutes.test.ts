@@ -193,6 +193,17 @@ describe("link management", () => {
     expect(cleared.project_id).toBeNull();
   });
 
+  it("patch refuses another user's project (404), leaving the link untouched", async () => {
+    const { user, headers } = await authedUser();
+    const other = await authedUser();
+    const theirs = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO projects (id, user_id, name, created_at) VALUES (?,?,?,?)").bind(theirs, other.user.id, "T", iso()).run();
+    const linkId = await seedLink(user.id);
+    expect((await api(`${U}/links/${linkId}`, { method: "PATCH", headers, json: { project_id: theirs } })).status).toBe(404);
+    const row = await env.DB.prepare("SELECT project_id FROM link_clicks WHERE id = ?").bind(linkId).first<{ project_id: string | null }>();
+    expect(row!.project_id).toBeNull();
+  });
+
   it("access controls round-trip and leads", async () => {
     const { user, headers } = await authedUser();
     const linkId = await seedLink(user.id, { click_count: 2 });

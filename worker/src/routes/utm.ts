@@ -18,6 +18,7 @@ import {
   linkClicks,
   linkTagAssociations,
   linkTags,
+  projects,
   utmPresets,
 } from "../db/schema";
 import { httpError, HTTPError } from "../lib/errors";
@@ -28,6 +29,20 @@ import { assertCanShare, defaultDomainFor, findUsableDomain, shareOrgUuid } from
 import { generateUtmUrl, processBulkCsv, recordLink, UTM_KEYS, type LinkClick, type UtmParams } from "../services/utm";
 import { buildRedirectUrl, getUserLink, normUuid } from "./_utmHelpers";
 import { registerAnalytics } from "./_utmAnalytics";
+
+/** A project id the caller owns, or null; 400 on a malformed id, 404 on someone else's. */
+async function ownProjectId(c: Ctx, userId: string, raw: string | null | undefined): Promise<string | null> {
+  if (!raw) return null;
+  const projectId = normUuid(raw);
+  if (!projectId) httpError(400, "Invalid project_id.");
+  const owns = await c.var.db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId!), eq(projects.userId, userId)))
+    .get();
+  if (!owns) httpError(404, "Project not found.");
+  return projectId;
+}
 
 export const router = new Hono<AppEnv>({ strict: false });
 
@@ -192,11 +207,7 @@ router.post("/generate", async (c) => {
   let redirectUrl: string | null = null;
   let shortUrl: string | null = null;
   if (user) {
-    let projectId: string | null = null;
-    if (data.project_id) {
-      projectId = normUuid(data.project_id);
-      if (!projectId) httpError(400, "Invalid project_id.");
-    }
+    const projectId = await ownProjectId(c, user.userId, data.project_id);
     const domain = await resolveLinkDomain(c, user, data.domain_id);
     assertCanShare(user);
     const link = await recordLink(c.var.db, {
@@ -263,11 +274,7 @@ router.patch("/links/:link_id", async (c) => {
   if (!link) httpError(404, "Link not found.");
 
   if (data.project_id !== undefined && data.project_id !== null) {
-    let projectId: string | null = null;
-    if (data.project_id) {
-      projectId = normUuid(data.project_id);
-      if (!projectId) httpError(400, "Invalid project_id.");
-    }
+    const projectId = await ownProjectId(c, user.userId, data.project_id);
     await db.update(linkClicks).set({ projectId }).where(where).run();
     link = await db.select().from(linkClicks).where(where).get();
   }
