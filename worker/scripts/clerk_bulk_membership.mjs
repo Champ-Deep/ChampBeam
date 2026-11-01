@@ -1,5 +1,7 @@
-// Adds every Clerk user created before BEFORE to one Clerk organization as org:member.
-// Dry run unless --apply. Re-runnable: users who are already members are skipped.
+// Adds every Clerk user created before BEFORE to one Clerk organization as org:member, and
+// turns off their ability to create other organizations (create_organization_enabled=false),
+// so nobody spins up a stray org from the switcher. Dry run unless --apply. Re-runnable:
+// existing members and already-locked users are skipped.
 //   CLERK_SECRET_KEY=... ORG_ID=org_... [BEFORE=2026-10-26T00:00:00Z] node scripts/clerk_bulk_membership.mjs [--apply]
 // Clerk webhooks (worker/src/routes/webhooks.ts) write the D1 membership rows afterwards.
 const API = "https://api.clerk.com/v1";
@@ -30,10 +32,11 @@ export async function run({ env, apply, fetch: f = fetch, log = console.log, sle
     }
   };
 
-  const users = await pages("/users?order_by=%2Bcreated_at", (u) => ({ id: u.id, created_at: u.created_at }));
-  const eligible = users.filter((u) => u.created_at < before).map((u) => u.id);
+  const users = await pages("/users?order_by=%2Bcreated_at", (u) => ({ id: u.id, created_at: u.created_at, canCreate: u.create_organization_enabled !== false }));
+  const old = users.filter((u) => u.created_at < before);
+  const eligible = old.map((u) => u.id);
   const members = new Set(await pages(`/organizations/${org}/memberships`, (m) => m.public_user_data?.user_id));
-  const counts = { eligible: eligible.length, already_member: 0, added: 0, would_add: 0, failed: 0 };
+  const counts = { eligible: eligible.length, already_member: 0, added: 0, would_add: 0, failed: 0, creation_locked: 0, would_lock: 0 };
 
   for (const id of eligible) {
     if (members.has(id)) { counts.already_member++; continue; }
@@ -42,6 +45,12 @@ export async function run({ env, apply, fetch: f = fetch, log = console.log, sle
     if (res.ok) counts.added++;
     else if (res.status === 409 || (await res.text()).includes("already_a_member")) counts.already_member++;
     else { counts.failed++; log(`FAIL ${id} -> ${res.status}`); }
+  }
+  for (const u of old.filter((x) => x.canCreate)) {
+    if (!apply) { counts.would_lock++; continue; }
+    const res = await call(`/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ create_organization_enabled: false }) });
+    if (res.ok) counts.creation_locked++;
+    else { counts.failed++; log(`LOCK FAIL ${u.id} -> ${res.status}`); }
   }
   log(`${apply ? "APPLY" : "DRY RUN"} org=${org} before=${new Date(before).toISOString()} ${JSON.stringify(counts)}`);
   return counts;
