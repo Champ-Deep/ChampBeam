@@ -366,3 +366,21 @@ Proposed settings, to be changed by Deep (this PR changes no dashboard setting):
   D1 (backup, clone, `0002`, `0003`) is done.
 
 Until one of these is set, the safe assumption is that a merge to `main` is a production deploy.
+
+## 12. LakeB2B org migration (run order)
+
+Moves every existing user and their content into one Clerk organization. Run per environment, staging first. Never against production before the production D1 load (runbook P7, P8) has finished.
+
+1. Create the `LakeB2B` organization in the Clerk dashboard with Deep as admin. Copy its `org_...` id. Confirm Clerk organizations are enabled on the instance and the plan's members-per-org cap covers the user count.
+2. Dry run, then apply (from `worker/`). `BEFORE` is the switch instant, ISO UTC. Re-runnable, existing members are skipped.
+   ```
+   CLERK_SECRET_KEY=... ORG_ID=org_... BEFORE=2026-10-26T00:00:00.000Z node scripts/clerk_bulk_membership.mjs
+   CLERK_SECRET_KEY=... ORG_ID=org_... BEFORE=2026-10-26T00:00:00.000Z node scripts/clerk_bulk_membership.mjs --apply
+   ```
+3. Wait for the Clerk webhooks to write the `organizations` and `organization_memberships` rows (check `members` in step 5 equals the script's `eligible`).
+4. Run the backfill SQL. It only moves content whose owner is a member and was created before `:before`, and it touches rows still NULL, so it is safe to repeat. A wrong org id writes nothing.
+   ```
+   sed -e 's/:org_id/org_.../g' -e 's/:before/2026-10-26T00:00:00.000Z/g' scripts/lakeb2b_org_backfill.sql > /tmp/backfill.sql
+   npx wrangler d1 execute <db> --remote --file /tmp/backfill.sql
+   ```
+5. Verify: run the final `SELECT` of the SQL file with `--command`. Expect `members` = eligible users, `org_files` and `org_links` = their content, `org_default_domains` = 1 once `share.lakeb2b.com` is in `domains`. If the domain row does not exist yet, run the SQL again after it is created.
