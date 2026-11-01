@@ -41,6 +41,7 @@ import { cfGeo, clientIp as coreClientIp, type CfGeo } from "../lib/request";
 import { nowIso } from "../lib/time";
 import { resolveCompany } from "./companyIntel";
 import { type GeoDeps, lookupIp } from "./geoip";
+import { type NotifyDeps, notifyOpen } from "./openWebhook";
 import { parseUserAgent } from "./ua";
 
 export const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
@@ -235,9 +236,12 @@ export async function recordLink(
     domainId?: string | null;
     /** Org the link is shared under (reporting). Part of the dedup key: no silent reassignment. */
     organizationId?: string | null;
+    /** External contact this link is minted for. Part of the dedup key: one link per contact. */
+    contactRef?: string | null;
   },
 ): Promise<LinkClick> {
   const { userId, originalUrl, trackedUrl, utmParams } = args;
+  const contactRef = args.contactRef ?? null;
   const organizationId = args.organizationId ?? null;
   const projectId = args.projectId ?? null;
   const domainId = args.domainId ?? null;
@@ -261,6 +265,7 @@ export async function recordLink(
         trm ? eq(linkClicks.utmTerm, trm) : isNull(linkClicks.utmTerm),
         domainId ? eq(linkClicks.domainId, domainId) : isNull(linkClicks.domainId),
         organizationId ? eq(linkClicks.organizationId, organizationId) : isNull(linkClicks.organizationId),
+        contactRef ? eq(linkClicks.contactRef, contactRef) : isNull(linkClicks.contactRef),
       ),
     )
     .limit(1)
@@ -283,6 +288,7 @@ export async function recordLink(
       projectName: args.projectName ?? null,
       domainId,
       organizationId,
+      contactRef,
       originalUrl,
       trackedUrl,
       utmSource: src,
@@ -536,7 +542,7 @@ export async function lastFileViewAt(db: Db, fileId: string, visitorId: string):
  * waitUntil task runs).
  */
 export async function resolveGeoForEvent(
-  deps: GeoDeps & { db: Db },
+  deps: NotifyDeps,
   eventId: string,
   ipAddress: string | null,
   opts: { cf?: CfGeo | null } = {},
@@ -544,8 +550,16 @@ export async function resolveGeoForEvent(
   if (!ipAddress) return;
   const geo = await lookupIp(deps, ipAddress, { cf: opts.cf });
   const company = await resolveCompany(deps, ipAddress);
-  if (!geo && !company) return;
+  if (geo || company) await storeEnrichment(deps, eventId, geo, company);
+  await notifyOpen(deps, eventId);
+}
 
+async function storeEnrichment(
+  deps: GeoDeps & { db: Db },
+  eventId: string,
+  geo: Awaited<ReturnType<typeof lookupIp>>,
+  company: Awaited<ReturnType<typeof resolveCompany>>,
+): Promise<void> {
   const set: Partial<typeof clickEvents.$inferInsert> = {};
   if (geo) {
     Object.assign(set, {
@@ -603,7 +617,7 @@ export function captureVisit(c: Context, ip?: string | null): VisitContext {
  */
 export function scheduleGeoEnrichment(c: Ctx, eventId: string, visit: VisitContext = captureVisit(c)): void {
   if (!visit.ip) return;
-  const deps = { settings: c.var.settings, db: c.var.db };
+  const deps = { settings: c.var.settings, db: c.var.db, openWebhook: c.env.OPEN_WEBHOOK };
   background(c, () => resolveGeoForEvent(deps, eventId, visit.ip, { cf: visit.cf }), "resolveGeoForEvent");
 }
 

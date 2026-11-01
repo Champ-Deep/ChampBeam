@@ -14,6 +14,8 @@ export interface Env {
   DB: D1Database;
   FILES: R2Bucket;
   ASSETS?: Fetcher;
+  /** Service binding to the webhook receiver. workers.dev -> workers.dev fetches in one account 404 (error 1042). */
+  OPEN_WEBHOOK?: Fetcher;
   [key: string]: unknown;
 }
 
@@ -115,6 +117,10 @@ export function buildSettings(env: Env) {
     provisionerToken: str(env, "PROVISIONER_TOKEN"),
 
     serviceApiKeys: str(env, "SERVICE_API_KEYS"),
+
+    /** Signed "link opened" webhook for contact-bound links. Both must be set, else it is off. */
+    openWebhookUrl: str(env, "OPEN_WEBHOOK_URL"),
+    openWebhookSecret: str(env, "OPEN_WEBHOOK_SECRET"),
 
     pagesMaxBytes: int(env, "PAGES_MAX_BYTES", 2 * 1024 * 1024),
     pagesInjectMaxBytes: int(env, "PAGES_INJECT_MAX_BYTES", 5 * 1024 * 1024),

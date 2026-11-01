@@ -72,6 +72,8 @@ const GenerateLinkRequest = z.object({
   project_id: optStr,
   preset_id: optStr,
   domain_id: optStr,
+  // Binds the link to one external contact; opens are then reported by webhook.
+  contact_ref: z.string().trim().min(1).max(128).nullable().optional(),
 });
 
 const UpdateLinkRequest = z.object({ project_id: optStr });
@@ -208,6 +210,7 @@ router.post("/generate", async (c) => {
       projectName: data.project_name ?? null,
       projectId,
       domainId: domain?.id ?? null,
+      contactRef: data.contact_ref ?? null,
     });
     linkId = link.id;
     shortCode = link.shortCode;

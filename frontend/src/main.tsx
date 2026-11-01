@@ -10,6 +10,12 @@ import { initTheme } from './hooks/useTheme'
 import './index.css'
 import './workspace.css'
 
+const hostname = window.location.hostname
+if (hostname === 'lakeb2b.com' || hostname.endsWith('.lakeb2b.com')) {
+  document.querySelector('link[rel="icon"]')?.setAttribute('href', '/lakeb2b-favicon.svg')
+  document.title = document.title.replace(/^Champbeam/, 'LakeB2B Share')
+}
+
 // Theme the document before React mounts so the first paint is correct.
 initTheme()
 
