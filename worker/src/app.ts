@@ -12,6 +12,7 @@ import { HTTPError } from "./lib/errors";
 import { cors, requestOrigin, withCors } from "./lib/cors";
 import { serviceKeyGate } from "./auth/serviceAuth";
 import { shareOriginGuard } from "./lib/shareOrigin";
+import { requestHost } from "./lib/request";
 
 import { router as health } from "./routes/health";
 import { router as redirect } from "./routes/redirect";
@@ -65,6 +66,13 @@ app.notFound(async (c) => {
     return c.env.ASSETS.fetch(c.req.raw);
   }
   return c.json({ detail: "Not Found" }, 404);
+});
+
+// Browsers ask every host for /favicon.ico, including the share plane and Worker-rendered gate pages.
+app.get("/favicon.ico", (c) => {
+  const host = requestHost(c);
+  const icon = host === "lakeb2b.com" || host.endsWith(".lakeb2b.com") ? "/lakeb2b-favicon.ico" : "/favicon.ico";
+  return c.env.ASSETS ? c.env.ASSETS.fetch(new URL(icon, c.req.url)) : c.notFound();
 });
 
 const v1 = "/api/v1";

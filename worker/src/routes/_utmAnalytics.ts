@@ -385,7 +385,8 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
        FROM click_events ce
        LEFT JOIN link_clicks lc ON ce.link_id = lc.id AND lc.user_id = ?
        LEFT JOIN file_assets fa ON ce.file_id = fa.id AND fa.user_id = ?
-       WHERE (lc.id IS NOT NULL OR fa.id IS NOT NULL) AND ce.clicked_at >= ?`,
+       WHERE (lc.id IS NOT NULL OR fa.id IS NOT NULL) AND ce.clicked_at >= ?
+         AND COALESCE(ce.device_type, '') != 'bot'`,
       [user.userId, user.userId, cutoff],
     );
 

@@ -14,6 +14,7 @@ const SHARE_PLANE_PATHS: RegExp[] = [
   /^\/(f|p|r|s|rooms)\//,
   /^\/api\/pages\//, // Beam State used by hosted pages
   /^\/health$/,
+  /^\/favicon\.ico$/, // static icon from ASSETS, no script
   /^\/[a-z0-9][a-z0-9-]{1,58}[a-z0-9](\/unlock-code)?$/, // root slug
 ];
 

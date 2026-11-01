@@ -156,6 +156,8 @@ export function buildSettings(env: Env) {
     maxmindCreditCritThreshold: int(env, "MAXMIND_CREDIT_CRIT_THRESHOLD", 1000),
     companyIntelProvider: str(env, "COMPANY_INTEL_PROVIDER", "asn"),
     ipinfoApiToken: str(env, "IPINFO_API_TOKEN"),
+    companyIntelUrl: str(env, "COMPANY_INTEL_URL"),
+    companyIntelApiKey: str(env, "COMPANY_INTEL_API_KEY"),
   };
 
   const platformRedirectHosts = new Set<string>();
@@ -194,6 +196,7 @@ export function buildSettings(env: Env) {
       const p = (s.companyIntelProvider || "none").toLowerCase();
       if (p === "asn") return true;
       if (p === "ipinfo") return !!s.ipinfoApiToken;
+      if (p === "http") return !!s.companyIntelUrl;
       return false;
     })(),
     clerkEnvironment: s.clerkSecretKey.startsWith("sk_live_") ? "production" : "development",

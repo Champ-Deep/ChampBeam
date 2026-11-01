@@ -4,8 +4,10 @@
  * checks (leads/access endpoints) read D1 directly instead of the utm router.
  */
 import { describe, expect, it, vi } from "vitest";
-import { api, env } from "./helpers";
-import { code, form, iso, Jar, newUser, row, rows, seedDomain, seedLink, setSettings } from "./serveSeed";
+import { api, apiKeyHeaders, createApiKey, env } from "./helpers";
+import { app } from "../src/app";
+import type { Env } from "../src/env";
+import { code, eventually, form, iso, Jar, newUser, row, rows, seedDomain, seedLink, setSettings } from "./serveSeed";
 
 describe("click tracking (test_click_tracking.py)", () => {
   it("counts unique clicks by distinct IP", async () => {
@@ -196,6 +198,67 @@ describe("link access controls (test_access_controls.py)", () => {
     const pseudo = code("cv");
     await seedLink(uid, pseudo, { champvault_asset_id: "asset-2", original_url: "champvault://asset-2", tracked_url: null });
     expect((await api(`/r/${pseudo}`)).headers.get("location")).toBe("/");
+  });
+});
+
+describe("visitor to company, end to end (http provider)", () => {
+  it("a click is enriched from the vendor API, shows in company intent, and a bot click does not", async () => {
+    const uid = await newUser();
+    const sc = code("ci");
+    await seedLink(uid, sc, { original_url: "https://dest.example/offer" });
+    setSettings({ companyIntelProvider: "http", companyIntelUrl: "https://intel.example/ip/{ip}", companyIntelApiKey: "vendor-key" });
+    const intel: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith("https://intel.example/")) return new Response("{}", { headers: { "content-type": "application/json" } });
+      intel.push(`${url} ${new Headers(init?.headers).get("authorization")}`);
+      return new Response(JSON.stringify({ company: { name: "Initech", domain: "initech.com", type: "business" } }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const ua = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15" };
+    expect((await api(`/r/${sc}`, { headers: { ...ua, "X-Forwarded-For": "203.0.113.77" } })).status).toBe(302);
+    const ev = await eventually(() =>
+      row("SELECT company_name, company_domain FROM click_events WHERE ip_address = ? AND company_name IS NOT NULL", "203.0.113.77"),
+    );
+    expect(ev).toEqual({ company_name: "Initech", company_domain: "initech.com" });
+    expect(intel).toEqual(["https://intel.example/ip/203.0.113.77 Bearer vendor-key"]);
+
+    // Returning visitor: same IP, no second paid lookup.
+    expect((await api(`/r/${sc}`, { headers: { ...ua, "X-Forwarded-For": "203.0.113.77" } })).status).toBe(302);
+    await eventually(async () => (await rows("SELECT id FROM click_events WHERE ip_address = ? AND company_name = 'Initech'", "203.0.113.77")).length >= 2);
+    expect(intel).toHaveLength(1);
+
+    // A crawler from another IP is enriched too, but company intent leaves it out.
+    expect((await api(`/r/${sc}`, { headers: { "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)", "X-Forwarded-For": "203.0.113.78" } })).status).toBe(302);
+    expect(await eventually(() => row("SELECT id FROM click_events WHERE ip_address = ? AND device_type = 'bot' AND company_name IS NOT NULL", "203.0.113.78"))).toBeTruthy();
+
+    const headers = apiKeyHeaders(await createApiKey(uid));
+    const body = (await (await api("/api/v1/utm/analytics/company-intent?days=1", { headers })).json()) as any;
+    expect(body.provider).toBe("http");
+    expect(body.companies.map((c: any) => [c.name, c.opens])).toEqual([["Initech", 2]]);
+  });
+});
+
+describe("favicon", () => {
+  const assets = { fetch: async (u: RequestInfo | URL) => new Response(new URL(String(u)).pathname) } as unknown as Fetcher;
+  const get = (host: string, extra: Record<string, string> = {}) =>
+    app.request(`https://${host}/favicon.ico`, {}, { ...(env as unknown as Env), ...extra, ASSETS: assets });
+
+  it("serves the host's icon from ASSETS, LakeB2B hosts get the LakeB2B mark", async () => {
+    expect(await (await get("champbeam-staging.example.dev")).text()).toBe("/favicon.ico");
+    expect(await (await get("share.lakeb2b.com")).text()).toBe("/lakeb2b-favicon.ico");
+    expect(await (await get("notlakeb2b.com")).text()).toBe("/favicon.ico");
+  });
+
+  it("is allowed on the share plane, which otherwise hides everything but serve routes", async () => {
+    const plane = { SHARE_ORIGIN_HOSTS: "share.lakeb2b.com" };
+    const r = await get("share.lakeb2b.com", plane);
+    expect(r.status).toBe(200);
+    expect(await r.text()).toBe("/lakeb2b-favicon.ico");
+    const blocked = await app.request("https://share.lakeb2b.com/robots.txt", {}, { ...(env as unknown as Env), ...plane, ASSETS: assets });
+    expect(blocked.status).toBe(404);
   });
 });
 

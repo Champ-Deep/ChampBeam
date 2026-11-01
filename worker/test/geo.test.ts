@@ -426,4 +426,59 @@ describe("company intel resolver", () => {
     const noToken = settingsWith({ COMPANY_INTEL_PROVIDER: "ipinfo", IPINFO_API_TOKEN: "" });
     expect(await resolveCompany({ settings: noToken, fetch: failingFetch }, "1.1.1.1")).toBeNull();
   });
+
+  it("http provider: Bearer key by default, {key} in the URL when templated, never both", async () => {
+    const { fetch, calls } = fakeFetch(() => ({ company: { name: "Acme", website: "https://www.Acme.com/about", category: { industry: "Software" }, metrics: { employeesRange: "51-250" }, type: "business" } }));
+    const bearer = settingsWith({ COMPANY_INTEL_PROVIDER: "http", COMPANY_INTEL_URL: "https://intel.example/v1/ip/{ip}", COMPANY_INTEL_API_KEY: "k1" });
+    expect(await resolveCompany({ settings: bearer, fetch }, "203.0.113.5")).toEqual({
+      name: "Acme",
+      domain: "acme.com",
+      industry: "Software",
+      size: "51-250",
+      type: "business",
+    });
+    expect(calls[0].url).toBe("https://intel.example/v1/ip/203.0.113.5");
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe("Bearer k1");
+
+    const query = settingsWith({ COMPANY_INTEL_PROVIDER: "http", COMPANY_INTEL_URL: "https://intel.example/lookup?ip={ip}&key={key}", COMPANY_INTEL_API_KEY: "k2" });
+    await resolveCompany({ settings: query, fetch }, "203.0.113.6");
+    expect(calls[1].url).toBe("https://intel.example/lookup?ip=203.0.113.6&key=k2");
+    expect((calls[1].init?.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(query.companyIntelConfigured).toBe(true);
+    expect(settingsWith({ COMPANY_INTEL_PROVIDER: "http", COMPANY_INTEL_URL: "" }).companyIntelConfigured).toBe(false);
+  });
+
+  it("http provider: unconfigured, vendor error, a miss and a bare ASN org all store nothing", async () => {
+    const off = settingsWith({ COMPANY_INTEL_PROVIDER: "http", COMPANY_INTEL_URL: "" });
+    expect(await resolveCompany({ settings: off, fetch: failingFetch }, "1.1.1.1")).toBeNull();
+    const on = settingsWith({ COMPANY_INTEL_PROVIDER: "http", COMPANY_INTEL_URL: "https://intel.example/{ip}" });
+    expect(await resolveCompany({ settings: on, fetch: fakeFetch(() => ({ error: "quota" }), 429).fetch }, "1.1.1.1")).toBeNull();
+    expect(await resolveCompany({ settings: on, fetch: fakeFetch(() => ({})).fetch }, "1.1.1.1")).toBeNull();
+    expect(await resolveCompany({ settings: on, fetch: fakeFetch(() => ({ org: "AS7922 Comcast" })).fetch }, "1.1.1.1")).toBeNull();
+  });
+
+  it("a paid provider reuses a company already resolved for the IP in the last 30 days", async () => {
+    const ip = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
+    const seed = (name: string, ageDays: number) =>
+      env.DB.prepare("INSERT INTO click_events (id, ip_address, is_vpn, company_name, company_domain, company_type, clicked_at) VALUES (?,?,0,?,?,?,?)")
+        .bind(crypto.randomUUID(), ip, name, `${name.toLowerCase()}.com`, "business", new Date(Date.now() - ageDays * 86_400_000).toISOString())
+        .run();
+    const settings = settingsWith({ COMPANY_INTEL_PROVIDER: "http", COMPANY_INTEL_URL: "https://intel.example/{ip}" });
+
+    await seed("Stale", 45);
+    const live = fakeFetch(() => ({ company: { name: "Fresh" } }));
+    expect((await resolveCompany({ settings, fetch: live.fetch, db: db() }, ip))?.name).toBe("Fresh");
+    expect(live.calls).toHaveLength(1); // 45 days old is past the cache window
+
+    await seed("Cached", 2);
+    expect(await resolveCompany({ settings, fetch: failingFetch, db: db() }, ip)).toEqual({
+      name: "Cached",
+      domain: "cached.com",
+      industry: null,
+      size: null,
+      type: "business",
+    });
+    // The cache never resurrects data when the provider is switched off.
+    expect(await resolveCompany({ settings: settingsWith({ COMPANY_INTEL_PROVIDER: "asn" }), fetch: failingFetch, db: db() }, ip)).toBeNull();
+  });
 });

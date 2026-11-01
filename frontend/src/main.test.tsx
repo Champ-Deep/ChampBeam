@@ -29,7 +29,7 @@ it.each([
   vi.stubGlobal('window', { location: { hostname } })
   vi.mocked(ReactDOM.createRoot).mockImplementationOnce(() => {
     expect(document.querySelector('link[rel="icon"]')?.getAttribute('href')).toBe(
-      branded ? '/lakeb2b-favicon.svg' : '/vite.svg',
+      branded ? '/lakeb2b-favicon.svg' : '/favicon.svg',
     )
     expect(document.title).toBe(branded ? 'LakeB2B Share' : 'Champbeam')
     return { render: vi.fn(), unmount: vi.fn() }
