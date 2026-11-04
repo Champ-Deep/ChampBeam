@@ -125,26 +125,22 @@ export async function resolveActiveMembership(
   tokenRole: string,
   slug?: string | null,
 ): Promise<ActiveMembership | null> {
-  try {
-    const row = await db
-      .select({ m: organizationMemberships, orgUuid: organizations.id })
-      .from(organizationMemberships)
-      .innerJoin(organizations, eq(organizationMemberships.organizationId, organizations.id))
-      .where(and(eq(organizations.clerkOrgId, clerkOrgId), eq(organizationMemberships.userId, userId)))
-      .get();
-    if (!row) {
-      const org = await upsertOrganization(db, clerkOrgId, { slug });
-      const m = await upsertMembership(db, org.id, userId, tokenRole);
-      return { orgUuid: org.id, role: m.role };
-    }
-    if (row.m.status === MEMBERSHIP_REVOKED) return null;
-    if (row.m.clerkMembershipId) return { orgUuid: row.orgUuid, role: row.m.role };
-    if (row.m.role !== tokenRole) await upsertMembership(db, row.m.organizationId, userId, tokenRole);
-    return { orgUuid: row.orgUuid, role: tokenRole };
-  } catch (err) {
-    console.warn(`org membership resolve failed for org=${clerkOrgId}`, err);
-    return { orgUuid: null, role: tokenRole };
+  // No try/catch: a D1 failure here must not skip the revocation check; resolveIdentity maps it to 503.
+  const row = await db
+    .select({ m: organizationMemberships, orgUuid: organizations.id })
+    .from(organizationMemberships)
+    .innerJoin(organizations, eq(organizationMemberships.organizationId, organizations.id))
+    .where(and(eq(organizations.clerkOrgId, clerkOrgId), eq(organizationMemberships.userId, userId)))
+    .get();
+  if (!row) {
+    const org = await upsertOrganization(db, clerkOrgId, { slug });
+    const m = await upsertMembership(db, org.id, userId, tokenRole);
+    return { orgUuid: org.id, role: m.role };
   }
+  if (row.m.status === MEMBERSHIP_REVOKED) return null;
+  if (row.m.clerkMembershipId) return { orgUuid: row.orgUuid, role: row.m.role };
+  if (row.m.role !== tokenRole) await upsertMembership(db, row.m.organizationId, userId, tokenRole);
+  return { orgUuid: row.orgUuid, role: tokenRole };
 }
 
 /** Tombstone a membership and end the member's reporting grants (Clerk removed them). */

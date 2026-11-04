@@ -22,7 +22,7 @@
  *   codeCookieName(shortCode: string): string               ("cbcode_<alnum code>")
  *   codeCookieValue(asset: { id; accessCodeHash }): Promise<string>
  *   hasCodeCookie(c: Context, asset: { id; accessCodeHash; shortCode }): Promise<boolean>
- *   codeAttemptLimited(d1: D1Database, ip: string | null, pageId: string): Promise<boolean>   (fails open)
+ *   codeAttemptLimited(d1: D1Database, ip: string | null, pageId: string): Promise<boolean>   (fails closed)
  */
 import type { Context } from "hono";
 import type { Db } from "../db/client";
@@ -168,9 +168,9 @@ export async function hasCodeCookie(c: Context, asset: CodeAsset & { shortCode: 
   return getCookie(c, codeCookieName(asset.shortCode)) === (await codeCookieValue(asset));
 }
 
-/** True when this IP has exhausted its attempts for this page (fails open). */
+/** True when this IP has exhausted its attempts for this page. Fails closed: a 4-digit code cannot go unlimited. */
 export async function codeAttemptLimited(d1: D1Database, ip: string | null, pageId: string): Promise<boolean> {
   const window = windowIndex(CODE_WINDOW_SECONDS);
   const count = await incrWithTtl(d1, `code_rl:${pageId}:${ip || "-"}:${window}`, CODE_WINDOW_SECONDS);
-  return count !== null && count > CODE_ATTEMPTS_PER_WINDOW;
+  return count === null || count > CODE_ATTEMPTS_PER_WINDOW;
 }

@@ -36,6 +36,7 @@ import {
 } from "../lib/accessControl";
 import { blockedPage, codeGatePage, emailGatePage } from "../lib/accessPages";
 import { background } from "../lib/background";
+import { enforceLimit } from "../lib/ratelimit";
 import { cfGeo, getCookie, requestHost } from "../lib/request";
 import { schemeFor } from "../services/content";
 import { StorageError, StorageNotConfigured, backendIsS3, generatePresignedGet, getObject } from "../lib/storage";
@@ -406,6 +407,8 @@ router.post("/f/:short_code/page-events", async (c) => {
   if (!asset) return text("File not found.", 404);
 
   const ip = clientIp(c);
+  // Public, unauthenticated, up to 1000 rows a call: cap per visitor IP so it cannot flood D1.
+  await enforceLimit(c.env.DB, `pev:${asset.id}:${ip || "-"}`, 60, 60, "Too many page events.");
   const sid = data.session_id.slice(0, 64);
   // Trust the cookie over the body; fall back to the body for beacons sent
   // without credentials.

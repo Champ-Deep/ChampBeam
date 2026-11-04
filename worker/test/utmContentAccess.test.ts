@@ -162,6 +162,11 @@ describe("access control", () => {
     expect(await ac.codeAttemptLimited(env.DB, "5.6.7.8", page)).toBe(false);
   });
 
+  it("codeAttemptLimited fails closed when the counter store errors", async () => {
+    const broken = { prepare: () => { throw new Error("D1_ERROR: down"); } } as unknown as D1Database;
+    expect(await ac.codeAttemptLimited(broken, "1.2.3.4", crypto.randomUUID())).toBe(true);
+  });
+
   it("captureLead stores a trimmed email", async () => {
     const user = await createUser();
     const link = await utm.recordLink(db(), { userId: user.id, originalUrl: "https://l.com", trackedUrl: "https://l.com", utmParams: {} });
