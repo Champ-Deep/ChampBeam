@@ -34,6 +34,9 @@ export default defineConfig(async () => {
             CLERK_JWKS_JSON: JSON.stringify(clerkKey.jwks),
             SERVICE_API_KEYS: "champ-workspace:svc-test-key",
             // Fake keys so the assistant tests can prove a key is used upstream and never echoed.
+            // Offline by default: a chat that forgets to pick a provider must never reach openrouter.ai.
+            ASSISTANT_PROVIDER: "mock",
+            ASSISTANT_MODEL: "test/model",
             ASSISTANT_OPENROUTER_API_KEY: "sk-or-test-SECRET-openrouter",
             ASSISTANT_VERCEL_API_KEY: "",
           },

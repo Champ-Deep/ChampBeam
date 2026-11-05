@@ -2,7 +2,7 @@
  * Assistant (routes/assistant.ts): mock round trip, the config gate (no org / member / admin), the
  * per-user rate limit, request caps, and that no key ever appears in a response.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_TOTAL_CHARS } from "../src/routes/assistant";
 import { api, apiKeyHeaders, awayFromWindowEdge, createApiKey, createUser, json, orgSession, sessionHeaders } from "./helpers";
 
@@ -18,22 +18,20 @@ async function personal() {
   return sessionHeaders(u.id, null);
 }
 
+/** Every test starts from the same known config, set through the public API, so it passes alone. */
+beforeEach(async () => {
+  const a = await orgSession({ role: "admin" });
+  expect((await put(a.headers, { provider: "mock", model: "test/model", enabled: true })).status).toBe(200);
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe("config gate: PUT /assistant/config is a global singleton", () => {
-  it("refuses a personal account, a plain member and an API key; lets an org admin through", async () => {
+  it("lets an org admin write, and trims the model", async () => {
     const admin = await orgSession({ role: "admin" });
-    const member = await orgSession({ role: "member", clerkOrgId: admin.clerkOrgId });
-
-    expect((await put(await personal(), { provider: "mock" })).status).toBe(403);
-    expect((await put(member.headers, { provider: "mock" })).status).toBe(403);
-    const unauth = await api("/api/v1/assistant/config", { method: "PUT", json: { provider: "mock" } });
-    expect(unauth.status).toBe(401);
-
-    const ok = await put(admin.headers, { provider: "mock", model: "  test/model  ", enabled: true });
+    const ok = await put(admin.headers, { provider: "mock", model: "  a/model  ", enabled: true });
     expect(ok.status).toBe(200);
     const body = await json(ok);
-    expect(body).toMatchObject({ provider: "mock", model: "test/model", enabled: true });
+    expect(body).toMatchObject({ provider: "mock", model: "a/model", enabled: true });
     expect(body.providers.map((p: any) => [p.id, p.configured])).toEqual([
       ["mock", true],
       ["openrouter", true],
@@ -41,11 +39,23 @@ describe("config gate: PUT /assistant/config is a global singleton", () => {
     ]);
   });
 
-  it("the refused writes changed nothing, and any signed-in shape can read", async () => {
-    const m = (await orgSession({ role: "member" })).headers;
-    const res = await api("/api/v1/assistant/config", { headers: m });
+  it("refuses a personal account, a plain member, an API key and no auth, and none of them changes the row", async () => {
+    const admin = await orgSession({ role: "admin" });
+    const member = await orgSession({ role: "member", clerkOrgId: admin.clerkOrgId });
+    const apiKey = apiKeyHeaders(await createApiKey((await createUser()).id));
+    const known = { provider: "mock", model: "a/model", enabled: true };
+    expect((await put(admin.headers, known)).status).toBe(200);
+
+    // Values differ from the known state in every field, so a write-then-403 regression shows up below.
+    const evil = { provider: "vercel", model: "evil/x", enabled: false };
+    expect((await put(await personal(), evil)).status).toBe(403);
+    expect((await put(member.headers, evil)).status).toBe(403);
+    expect((await put(apiKey, evil)).status).toBe(403);
+    expect((await api("/api/v1/assistant/config", { method: "PUT", json: evil })).status).toBe(401);
+
+    const res = await api("/api/v1/assistant/config", { headers: member.headers });
     expect(res.status).toBe(200);
-    expect(await json(res)).toMatchObject({ provider: "mock", model: "test/model" });
+    expect(await json(res)).toMatchObject(known);
     expect((await api("/api/v1/assistant/config")).status).toBe(401);
   });
 
@@ -79,7 +89,6 @@ describe("POST /assistant/chat", () => {
     const res = await chat(admin.headers, hi);
     expect(res.status).toBe(503);
     expect((await json(res)).detail).toContain("no API key");
-    await put(admin.headers, { provider: "mock" });
   });
 
   it("rejects an empty list, 41 messages and an 8001 character message with 422", async () => {
