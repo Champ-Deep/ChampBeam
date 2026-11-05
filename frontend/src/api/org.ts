@@ -31,6 +31,7 @@ export interface Profile {
 }
 
 export interface ReportingFilters { team?: string; user?: string; kind?: string; from?: string; to?: string }
+export interface EmailDomain { domain: string; created_at: string }
 export interface OrgDomain { id: string; hostname: string; status: string; is_org_default: boolean }
 export interface ViewerGrant { id: string; user_id: string; scope: 'org' | 'team'; leader_user_id: string | null }
 export interface ReportTotals { shares_created: number; opens: number; clicks: number }
@@ -148,6 +149,9 @@ export const orgApi = {
   async domains(): Promise<OrgDomain[]> { return (await api.get<OrgDomain[]>('/org/domains')).data; },
   async attachDomain(id: string): Promise<OrgDomain> { return (await api.post<OrgDomain>(`/org/domains/${id}/attach`)).data; },
   async defaultDomain(id: string): Promise<OrgDomain> { return (await api.post<OrgDomain>(`/org/domains/${id}/default`)).data; },
+  async emailDomains(): Promise<EmailDomain[]> { return (await api.get<EmailDomain[]>('/org/email-domains')).data; },
+  async addEmailDomain(domain: string): Promise<EmailDomain> { return (await api.post<EmailDomain>('/org/email-domains', { domain })).data; },
+  async removeEmailDomain(domain: string): Promise<void> { await api.delete(`/org/email-domains/${encodeURIComponent(domain)}`); },
   async viewers(): Promise<ViewerGrant[]> { return (await api.get<ViewerGrant[]>('/org/viewers')).data; },
   async grantViewer(input: Omit<ViewerGrant, 'id'>): Promise<ViewerGrant> { return (await api.post<ViewerGrant>('/org/viewers', input)).data; },
   async revokeViewer(id: string): Promise<void> { await api.delete(`/org/viewers/${id}`); },

@@ -38,6 +38,8 @@ export const users = sqliteTable("users", {
   // Better Auth (0007)
   emailVerified: bool("email_verified").notNull().default(false),
   image: text("image"),
+  // Set once a verified user on a listed company domain was considered for auto-join (0009); never re-joins after.
+  orgJoinCheckedAt: text("org_join_checked_at"),
 });
 
 export const ROLE_ADMIN = "admin";
@@ -95,6 +97,16 @@ export const reportingGrants = sqliteTable("reporting_grants", {
   grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
   revokedAt: text("revoked_at"),
+});
+
+/** Email domains whose verified users auto-join `organizationId` (0009). `domain` is lowercase and unique across orgs. */
+export const orgEmailDomains = sqliteTable("org_email_domains", {
+  domain: text("domain").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
 });
 
 export const slugAliases = sqliteTable("slug_aliases", {

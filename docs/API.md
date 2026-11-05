@@ -184,6 +184,7 @@ permission map and examples: `docs/V3-RELEASE.md` sections 3 and 4.
 | `GET/POST /api/v1/org/viewers`, `DELETE /api/v1/org/viewers/{id}` | org admin | Read-only reporting grants (`scope` `org` or `team` + `leader_user_id`). A grant adds no write or secret right. |
 | `GET /api/v1/org/domains` | org member | Active org hosts (admins also see pending). |
 | `POST /api/v1/org/domains/{id}/attach`, `.../default` | org admin | Attach a verified domain you own; set the org default host. |
+| `GET`, `POST /api/v1/org/email-domains`, `DELETE .../{domain}` | org admin (`org.domains.manage`) | Company email domains whose verified sign-ins auto-join the org as member. Public providers (gmail.com etc.) are a 400, a domain listed by another org is a 409. Removing a domain keeps existing members. |
 | `GET /api/v1/org/reporting/summary?team=&user=&kind=&from=&to=` | member (own), team lead (team), grant or admin (org) | `shares_created`, `opens`, `clicks` by kind and member. `emails_sent` is always `not_measured`. Out-of-scope `team` or `user` is 403. |
 | `GET /api/v1/pages/slug-suggestion?filename=&domain_id=` | signed in | Basename-without-extension slug, numbered on collision. Reserves nothing. |
 
