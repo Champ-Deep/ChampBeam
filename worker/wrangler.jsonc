@@ -70,12 +70,12 @@
   "vars": {
     "ENVIRONMENT": "production",
     "DEBUG": "false",
-    "FRONTEND_URL": "https://www.champbeam.com",
+    "FRONTEND_URL": "https://champbeam.com",
     "BETTER_AUTH_URL": "https://champbeam.com",
-    "REDIRECT_BASE_URL": "",
-    "PLATFORM_REDIRECT_HOST": "",
+    "REDIRECT_BASE_URL": "https://champbeam.com",
+    "PLATFORM_REDIRECT_HOST": "champbeam.com,www.champbeam.com,champbeam.deep-ae0.workers.dev",
     "CLERK_PUBLISHABLE_KEY": "",
-    "CORS_ALLOW_ORIGINS": "",
+    "CORS_ALLOW_ORIGINS": "https://champbeam.com,https://www.champbeam.com,https://champbeam.deep-ae0.workers.dev",
     "CORS_ALLOW_ORIGIN_REGEX": "",
     "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files"
   },
