@@ -112,3 +112,79 @@ def verify_webhook(headers: dict[str, str], body: bytes) -> bool:
         if sig and hmac.compare_digest(sig, expected):
             return True
     return False
+
+
+class ClerkAdminError(Exception):
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def _admin_request(method: str, path: str, json_body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    if not settings.clerk_secret_key:
+        raise ClerkAdminError("Clerk is not configured on this deployment.", 503)
+    url = f"{settings.clerk_api_url.rstrip('/')}/v1{path}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.request(
+                method,
+                url,
+                json=json_body,
+                headers={"Authorization": f"Bearer {settings.clerk_secret_key}"},
+            )
+    except httpx.HTTPError as exc:
+        raise ClerkAdminError(f"Clerk request failed: {exc.__class__.__name__}") from exc
+    if resp.status_code >= 400:
+        detail = ""
+        try:
+            errors = resp.json().get("errors") or []
+            if errors:
+                detail = errors[0].get("long_message") or errors[0].get("message") or ""
+        except ValueError:
+            pass
+        status = resp.status_code if resp.status_code in (400, 404, 409, 422) else 502
+        raise ClerkAdminError(detail or f"Clerk returned HTTP {resp.status_code}", status)
+    try:
+        return resp.json()
+    except ValueError:
+        return {}
+
+
+def _org_role(role: str) -> str:
+    return role if role.startswith("org:") else f"org:{role}"
+
+
+async def create_org_invitation(
+    clerk_org_id: str,
+    email: str,
+    role: str,
+    inviter_clerk_user_id: Optional[str],
+    redirect_url: Optional[str] = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"email_address": email, "role": _org_role(role)}
+    if inviter_clerk_user_id:
+        body["inviter_user_id"] = inviter_clerk_user_id
+    if redirect_url:
+        body["redirect_url"] = redirect_url
+    return await _admin_request("POST", f"/organizations/{clerk_org_id}/invitations", body)
+
+
+async def revoke_org_invitation(
+    clerk_org_id: str, invitation_id: str, requesting_clerk_user_id: Optional[str]
+) -> dict[str, Any]:
+    body = {"requesting_user_id": requesting_clerk_user_id} if requesting_clerk_user_id else {}
+    return await _admin_request(
+        "POST", f"/organizations/{clerk_org_id}/invitations/{invitation_id}/revoke", body
+    )
+
+
+async def update_org_membership_role(clerk_org_id: str, clerk_user_id: str, role: str) -> dict[str, Any]:
+    return await _admin_request(
+        "PATCH",
+        f"/organizations/{clerk_org_id}/memberships/{clerk_user_id}",
+        {"role": _org_role(role)},
+    )
+
+
+async def delete_org_membership(clerk_org_id: str, clerk_user_id: str) -> dict[str, Any]:
+    return await _admin_request("DELETE", f"/organizations/{clerk_org_id}/memberships/{clerk_user_id}")

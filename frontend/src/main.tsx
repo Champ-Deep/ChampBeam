@@ -21,6 +21,8 @@ initTheme()
 
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
+const INTRANET = import.meta.env.VITE_APP_MODE === 'intranet'
+const IntranetApp = React.lazy(() => import('./intranet/IntranetApp'))
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('#root element missing')
@@ -31,14 +33,14 @@ ReactDOM.createRoot(rootEl).render(
       publishableKey={CLERK_KEY}
       afterSignOutUrl="/"
       signInUrl="/sign-in"
-      signUpUrl="/sign-up"
+      signUpUrl={INTRANET ? undefined : '/sign-up'}
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
     >
       <SessionScope>
         <BrowserRouter>
           <ConfirmProvider>
-            <App />
+            {INTRANET ? <React.Suspense fallback={<p role="status">Loading…</p>}><IntranetApp /></React.Suspense> : <App />}
           </ConfirmProvider>
           <Toaster position="top-right" duration={4000} />
         </BrowserRouter>

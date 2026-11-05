@@ -17,11 +17,13 @@ from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
     String,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -95,6 +97,9 @@ class OrganizationMembership(Base):
         nullable=True,
         index=True,
     )
+
+    is_reviewer = Column(Boolean, nullable=False, default=False, server_default=false())
+    deactivated_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
