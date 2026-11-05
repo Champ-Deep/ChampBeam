@@ -27,7 +27,7 @@ import { httpError, HTTPError } from "../lib/errors";
 import { requestOrigin } from "../lib/request";
 import { isoUtc, nowIso, parseIso } from "../lib/time";
 import { parseJson, parseQuery, qStr } from "../lib/validate";
-import { assertCanShare, defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
+import { assertCanShare, assertDomainEditable, defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
 import { generateUtmUrl, processBulkCsv, recordLink, UTM_KEYS, type LinkClick, type UtmParams } from "../services/utm";
 import { buildRedirectUrl, getUserLink, normUuid } from "./_utmHelpers";
 import { registerAnalytics } from "./_utmAnalytics";
@@ -489,6 +489,7 @@ router.put("/links/:link_id/access", async (c) => {
   const user = await requireAuth(c);
   const data = await parseJson(c, LinkAccessRequest);
   const link = await getOwnedLink(c, user.userId);
+  await assertDomainEditable(c.var.db, user, link.domainId);
   const sent = (k: string) => k in data;
   const now = nowIso();
   const set: Partial<LinkClick> = {};

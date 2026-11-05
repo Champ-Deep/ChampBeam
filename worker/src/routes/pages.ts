@@ -233,9 +233,9 @@ async function publish(
   let slug: string;
   if (opts.slug) {
     slug = pagesService.validateSlug(opts.slug);
-    if (await pagesService.slugTaken(db, slug, domainId)) httpError(409, "That slug is already taken.");
+    if (await pagesService.slugTaken(db, slug, domainId, { ownerId: opts.user.userId })) httpError(409, "That slug is already taken.");
   } else {
-    slug = await pagesService.uniqueSlug(db, opts.title, domainId);
+    slug = await pagesService.uniqueSlug(db, opts.title, domainId, opts.user.userId);
   }
 
   const fileId = crypto.randomUUID();
@@ -359,7 +359,7 @@ router.get("/slug-suggestion", async (c) => {
   const q = parseQuery(c, z.object({ filename: qStr(""), domain_id: qStr("") }));
   const domainId = await resolveDomainId(c, user, q.domain_id || null);
   const base = pagesService.slugFromFilename(q.filename);
-  const slug = await pagesService.suggestSlug(c.var.db, base, domainId);
+  const slug = await pagesService.suggestSlug(c.var.db, base, domainId, user.userId);
   const host = await serveHost(c.var.db, c.var.settings, user.userId, domainId);
   return c.json({ slug, base, collided: slug !== base, host, public_url: `${schemeFor(host)}://${host}/${slug}` });
 });
@@ -461,13 +461,13 @@ router.patch("/:page_id", async (c) => {
     // indexes do not see slug_aliases); a slug change in the same request is checked below instead.
     const keepsSlug = !(fields.has("slug") && data.slug != null);
     if (keepsSlug && asset.slug && (asset.domainId ?? null) !== fromDomainId &&
-        (await pagesService.slugTaken(db, asset.slug, asset.domainId ?? null, { excludeId: asset.id }))) {
+        (await pagesService.slugTaken(db, asset.slug, asset.domainId ?? null, { excludeId: asset.id, ownerId: asset.userId }))) {
       httpError(409, "That slug is already taken.");
     }
   }
   if (fields.has("slug") && data.slug != null) {
     const slug = pagesService.validateSlug(data.slug);
-    if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id })) {
+    if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id, ownerId: asset.userId })) {
       httpError(409, "That slug is already taken.");
     }
     // Retire the old slug where it actually lived, not in the namespace the page is moving to.

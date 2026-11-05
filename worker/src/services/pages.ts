@@ -37,7 +37,7 @@
  *                                                                 in one db.batch, then prune)
  *   types FileAsset, FileVersion, VersionFields
  */
-import { and, desc, eq, inArray, isNull, max, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, max, ne, or } from "drizzle-orm";
 import { slugAliases } from "../db/schema";
 import type { Settings } from "../env";
 import { chunk, type Db } from "../db/client";
@@ -123,13 +123,14 @@ export async function slugTaken(
   db: Db,
   slug: string,
   domainId: string | null,
-  opts: { excludeId?: string | null } = {},
+  opts: { excludeId?: string | null; ownerId?: string | null } = {},
 ): Promise<boolean> {
   const conds = [
     eq(fileAssets.slug, slug),
-    ne(fileAssets.status, FILE_STATUS_DELETED),
     domainId === null ? isNull(fileAssets.domainId) : eq(fileAssets.domainId, domainId),
   ];
+  // A deleted page keeps its slug against everyone but its former owner, so its shared URL cannot be re-pointed.
+  if (opts.ownerId) conds.push(or(ne(fileAssets.status, FILE_STATUS_DELETED), ne(fileAssets.userId, opts.ownerId))!);
   if (opts.excludeId != null) conds.push(ne(fileAssets.id, opts.excludeId));
   const rows = await db
     .select({ id: fileAssets.id })
@@ -162,16 +163,16 @@ export async function retireSlug(db: Db, asset: Pick<FileAsset, "id" | "domainId
 }
 
 /** First free slug: `base`, then `base-2`, `base-3` ... Never overwrites an existing page. */
-export async function suggestSlug(db: Db, base: string, domainId: string | null): Promise<string> {
+export async function suggestSlug(db: Db, base: string, domainId: string | null, ownerId?: string | null): Promise<string> {
   for (let n = 1; n <= 50; n++) {
     const candidate = n === 1 ? base : `${base.slice(0, 56)}-${n}`;
-    if (!RESERVED_SLUGS.has(candidate) && !(await slugTaken(db, candidate, domainId))) return candidate;
+    if (!RESERVED_SLUGS.has(candidate) && !(await slugTaken(db, candidate, domainId, { ownerId }))) return candidate;
   }
   return httpError(503, "Could not allocate a unique slug.");
 }
 
 /** Title-derived slug, unique in its namespace (random suffix on collision). */
-export async function uniqueSlug(db: Db, title: string, domainId: string | null): Promise<string> {
+export async function uniqueSlug(db: Db, title: string, domainId: string | null, ownerId?: string | null): Promise<string> {
   const base = slugify(title);
   const candidates = [
     base,
@@ -179,7 +180,7 @@ export async function uniqueSlug(db: Db, title: string, domainId: string | null)
     ...Array.from({ length: 4 }, () => `${base.slice(0, 52)}-${rand()}`),
   ];
   for (const candidate of candidates) {
-    if (!(await slugTaken(db, candidate, domainId))) return candidate;
+    if (!(await slugTaken(db, candidate, domainId, { ownerId }))) return candidate;
   }
   return httpError(503, "Could not allocate a unique slug.");
 }
@@ -433,7 +434,7 @@ export async function pruneVersions(
  */
 export async function ensureSlug(db: Db, asset: FileAsset, title: string): Promise<boolean> {
   if (asset.slug) return false;
-  const slug = await uniqueSlug(db, title, asset.domainId ?? null);
+  const slug = await uniqueSlug(db, title, asset.domainId ?? null, asset.userId);
   await db.update(fileAssets).set({ slug }).where(eq(fileAssets.id, asset.id));
   asset.slug = slug;
   return true;

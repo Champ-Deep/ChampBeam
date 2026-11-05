@@ -184,9 +184,9 @@ router.post("/", async (c) => {
   if (user && data.intent === "host") {
     if (data.slug) {
       slug = pagesService.validateSlug(data.slug);
-      if (await pagesService.slugTaken(db, slug, domainId)) httpError(409, "That slug is already taken.");
+      if (await pagesService.slugTaken(db, slug, domainId, { ownerId: user.userId })) httpError(409, "That slug is already taken.");
     } else {
-      slug = await pagesService.suggestSlug(db, pagesService.slugFromFilename(data.filename), domainId);
+      slug = await pagesService.suggestSlug(db, pagesService.slugFromFilename(data.filename), domainId, user.userId);
     }
   }
 
@@ -275,6 +275,8 @@ router.post("/:file_id/finalize", async (c) => {
 
   const asset = await getFileRow(db, fid);
   if (!asset || !(await authorizeAsset(asset, user, body?.data.owner_token))) httpError(404, "File not found.");
+  // Going live on an org domain needs current share authority there, like PUT /content and /access.
+  if (user) await assertDomainEditable(db, user, asset.domainId);
 
   if (asset.status === FILE_STATUS_ACTIVE) return c.json(await fileResponse(db, settings, asset));
   if (asset.status !== FILE_STATUS_PENDING_UPLOAD && asset.status !== FILE_STATUS_FAILED) {

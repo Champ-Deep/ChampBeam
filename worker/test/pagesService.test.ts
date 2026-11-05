@@ -130,7 +130,7 @@ describe("slugs", () => {
     expect(await pages.slugTaken(db, "old-name", null, { excludeId: a.id })).toBe(false);
   });
 
-  it("slugTaken / uniqueSlug are namespace-scoped and ignore deleted rows", async () => {
+  it("slugTaken / uniqueSlug are namespace-scoped; a deleted row frees its slug only for its owner", async () => {
     const user = await createUser();
     const a = await insertAsset(user.id, { slug: "taken-slug" });
     expect(await pages.slugTaken(db, "taken-slug", null)).toBe(true);
@@ -138,7 +138,9 @@ describe("slugs", () => {
     const next = await pages.uniqueSlug(db, "Taken Slug", null);
     expect(next).toBe("taken-slug-2");
     await insertAsset(user.id, { slug: "gone-slug", status: "deleted" });
-    expect(await pages.slugTaken(db, "gone-slug", null)).toBe(false);
+    expect(await pages.slugTaken(db, "gone-slug", null, { ownerId: user.id })).toBe(false);
+    expect(await pages.slugTaken(db, "gone-slug", null, { ownerId: (await createUser()).id })).toBe(true);
+    expect(await pages.slugTaken(db, "gone-slug", null)).toBe(true);
   });
 });
 
