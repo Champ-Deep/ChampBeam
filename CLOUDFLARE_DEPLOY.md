@@ -67,12 +67,13 @@ URLs. Add a CORS rule on the bucket allowing `PUT` from the app origin.
 
 ```bash
 cd worker
-VITE_CLERK_PUBLISHABLE_KEY=pk_live_... npm run deploy   # builds frontend/, then wrangler deploy
+VITE_GOOGLE_CLIENT_ID=<the Worker's GOOGLE_CLIENT_ID> npm run deploy   # builds frontend/, then wrangler deploy
 ```
 
 Or connect the repo in **Workers Builds** (Cloudflare dashboard): root
 directory `worker`, build command `npm run build:frontend`, deploy command
-`npx wrangler deploy`, and `VITE_CLERK_PUBLISHABLE_KEY` as a build variable.
+`npx wrangler deploy`, and `VITE_GOOGLE_CLIENT_ID` as a build variable. It is the
+public Google client id; the sign-in page shows "Continue with Google" only when it is set.
 
 ## 3. Domains
 
@@ -117,8 +118,11 @@ npm --prefix ../frontend run build    # or run Vite separately (below)
 npx wrangler dev                      # http://localhost:8787 serves SPA + API
 ```
 
-For frontend hot reload, run `npm --prefix frontend run dev` with
-`VITE_API_URL=http://localhost:8787` in `frontend/.env.local`.
+For frontend hot reload, run `npx wrangler dev --port 8799` and
+`npm --prefix frontend run dev` with `VITE_API_URL=/api/v1` in `frontend/.env.local`.
+Vite proxies `/api` to the Worker, so the session cookie stays same origin. Set
+`BETTER_AUTH_URL` in `.dev.vars` to the Vite origin you open (for example
+`http://localhost:5173`), or the CSRF origin check rejects writes.
 
 `PLATFORM_REDIRECT_HOST` must list every host that serves share links
 (`/r`, `/s`, `/f`, `/p`). Any other host is treated as a customer custom

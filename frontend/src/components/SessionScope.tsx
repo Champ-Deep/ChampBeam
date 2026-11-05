@@ -1,18 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useAuth } from '@clerk/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { setTokenGetter } from '../api/client';
+import { useAuth } from '../lib/authClient';
 
 function SessionCache({ children }: { children: ReactNode }) {
-  const { getToken } = useAuth();
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 60_000, retry: 1 } } }));
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    setTokenGetter(() => getToken());
-    queueMicrotask(() => setReady(true));
-    return () => { client.clear(); };
-  }, [client, getToken]);
-  return ready ? <QueryClientProvider client={client}>{children}</QueryClientProvider> : <p role="status">Loading workspace…</p>;
+  useEffect(() => () => { client.clear(); }, [client]);
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 export function SessionScope({ children }: { children: ReactNode }) {

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useAuth } from '@clerk/react';
+import { useAuth } from '../lib/authClient';
 import { ShareComposer } from '../components/ShareComposer';
 import { useShareLists } from '../hooks/useShareLists';
 
