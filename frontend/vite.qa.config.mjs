@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 // Isolated visual QA server. This config is never used by npm run build.
 const assets = new Map();
 const links = new Map();
+const dnsChecks = new Map();
 const origin = 'http://127.0.0.1:3198';
 const fixturePage = (a) => ({ page_id:a.id, short_code:a.short_code, slug:a.slug, public_url:a.public_url, url:a.public_url, legacy_url:`${origin}/f/${a.short_code}`, title:a.filename, size_bytes:a.size_bytes, view_count:0, unique_visitors:0, revisits:0, total_dwell_ms:0, enabled:true, has_access_code:false, domain_id:null, created_at:a.created_at, updated_at:a.created_at, current_version:1 });
 export default mergeConfig(base, defineConfig({
@@ -23,6 +24,23 @@ export default mergeConfig(base, defineConfig({
       for await (const chunk of req) body += chunk;
       let input = {}; try { input = JSON.parse(body || '{}'); } catch { /* Multipart and raw upload fixtures. */ }
       const send = (value,status=200) => { res.statusCode=status; res.setHeader('Content-Type','application/json'); res.end(JSON.stringify(value)); };
+      if (state.startsWith('dns')) {
+        const dns_records = [
+          { type:'CNAME', name:'share.lakeb2b.com', value:'cname.fixture.invalid', purpose:'Routes traffic to ChampBeam', dns_only:true },
+          { type:'TXT', name:'_cf-custom-hostname.share.lakeb2b.com', value:'fixture-ownership-6718c495-c610-408d-a22b-aeb56996c8c4', purpose:'Proves domain ownership' },
+          { type:'TXT', name:'_acme-challenge.share.lakeb2b.com', value:'fixture-certificate-abcdefghijklmnopqrstuvwxyz-0123456789', purpose:'Validates the TLS certificate' },
+        ];
+        const status = state === 'dns-adoption' ? 'active' : state === 'dns-failed' ? 'failed' : state === 'dns-ssl' ? 'pending_ssl' : state === 'dns-live' && (dnsChecks.get(org) || 0) > 1 ? 'active' : 'pending_cname';
+        const domain = { id:'dns-fixture',hostname:'share.lakeb2b.com',status,ssl_status:status === 'active' ? 'active' : 'pending_validation',is_primary:false,cloudflare_managed:true,dns_records,cname_target:'cname.fixture.invalid',verification_errors:status === 'failed' ? {message:'Fixture ownership validation failed. Check the TXT record.'} : null };
+        const report = { dry_run:input.dry_run ?? true,attached:{links:0,files:0},adopted:{links:17,files:29,aliases:3},collisions:{files:[{short_code:'fixture-conflict',slug:'existing-page'}],links:[],aliases:[]} };
+        if(path === '/org/profile') return send({user_id:'fixture-user',full_name:'Fixture Admin',org:{id:org,name:'DNS fixture workspace',slug:org},permissions:['org.domains.manage'],role:'admin',report_scope:'org',share_host:{default:'share.lakeb2b.com'},available_hosts:[]});
+        if(path === '/org/domains') return send(state === 'dns-adoption' ? [{...domain,is_org_default:true}] : []);
+        if(path.endsWith('/adopt-existing')) return send(report);
+        if(path === '/domains/config') return send({byod_enabled:true,subdomain_enabled:false,procurement_enabled:false,cname_target:'cname.fixture.invalid'});
+        if(path === '/domains') return send([domain]);
+        if(path === '/domains/dns-fixture/refresh') { dnsChecks.set(org,(dnsChecks.get(org)||0)+1); return send({...domain,status:state === 'dns-live' && dnsChecks.get(org)>1 ? 'active' : status}); }
+        if(path === '/domains/dns-fixture/records.txt') { res.setHeader('Content-Type','text/plain'); return res.end('LOCAL QA FIXTURE ONLY\nDNS records for share.lakeb2b.com\n'+dns_records.map((r)=>`${r.type} ${r.name} ${r.value}`).join('\n')+'\n'); }
+      }
       if (path === '/qa-reset') { assets.clear(); links.clear(); return send({ reset:true }); }
       if (path === '/org/profile') {
         if (state === 'auth-error') return send({detail:'Fixture session rejected'},401);

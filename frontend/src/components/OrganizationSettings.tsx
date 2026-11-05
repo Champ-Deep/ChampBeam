@@ -5,6 +5,9 @@ import { utmApi } from '../api/utm';
 import { useOrgContext } from '../hooks/useOrgContext';
 import { apiErrorDetail } from '../api/_shared';
 import { Button, useConfirm } from './ui';
+import { useMutation } from '@tanstack/react-query';
+import { AdoptionSummary, DomainAdoption } from './DomainAdoption';
+import type { AdoptionReport } from '../api/org';
 
 export function OrganizationSettings() {
   const { permissions, profile, orgId } = useOrgContext();
@@ -14,6 +17,17 @@ export function OrganizationSettings() {
   const client = useQueryClient();
   const confirm = useConfirm();
   const [notice, setNotice] = useState('');
+  const [adoption, setAdoption] = useState<AdoptionReport | null>(null);
+  const makeDefault = useMutation({
+    mutationFn: (id: string) => orgApi.defaultDomain(id),
+    onSuccess: (result) => {
+      setAdoption(result.adoption);
+      setError(result.adoption ? '' : 'Default domain saved, but the automatic content move failed. Review existing content below to retry.');
+      setNotice('Default domain updated.');
+      for (const key of ['org-domains', 'org-profile', 'domain-adoption', 'files', 'pages', 'utm']) void client.invalidateQueries({ queryKey: [key] });
+    },
+    onError: (err: unknown) => setError(apiErrorDetail(err) ?? 'Could not update the default domain.'),
+  });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [domain, setDomain] = useState('');
@@ -38,8 +52,10 @@ export function OrganizationSettings() {
     {[domains, owned, members, grants].some((q) => q.isLoading) && <p role="status">Loading administration data…</p>}
     {[domains, owned, members, grants].some((q) => q.isError) && <p role="alert">Some administration data could not load. Reload before making changes.</p>}
     <fieldset disabled={busy}>
-      {domainsAllowed && <section><h3>Organization domains</h3><p>Only verified domains can be attached. Changing the default affects new shares, not existing addresses.</p>
-        <ul>{domains.data?.map((d) => <li key={d.id}>{d.hostname}: {d.status}{d.is_org_default ? ' (default)' : d.status === 'active' && <Button onClick={() => void change(() => orgApi.defaultDomain(d.id), 'Default domain updated.')}>Make default</Button>}</li>)}</ul>
+      {domainsAllowed && <section><h3>Organization domains</h3><p>Only verified domains can be attached. Setting a default also attempts to move eligible existing content. Conflicting addresses are skipped.</p>
+        <ul>{domains.data?.map((d) => <li key={d.id}><code className="font-mono">{d.hostname}</code>: {d.status}{d.is_org_default ? ' (default)' : d.status === 'active' && <Button isLoading={makeDefault.isPending} onClick={() => makeDefault.mutate(d.id)}>Make default</Button>}</li>)}</ul>
+        {adoption && <AdoptionSummary report={adoption} />}
+        {domains.data?.filter((d) => d.is_org_default && d.status === 'active').map((d) => <DomainAdoption key={d.id} domain={d} orgId={orgId} />)}
         <form className="cb-actions" onSubmit={(event) => { event.preventDefault(); void change(() => orgApi.attachDomain(domain), 'Domain attached.'); }}><label>Verified domain you own<select required value={domain} onChange={(event) => setDomain(event.target.value)}><option value="">Choose domain</option>{owned.data?.filter((d) => d.status === 'active' && !domains.data?.some((existing) => existing.id === d.id)).map((d) => <option value={d.id} key={d.id}>{d.hostname}</option>)}</select></label><Button type="submit" disabled={!domain}>Attach to organization</Button></form>
       </section>}
       {membersAllowed && <section><h3>Members and teams</h3><p>Assign an existing member to a team leader. The server validates the leader's eligibility. Membership and role provisioning remain in the identity provider.</p>

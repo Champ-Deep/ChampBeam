@@ -1,0 +1,49 @@
+.cb-domain-settings { color: var(--cb-text); min-width: 0; }
+.cb-domain-settings button, .cb-domain-settings a, .cb-domain-adoption button { min-height: 44px; }
+.cb-domain-settings input, .cb-domain-adoption code, .cb-dns-records code, .cb-domain-row .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.cb-domain-settings button:focus-visible, .cb-domain-settings a:focus-visible, .cb-domain-adoption button:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 3px; }
+.cb-domain-next { margin-top: 12px; color: var(--cb-text-mid); font-size: 14px; }
+.cb-domain-row button:hover, .cb-domain-adoption button:hover { background: var(--cb-bg-hover); color: var(--cb-ink); }
+body:has(.cb-domain-adoption) [role="alertdialog"] button:focus-visible { outline: 2px solid var(--cb-accent); outline-offset: 3px; }
+.cb-domain-row .cb-domain-error, .cb-domain-row .cb-domain-ready { color: var(--cb-ink); background: var(--cb-chip); border-color: var(--cb-border-strong); }
+.cb-domain-error pre { overflow-wrap: anywhere; }
+body:has(.cb-domain-adoption) [role="alertdialog"] { background: var(--cb-bg); color: var(--cb-ink); border-color: var(--cb-border-strong); }
+body:has(.cb-domain-adoption) [role="alertdialog"] button { min-height: 44px; }
+body:has(.cb-domain-adoption) #cb-confirm-message { color: var(--cb-text); font-family: 'JetBrains Mono', ui-monospace, monospace; overflow-wrap: anywhere; }
+.cb-domain-row .cb-domain-badge { color: var(--cb-ink); background: var(--cb-chip); border: 1px solid var(--cb-border-strong); }
+.cb-dns-records { background: var(--cb-bg); border-color: var(--cb-border); color: var(--cb-text); box-shadow: none; container-type: inline-size; }
+.cb-dns-records h4, .cb-domain-adoption h4 { margin: 0 0 8px; font-weight: 600; color: var(--cb-ink); }
+.cb-dns-records p { margin: 8px 0 16px; }
+.cb-dns-records table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 14px; }
+.cb-dns-records th, .cb-dns-records td { padding: 12px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--cb-border); overflow-wrap: anywhere; }
+.cb-dns-records th { color: var(--cb-text-mid); font-weight: 600; }
+.cb-dns-records th:first-child { width: 10%; }
+.cb-dns-records th:nth-child(2) { width: 27%; }
+.cb-dns-records th:nth-child(3) { width: 35%; }
+.cb-dns-records th:nth-child(4) { width: 28%; }
+.cb-dns-records code { font-size: 12px; color: var(--cb-ink); overflow-wrap: anywhere; white-space: normal; }
+.cb-dns-value { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.cb-dns-value code { max-width: 100%; }
+.cb-dns-records .cb-dns-copy { min-width: 88px; min-height: 44px; color: var(--cb-text); background: var(--cb-input); border: 1px solid var(--cb-border-strong); }
+.cb-dns-copy svg { width: 16px; height: 16px; }
+.cb-dns-copy > span { display: inline-flex; }
+.cb-dns-records td:last-child > span { margin-top: 8px; white-space: normal; }
+.cb-dns-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.cb-dns-actions button { color: var(--cb-ink); background: var(--cb-chip); }
+.cb-dns-actions button:hover, .cb-dns-copy:hover { background: var(--cb-bg-hover); }
+.cb-domain-adoption { padding: 16px 0; color: var(--cb-text); overflow-wrap: anywhere; }
+.cb-domain-adoption button { color: var(--cb-ink); background: var(--cb-chip); }
+.cb-domain-adoption code { font-size: .875em; }
+.cb-domain-adoption [role="alert"] { color: var(--cb-ink); background: var(--cb-chip); padding: 12px; }
+@container (max-width: 620px) {
+  .cb-dns-records thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .cb-dns-records table, .cb-dns-records tbody, .cb-dns-records tr, .cb-dns-records td { display: block; width: 100%; }
+  .cb-dns-records tr { padding: 12px 0; border-bottom: 1px solid var(--cb-border-strong); }
+  .cb-dns-records td { border: 0; padding: 6px 0; }
+  .cb-dns-records td::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 600; color: var(--cb-text-mid); margin-bottom: 4px; }
+  .cb-dns-value code { min-width: 0; }
+  .cb-dns-copy { flex-shrink: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-domain-settings *, .cb-domain-adoption * { animation: none !important; transition: none !important; }
+}
