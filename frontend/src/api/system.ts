@@ -35,6 +35,10 @@ export interface MaxMindUsage {
 }
 
 export const systemApi = {
+  async access(): Promise<{ is_admin: boolean }> {
+    const response = await api.get<{ is_admin: boolean }>('/system/access');
+    return response.data;
+  },
   async maxmind(days = 30): Promise<MaxMindUsage> {
     const response = await api.get<MaxMindUsage>('/system/maxmind', { params: { days } });
     return response.data;

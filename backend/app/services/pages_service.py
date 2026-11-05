@@ -257,6 +257,7 @@ async def record_version(
     size_bytes: int,
     sha256: Optional[str],
     filename: str,
+    rewrite_report: Optional[list] = None,
 ) -> FileVersion:
     version = FileVersion(
         file_id=asset.id,
@@ -265,6 +266,7 @@ async def record_version(
         size_bytes=size_bytes,
         sha256=sha256,
         filename=filename,
+        rewrite_report=rewrite_report,
     )
     session.add(version)
     await session.flush()

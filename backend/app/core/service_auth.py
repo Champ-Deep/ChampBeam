@@ -41,8 +41,12 @@ _ALLOWED: list[tuple[str, re.Pattern[str]]] = [
     # Persistent hosted pages (checklists, dashboards) — publish + update.
     ("POST", re.compile(r"^/api/v1/pages/?$")),
     ("POST", re.compile(r"^/api/v1/pages/upload/?$")),
+    ("POST", re.compile(r"^/api/v1/pages/batch/?$")),
     ("PUT", re.compile(rf"^/api/v1/pages/{_UUID_RE}/?$")),
     ("PATCH", re.compile(rf"^/api/v1/pages/{_UUID_RE}/?$")),
+    ("POST", re.compile(rf"^/api/v1/pages/{_UUID_RE}/links/apply/?$")),
+    # Named short links.
+    ("PATCH", re.compile(rf"^/api/v1/utm/links/{_UUID_RE}/?$")),
 ]
 
 

@@ -2,24 +2,23 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ClerkProvider } from '@clerk/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SessionScope } from './components/SessionScope'
 import { Toaster } from 'sonner'
 import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import App from './App'
 import { initTheme } from './hooks/useTheme'
 import './index.css'
+import './workspace.css'
+
+const hostname = window.location.hostname
+if (hostname === 'lakeb2b.com' || hostname.endsWith('.lakeb2b.com')) {
+  document.querySelector('link[rel="icon"]')?.setAttribute('href', '/lakeb2b-favicon.svg')
+  document.title = document.title.replace(/^Champbeam/, 'LakeB2B Share')
+}
 
 // Theme the document before React mounts so the first paint is correct.
 initTheme()
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000,
-      retry: 1,
-    },
-  },
-})
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string
 
@@ -36,14 +35,14 @@ ReactDOM.createRoot(rootEl).render(
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
     >
-      <QueryClientProvider client={queryClient}>
+      <SessionScope>
         <BrowserRouter>
           <ConfirmProvider>
             <App />
           </ConfirmProvider>
           <Toaster position="top-right" duration={4000} />
         </BrowserRouter>
-      </QueryClientProvider>
+      </SessionScope>
     </ClerkProvider>
   </React.StrictMode>,
 )

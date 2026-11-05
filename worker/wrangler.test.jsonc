@@ -1,0 +1,13 @@
+// Test-only config used by vitest (see vitest.config.ts): same bindings as
+// wrangler.jsonc, minus static assets (the frontend need not be built to run
+// API tests). Miniflare backs D1/R2 locally and in memory.
+{
+  "name": "champbeam-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "champbeam-test", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-test" }]
+}

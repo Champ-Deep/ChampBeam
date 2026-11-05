@@ -1,0 +1,94 @@
+# ChampBeam TEST on Deepify (Coolify), the no-Railway option.
+#
+# Second Coolify app on the same box: build pack "Docker Compose", compose path
+# deploy/coolify/docker-compose.test.yml, branch `staging`, auto-deploy ON with
+# "wait for CI" not available on Coolify, so the GitHub branch protection on
+# `staging` (require the `gate` check before merge) is what keeps a red build
+# out. It ships its own small Postgres and Redis so test data can be thrown
+# away without touching the champ-paas tier. Memory budget for the whole stack:
+# about 450 MB, which is why the dev stacks on the box must go first (see the
+# capacity report).
+#
+# Cost: zero beyond the droplet. Railway can be deleted once this is green.
+
+services:
+  app:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: staging
+      DEBUG: "false"
+      PORT: "8000"
+      WEB_CONCURRENCY: "1"
+      DATABASE_URL: postgresql://champbeam:${TEST_POSTGRES_PASSWORD}@postgres:5432/champbeam
+      REDIS_URL: redis://redis:6379/0
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}             # sk_test_, the dev instance
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}   # pk_test_
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-https://test.champbeam.com}
+      FRONTEND_URL: ${FRONTEND_URL:-https://test.champbeam.com}
+      CORS_ALLOW_ORIGIN_REGEX: ${CORS_ALLOW_ORIGIN_REGEX:-https://champbeam-[a-z0-9-]+\\.vercel\\.app}
+      REDIRECT_BASE_URL: ${REDIRECT_BASE_URL:-https://champbeam-test.64.227.154.215.sslip.io}
+      PLATFORM_REDIRECT_HOST: ${PLATFORM_REDIRECT_HOST:-champbeam-test.64.227.154.215.sslip.io}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      SUPABASE_STORAGE_ENDPOINT: ${SUPABASE_STORAGE_ENDPOINT}
+      SUPABASE_STORAGE_REGION: ${SUPABASE_STORAGE_REGION:-auto}
+      SUPABASE_STORAGE_ACCESS_KEY_ID: ${SUPABASE_STORAGE_ACCESS_KEY_ID}
+      SUPABASE_STORAGE_SECRET_ACCESS_KEY: ${SUPABASE_STORAGE_SECRET_ACCESS_KEY}
+      SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET:-champbeam-files-test}
+      STORAGE_UPLOAD_SECRET: ${STORAGE_UPLOAD_SECRET}
+      SENTRY_DSN: ${SENTRY_DSN}
+    expose:
+      - "8000"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.75"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: champbeam
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD}
+      POSTGRES_DB: champbeam
+    command: ["postgres", "-c", "max_connections=40", "-c", "shared_buffers=64MB"]
+    volumes:
+      - testpg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U champbeam -d champbeam"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "32mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    deploy:
+      resources:
+        limits:
+          memory: 48M
+    restart: unless-stopped
+
+volumes:
+  testpg:

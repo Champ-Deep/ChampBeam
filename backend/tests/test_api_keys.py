@@ -180,6 +180,28 @@ async def test_key_management_with_clerk_session(app_client):
 
 
 @pytest.mark.asyncio
+async def test_key_creation_survives_org_mirror_failure(app_client, monkeypatch):
+    """A failed best-effort org sync cannot invalidate the signed-in user."""
+    from app.core import security
+    from app.services import org_service
+
+    async def verified(_token):
+        return {"sub": "user_key_owner", "email": "key-owner@example.com",
+                "o": {"id": "org_active", "rol": "admin", "slg": "team"}}
+
+    async def broken_sync(*_args, **_kwargs):
+        raise RuntimeError("org mirror unavailable")
+
+    monkeypatch.setattr(security, "_verify_clerk_token", verified)
+    monkeypatch.setattr(org_service, "upsert_organization", broken_sync)
+    response = await app_client.post(
+        "/api/v1/api-keys", json={"name": "integration"},
+        headers={"Authorization": "Bearer session-token"},
+    )
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_429_when_redis_counts_over(app_client, monkeypatch):
     from app.db.redis import redis_client
 

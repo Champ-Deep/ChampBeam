@@ -56,7 +56,7 @@ function ThemeCard({
             {name === 'paper' && (
               <span
                 className="rounded px-1.5 py-0.5 text-[10px] font-bold"
-                style={{ color: 'var(--cb-accent)', background: 'var(--cb-accent-soft)' }}
+                style={{ color: 'var(--cb-ink)', background: 'var(--cb-accent-soft)' }}
               >
                 default
               </span>
@@ -97,7 +97,7 @@ export function AppearanceSettings() {
         Workspace theme
       </h3>
       <p className="mt-1 mb-5 text-sm" style={{ color: 'var(--cb-muted)' }}>
-        Paper is the Champbeam default. Pick the look that fits your workspace — it applies across
+        Paper is the Champbeam default. Pick the look that fits your workspace. It applies across
         the whole app and is remembered on this device.
       </p>
 

@@ -1,0 +1,75 @@
+# ChampBeam PRODUCTION on Deepify (Coolify), declared in git.
+#
+# Coolify app: build pack "Docker Compose", compose path deploy/coolify/docker-compose.prod.yml,
+# branch main, auto-deploy OFF (GitHub Actions triggers the deploy webhook only
+# when the CI gate is green). Secrets and per-environment values live in the
+# Coolify app's Environment Variables tab; this file only references them.
+#
+# Postgres and Redis are NOT here on purpose: they are the shared champ-paas
+# data tier on the box. The app reaches them through DATABASE_URL / REDIS_URL on
+# the shared Coolify network. When prod moves to its own box, add the two
+# services from deploy/docker-compose.yml back into this file.
+#
+# What this buys over "Dockerfile app with defaults":
+#   * a memory ceiling so a leak in one tool cannot take the 3.8 GB box down
+#   * a CPU share so a burst stays below the other tenants' floor
+#   * log rotation (unbounded json logs are the #1 silent disk filler on Docker hosts)
+#   * the image healthcheck drives Coolify's rolling restart (no 502 window)
+
+services:
+  app:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      PORT: "8000"
+      WEB_CONCURRENCY: "${WEB_CONCURRENCY:-1}"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
+      CLERK_WEBHOOK_SECRET: ${CLERK_WEBHOOK_SECRET}
+      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-https://www.champbeam.com}
+      FRONTEND_URL: ${FRONTEND_URL:-https://www.champbeam.com}
+      REDIRECT_BASE_URL: ${REDIRECT_BASE_URL:-https://share.lakeb2b.com}
+      PLATFORM_REDIRECT_HOST: ${PLATFORM_REDIRECT_HOST:-share.lakeb2b.com,champbeam-api.64.227.154.215.sslip.io}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      SUPABASE_STORAGE_ENDPOINT: ${SUPABASE_STORAGE_ENDPOINT}
+      SUPABASE_STORAGE_REGION: ${SUPABASE_STORAGE_REGION:-auto}
+      SUPABASE_STORAGE_ACCESS_KEY_ID: ${SUPABASE_STORAGE_ACCESS_KEY_ID}
+      SUPABASE_STORAGE_SECRET_ACCESS_KEY: ${SUPABASE_STORAGE_SECRET_ACCESS_KEY}
+      SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET:-champbeam-files}
+      STORAGE_UPLOAD_SECRET: ${STORAGE_UPLOAD_SECRET}
+      MAXMIND_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}
+      IPINFO_API_TOKEN: ${IPINFO_API_TOKEN}
+      SENTRY_DSN: ${SENTRY_DSN}
+      PLATFORM_IPV4: ${PLATFORM_IPV4:-64.227.154.215}
+      BYOD_CNAME_TARGET: ${BYOD_CNAME_TARGET}
+      PROVISIONER_TOKEN: ${PROVISIONER_TOKEN}
+      SERVICE_API_KEYS: ${SERVICE_API_KEYS}
+      CHAMPVAULT_URL: ${CHAMPVAULT_URL}
+      CHAMPVAULT_API_KEY: ${CHAMPVAULT_API_KEY}
+    expose:
+      - "8000"
+    volumes:
+      - geoipdata:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.5"
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    stop_grace_period: 20s
+    restart: unless-stopped
+
+volumes:
+  geoipdata:

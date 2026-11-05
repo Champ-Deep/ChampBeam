@@ -37,7 +37,7 @@ from app.models.file_asset import (
     STATUS_PENDING_UPLOAD,
 )
 from app.models.utm import ClickEvent, Project
-from app.services import storage
+from app.services import pages_service, storage
 
 logger = logging.getLogger(__name__)
 
@@ -1100,6 +1100,13 @@ async def delete_file(
     if asset is None:
         raise HTTPException(status_code=404, detail="File not found.")
 
+    # A hosted page is this same row. Drop its retained versions too, exactly as
+    # DELETE /pages/{id} does, or their blobs outlive the file forever.
+    versions = await pages_service.list_versions(session, asset)
+    keys = {v.storage_key for v in versions} | {asset.storage_key}
+    for v in versions:
+        await session.delete(v)
     asset.status = STATUS_DELETED
     await session.commit()
-    background_tasks.add_task(_delete_storage_async, asset.storage_key)
+    for key in keys:
+        background_tasks.add_task(_delete_storage_async, key)

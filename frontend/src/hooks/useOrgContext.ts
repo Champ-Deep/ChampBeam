@@ -1,29 +1,35 @@
 import { useAuth } from '@clerk/react';
+import { useQuery } from '@tanstack/react-query';
+import { orgApi } from '../api/org';
 
-/**
- * Active-organization context derived from the Clerk session (no network call).
- *
- * Clerk puts the active org + role on the session token; `useAuth()` surfaces
- * them as `orgId` / `orgRole` (e.g. "org:admin"). We normalize the role so the
- * UI can gate admin-only views without re-deriving the "org:" prefix everywhere.
- */
+// Clerk selects the workspace; only the server profile grants capabilities.
 export function useOrgContext() {
-  const { isSignedIn, orgId, orgRole, orgSlug } = useAuth();
-  const role = orgRole ?? null;
-  const normalized = role ? role.toLowerCase().replace(/^org:/, '') : null;
-  // Super admin: any role ending in "admin". Leader: the "leader" role. These
-  // mirror the backend tiers; a leader + admin can both see team analytics.
-  const isAdmin = !!normalized && normalized.endsWith('admin');
-  const isLeader = normalized === 'leader';
-  const canManageTeam = isAdmin || isLeader;
+  const { isSignedIn, orgId, orgSlug, userId } = useAuth();
+  const query = useQuery({
+    queryKey: ['org-profile', userId, orgId],
+    queryFn: () => orgApi.profile(),
+    enabled: !!isSignedIn,
+    retry: false,
+  });
+  const profile = query.error ? undefined : query.data;
+  const permissions = profile?.permissions ?? [];
+  const isAdmin = permissions.includes('org.members.manage');
+  const canManageTeam = permissions.includes('team.manage');
   return {
     isSignedIn: !!isSignedIn,
     inOrg: !!orgId,
     orgId: orgId ?? null,
     orgSlug: orgSlug ?? null,
-    role,
+    role: profile?.role ?? null,
     isAdmin,
-    isLeader,
+    isLeader: canManageTeam && !isAdmin,
     canManageTeam,
+    canReport: !!profile && profile.report_scope !== 'none',
+    canShare: !!profile && (!orgId || permissions.includes('share.create')),
+    profile,
+    permissions,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
   };
 }

@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import access_control as ac
@@ -79,6 +79,43 @@ async def _resolve_destination(link: LinkClick) -> str | None:
     return destination
 
 
+async def _lookup_link(
+    key: str, session: AsyncSession, domain: Optional[Domain]
+) -> Optional[LinkClick]:
+    """Resolve a redirect key: a random short code, or a user-named alias.
+
+    The two namespaces are NOT disjoint. Aliases are validated with the pages
+    slug rules (3-60 chars of ``[a-z0-9-]``) and short codes are 7 chars of
+    ``[A-Za-z0-9]``, so a key can legitimately match one link's ``short_code``
+    and a different link's ``alias``. Selecting with ``scalar_one_or_none()``
+    raised ``MultipleResultsFound`` there, which surfaced as a 500 on the
+    public redirect and let any user who can mint a link take a shared link
+    offline by naming their own link after someone else's code.
+
+    Resolution is therefore deterministic: the row whose ``short_code`` equals
+    the key wins, because that is the canonical, unclaimable address. The OR
+    stays a single indexed lookup; the ordering picks the winner and ``limit(1)``
+    guarantees a single row, so ``scalar_one_or_none`` can no longer see two.
+
+    ``NULLS LAST`` is load-bearing: ``short_code`` is nullable, and Postgres
+    sorts NULLS FIRST under ``DESC``, so without it a row with a NULL code and
+    a matching alias would outrank the genuine short-code match.
+
+    Scoped by Host like before.
+    """
+    stmt = (
+        select(LinkClick)
+        .where(or_(LinkClick.short_code == key, LinkClick.alias == key))
+        .order_by((LinkClick.short_code == key).desc().nulls_last())
+        .limit(1)
+    )
+    if domain is None:
+        stmt = stmt.where(LinkClick.domain_id.is_(None))
+    else:
+        stmt = stmt.where(LinkClick.domain_id == domain.id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 @router.get("/r/{short_code}")
 async def redirect_link(
     short_code: str,
@@ -86,12 +123,12 @@ async def redirect_link(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Redirect a short code to its destination, recording the click.
+    """Redirect a short code (or a user-named alias) to its destination,
+    recording the click.
 
-    The Host header decides which short-code namespace to look in: the
-    platform default uses ``domain_id IS NULL``; a custom hostname must
-    resolve to an ``active`` Domain row and then look up by
-    ``(domain_id, short_code)``.
+    The Host header decides which namespace to look in: the platform default
+    uses ``domain_id IS NULL``; a custom hostname must resolve to an ``active``
+    Domain row and then look up by ``(domain_id, key)``.
     """
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
@@ -102,14 +139,7 @@ async def redirect_link(
         # one tenant's link onto another tenant's domain).
         return RedirectResponse(url="/", status_code=302)
 
-    stmt = select(LinkClick).where(LinkClick.short_code == short_code)
-    if domain is None:
-        stmt = stmt.where(LinkClick.domain_id.is_(None))
-    else:
-        stmt = stmt.where(LinkClick.domain_id == domain.id)
-
-    result = await session.execute(stmt)
-    link = result.scalar_one_or_none()
+    link = await _lookup_link(short_code, session, domain)
 
     if not link:
         return RedirectResponse(url="/", status_code=302)
@@ -184,11 +214,7 @@ async def unlock_link(
     """Email-gate submit: capture the lead, set the gate cookie, re-enter /r."""
     host = _request_host(request)
     domain = await _resolve_domain(host, session)
-    stmt = select(LinkClick).where(LinkClick.short_code == short_code)
-    stmt = stmt.where(LinkClick.domain_id.is_(None)) if domain is None else stmt.where(
-        LinkClick.domain_id == domain.id
-    )
-    link = (await session.execute(stmt)).scalar_one_or_none()
+    link = await _lookup_link(short_code, session, domain)
     if not link:
         return RedirectResponse(url="/", status_code=302)
 

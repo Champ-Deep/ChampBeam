@@ -1,4 +1,71 @@
 import pytest
+
+
+@pytest.mark.asyncio
+async def test_project_links_include_older_links(app_client):
+    from datetime import datetime, timedelta
+    from uuid import UUID
+    from app.core.security import TokenData, require_auth
+    from app.db import postgres
+    from app.main import app
+    from app.models.user import User
+    from app.models.utm import ClickEvent, LinkClick
+
+    async with postgres.async_session_maker() as session:
+        user = User(email="project-owner@example.com", is_active=True)
+        session.add(user)
+        await session.commit()
+        identity = TokenData(user_id=str(user.id), email=user.email)
+    async def owner():
+        return identity
+    app.dependency_overrides[require_auth] = owner
+    try:
+        project = (await app_client.post("/api/v1/projects", json={"name": "Fair Noble"})).json()
+        async with postgres.async_session_maker() as session:
+            link = LinkClick(user_id=UUID(identity.user_id), project_id=UUID(project["id"]),
+                             original_url="https://example.com/old", created_at=datetime.utcnow() - timedelta(days=120))
+            session.add(link)
+            await session.flush()
+            session.add(ClickEvent(link_id=link.id, clicked_at=datetime.utcnow() - timedelta(days=1)))
+            await session.commit()
+        result = await app_client.get(f"/api/v1/utm/analytics/links?project_id={project['id']}&all_time=true")
+        assert result.status_code == 200, result.text
+        assert len(result.json()) == 1
+        page = await app_client.get(f"/api/v1/utm/analytics/links?project_id={project['id']}&all_time=true&limit=1&offset=1")
+        assert page.json() == []
+        async with postgres.async_session_maker() as session:
+            other = User(email="other-project-owner@example.com", is_active=True)
+            session.add(other)
+            await session.flush()
+            from app.models.utm import Project
+            foreign_project = Project(user_id=other.id, name="Private")
+            session.add(foreign_project)
+            await session.commit()
+        denied = await app_client.patch(f"/api/v1/utm/links/{link.id}", json={"project_id": str(foreign_project.id)})
+        assert denied.status_code == 404
+        assert (await app_client.get("/api/v1/projects")).json()[0]["link_count"] == 1
+        old = await app_client.get(f"/api/v1/utm/analytics/links?project_id={project['id']}")
+        assert old.json() == []
+        timeline = await app_client.get(f"/api/v1/utm/analytics/performance?project_id={project['id']}&days=30")
+        assert timeline.status_code == 200, timeline.text
+        assert len(timeline.json()["data"]) == 1
+        assert timeline.json()["data"][0]["links_created"] == 0
+        assert timeline.json()["data"][0]["total_clicks"] == 1
+        recent = await app_client.get("/api/v1/utm/analytics/clicks/recent")
+        assert len(recent.json()) == 1
+        assert (await app_client.post("/api/v1/utm/analytics/clicks/recent/clear")).status_code == 204
+        assert (await app_client.get("/api/v1/utm/analytics/clicks/recent")).json() == []
+        from datetime import timezone
+        aware_since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        since_result = await app_client.get("/api/v1/utm/analytics/clicks/recent", params={"since": aware_since})
+        assert since_result.status_code == 200, since_result.text
+        assert since_result.json() == []
+        async with postgres.async_session_maker() as session:
+            session.add(ClickEvent(link_id=link.id, clicked_at=datetime.utcnow() + timedelta(seconds=1)))
+            await session.commit()
+        assert len((await app_client.get("/api/v1/utm/analytics/clicks/recent")).json()) == 1
+    finally:
+        app.dependency_overrides.pop(require_auth, None)
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 

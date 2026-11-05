@@ -1,5 +1,10 @@
 import { useMemo, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { LinkGenerator } from './LinkGenerator';
+import { PresetsManager } from './PresetsManager';
+import { useOrgContext } from '../hooks/useOrgContext';
+import { linkListOptions } from '../hooks/useShareLists';
+import './share-views.css';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -7,8 +12,9 @@ import {
   GripVertical, CheckSquare,
 } from 'lucide-react';
 import { Card, Button, Input, Badge, LoadingSpinner, EmptyState, QrButton, FolderChips, useConfirm } from '../components/ui';
+import { UtmUrlBuilder } from '../components/UtmUrlBuilder';
 import { utmApi } from '../api/utm';
-import type { LinkPerformanceItem, Project, ProjectCreate } from '../api/utm';
+import type { Project, ProjectCreate } from '../api/utm';
 
 const EMPTY_FORM: ProjectCreate = { name: '', description: '' };
 
@@ -27,6 +33,8 @@ interface DragPayload {
 }
 
 export function LinksPage() {
+  const [params] = useSearchParams();
+  const { canShare } = useOrgContext();
   const confirm = useConfirm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -35,10 +43,7 @@ export function LinksPage() {
   // Fetch ALL links once (no project filter) so we can filter client-side by
   // each link's project_id and recompute per-project counts instantly after a
   // drag-and-drop move (we invalidate this cache on every mutation).
-  const { data: links = [], isLoading: linksLoading } = useQuery<LinkPerformanceItem[]>({
-    queryKey: ['utm', 'links', 365],
-    queryFn: () => utmApi.getLinkPerformance({ days: 365 }),
-  });
+  const { data: links = [], isLoading: linksLoading, error: linksError, refetch: refetchLinks } = useQuery(linkListOptions);
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -53,6 +58,7 @@ export function LinksPage() {
 
   // --- Project form state ---
   const [showForm, setShowForm] = useState(false);
+  const [showUtmBuilder, setShowUtmBuilder] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectCreate>({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
@@ -346,17 +352,54 @@ export function LinksPage() {
   // Render
   // ---------------------------------------------------------------
 
+  if (params.get('tab') === 'utm') return <div className="cb-workspace"><h1>Links</h1><nav className="cb-actions"><Link to="/links">Tracked links</Link><Link className="min-w-11" to="/links?tab=utm" aria-current="page">UTM</Link></nav><LinkGenerator />{canShare && <details open={params.get('panel') === 'presets'}><summary>Saved UTM presets</summary><PresetsManager /></details>}<UtmUrlBuilder onClose={() => navigate('/links')} /></div>;
+
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4">
+    <div className="cb-workspace cb-share-list max-w-7xl mx-auto py-8 px-4">
+      <nav className="cb-actions"><Link to="/links" aria-current="page">Tracked links</Link><Link to="/links?tab=utm">UTM, presets and bulk CSV</Link></nav>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Links</h1>
           <p className="text-slate-600 mt-1">
-            Manage all your tracked UTM links and organize them into projects. Drag links onto a folder to file them.
+            Tracked links from the last 365 days, using the same view as the sidebar and recent shares.
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowUtmBuilder(true)}
+          leftIcon={<Link2 className="h-3.5 w-3.5" />}
+          title="Append UTM parameters without shortening or tracking"
+        >
+          Add UTM parameters to your links
+        </Button>
       </div>
+
+      {/* Append-only UTM builder (no short link, no tracking). */}
+      {showUtmBuilder && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 p-4 overflow-y-auto"
+          onClick={() => setShowUtmBuilder(false)}
+        >
+          <div
+            className="w-full max-w-lg mt-10 rounded-xl bg-white shadow-xl border border-slate-200 p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-end -mt-1 -mr-1">
+              <button
+                type="button"
+                onClick={() => setShowUtmBuilder(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <UtmUrlBuilder onClose={() => setShowUtmBuilder(false)} />
+          </div>
+        </div>
+      )}
 
       {/* Folder chips: filter + drag-and-drop drop targets (App v2 layout) */}
       <div className="mb-5">
@@ -370,7 +413,7 @@ export function LinksPage() {
           folders={projects.map((p) => ({
             id: p.id,
             name: p.name,
-            count: links.length > 0 ? (countByProject.get(p.id) ?? 0) : p.link_count,
+            count: countByProject.get(p.id) ?? 0,
           }))}
           activeId={filterProject}
           dragOverId={dragOverTarget}
@@ -426,6 +469,7 @@ export function LinksPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <input
               type="text"
+              aria-label="Search links"
               placeholder="Search links..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -484,13 +528,15 @@ export function LinksPage() {
           {/* Links table */}
           {linksLoading ? (
             <LoadingSpinner />
+          ) : linksError ? (
+            <div role="alert"><p>Links could not load. This does not mean your links were deleted.</p><Button onClick={() => void refetchLinks()}>Retry links</Button></div>
           ) : visibleLinks.length === 0 ? (
             <EmptyState
               icon={Link2}
               title="No Links Found"
               description={search || filterProject !== FILTER_ALL
                 ? "No links match your current filters. Try adjusting your search or folder."
-                : "Generate UTM links from the Generator to see them here."
+                : "No links in this 365-day view. Create tracked links in the UTM tab."
               }
             />
           ) : (

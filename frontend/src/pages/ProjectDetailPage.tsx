@@ -13,7 +13,7 @@ export function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [links, setLinks] = useState<LinkPerformanceItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<7 | 30 | 90>(30);
+  const [loadError, setLoadError] = useState(false);
   const [showAddLinks, setShowAddLinks] = useState(false);
   const [unassignedLinks, setUnassignedLinks] = useState<LinkPerformanceItem[]>([]);
   const [loadingUnassigned, setLoadingUnassigned] = useState(false);
@@ -22,19 +22,20 @@ export function ProjectDetailPage() {
     if (!projectId) return;
     try {
       setLoading(true);
+      setLoadError(false);
       const [projects, linkData] = await Promise.all([
         utmApi.getProjects(),
-        utmApi.getLinkPerformance({ projectId, days: period }),
+        utmApi.getLinkPerformance({ projectId, allTime: true }),
       ]);
       const matched = projects.find((p) => p.id === projectId) ?? null;
       setProject(matched);
       setLinks(linkData);
     } catch {
-      // Graceful
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
-  }, [projectId, period]);
+  }, [projectId]);
 
   useEffect(() => {
     loadData();
@@ -48,7 +49,7 @@ export function ProjectDetailPage() {
   const loadUnassignedLinks = async () => {
     setLoadingUnassigned(true);
     try {
-      const allLinks = await utmApi.getLinkPerformance({ days: 365 });
+      const allLinks = await utmApi.getLinkPerformance({ allTime: true });
       setUnassignedLinks(allLinks.filter((l) => !l.project_id));
     } catch {
       toast.error('Failed to load links');
@@ -109,19 +110,7 @@ export function ProjectDetailPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Period selector */}
-          <div className="flex gap-1 mr-2">
-            {([7, 30, 90] as const).map((d) => (
-              <Button
-                key={d}
-                variant={period === d ? 'primary' : 'outline'}
-                size="sm"
-                onClick={() => setPeriod(d)}
-              >
-                {d}D
-              </Button>
-            ))}
-          </div>
+
           <Button
             variant="outline"
             size="sm"
@@ -182,8 +171,13 @@ export function ProjectDetailPage() {
         </Card>
       )}
 
+      <p className="text-sm text-slate-500">All project links. Click totals are lifetime counts.</p>
       {/* Links table */}
-      {links.length === 0 ? (
+      {loadError ? (
+        <EmptyState icon={Link2} title="Could not load project links" description="Check your connection and try again.">
+          <Button variant="outline" onClick={() => void loadData()}>Retry</Button>
+        </EmptyState>
+      ) : links.length === 0 ? (
         <EmptyState
           icon={Link2}
           title="No Links Yet"

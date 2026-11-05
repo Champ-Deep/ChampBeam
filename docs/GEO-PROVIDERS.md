@@ -52,6 +52,22 @@ Company firmographics ("which company opened this") is a **separate** seam,
 `app/services/company_intel.py`, with its own provider switch — see
 `company_intel_provider`. Same philosophy, different concern.
 
+On the Worker (`worker/src/services/companyIntel.ts`) `COMPANY_INTEL_PROVIDER` is
+`none`, `asn` (default, free ASN owner only), `ipinfo` (`IPINFO_API_TOKEN`), or
+`http` for any IP-to-company vendor with no code change:
+
+| Setting | Kind | Meaning |
+|---|---|---|
+| `COMPANY_INTEL_PROVIDER=http` | var | Turn the vendor on |
+| `COMPANY_INTEL_URL` | var | URL template, `{ip}` required, `{key}` optional, e.g. `https://api.vendor.example/v1/ip/{ip}` |
+| `COMPANY_INTEL_API_KEY` | secret | Put in the URL when it contains `{key}`, otherwise sent as `Authorization: Bearer` |
+
+The response is read from a `company` object (or top level): `name`, `domain` or
+`website`, `industry`, `size` or `employees_range`, `type`. Paid providers reuse a
+company already resolved for the same IP in the last 30 days, so a returning
+visitor costs one lookup. Every click, file open and page view is enriched in the
+background; `/analytics/company-intent` drops VPN, ISP/hosting and bot rows.
+
 ---
 
 ## Provider chain (current)

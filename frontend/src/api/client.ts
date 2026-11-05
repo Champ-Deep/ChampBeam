@@ -1,8 +1,12 @@
 import axios, { type AxiosError } from 'axios';
 
-function normalizeApiUrl(raw: string | undefined): string {
-  if (!raw || !raw.trim()) return 'http://localhost:8000/api/v1';
+export function normalizeApiUrl(raw: string | undefined, isProd: boolean = import.meta.env.PROD): string {
+  // Unset in a production build means the API is served by the same origin as
+  // the SPA (the Cloudflare Worker serves both), so use a relative base URL.
+  if (!raw || !raw.trim()) return isProd ? '/api/v1' : 'http://localhost:8000/api/v1';
   let url = raw.trim().replace(/\/+$/, '');
+  // A path (e.g. "/api/v1") is same-origin: keep it relative.
+  if (raw.trim().startsWith('/')) return /\/api\/v\d+$/i.test(url) ? url : `${url}/api/v1`;
   if (!/^https?:\/\//i.test(url)) {
     console.warn(`VITE_API_URL "${raw}" missing scheme, prepending https://`);
     url = `https://${url}`;

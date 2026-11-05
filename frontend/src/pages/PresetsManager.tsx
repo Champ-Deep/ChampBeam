@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus, Trash2, Pencil, Star, Save, X, Tag } from 'lucide-react';
 import { Card, CardHeader, CardTitle, Button, Badge, Input, LoadingSpinner, EmptyState, useConfirm } from '../components/ui';
@@ -14,34 +15,18 @@ const EMPTY_FORM: UTMPresetCreate = {
   utm_term: '',
 };
 
-/**
- * Preset CRUD management UI. Rendered as a section inside the Settings page.
- * Self-contained: owns its own data loading, form, and mutations. The generator
- * reads presets independently via utmApi.getPresets, so changes here flow through
- * react-query invalidation / refetch on the generator the next time it mounts.
- */
 export function PresetsManager() {
   const confirm = useConfirm();
-  const [presets, setPresets] = useState<UTMPreset[]>([]);
-  const [loading, setLoading] = useState(true);
+  const client = useQueryClient();
+  const { data: presets = [], isLoading: loading, error, refetch } = useQuery({
+    queryKey: ['utm', 'presets'], queryFn: () => utmApi.getPresets(), retry: false,
+  });
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<UTMPresetCreate>({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
 
-  const loadPresets = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await utmApi.getPresets();
-      setPresets(data);
-    } catch {
-      toast.error('Failed to load presets');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadPresets(); }, [loadPresets]);
+  const loadPresets = () => client.invalidateQueries({ queryKey: ['utm', 'presets'] });
 
   const handleSave = async () => {
     if (!form.name.trim()) {
@@ -109,6 +94,7 @@ export function PresetsManager() {
   };
 
   if (loading) return <div className="py-8"><LoadingSpinner /></div>;
+  if (error) return <div role="alert"><p>UTM presets could not load.</p><Button onClick={() => void refetch()}>Retry presets</Button></div>;
 
   return (
     <div className="space-y-6">
@@ -221,7 +207,7 @@ export function PresetsManager() {
                       ) : (
                         <button
                           onClick={() => handleSetDefault(preset.id)}
-                          className="text-slate-400 hover:text-yellow-500 transition-colors"
+                          className="min-w-11 min-h-11 inline-flex items-center justify-center text-slate-600 hover:text-yellow-700 transition-colors"
                           title="Set as default"
                         >
                           <Star className="h-4 w-4" />
@@ -232,14 +218,14 @@ export function PresetsManager() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleEdit(preset)}
-                          className="p-1.5 text-slate-400 hover:text-brand-purple hover:bg-brand-purple/5 rounded-lg transition-colors"
+                          className="min-w-11 min-h-11 inline-flex items-center justify-center p-1.5 text-slate-600 hover:text-brand-purple hover:bg-brand-purple/5 rounded-lg transition-colors"
                           title="Edit"
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(preset.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="min-w-11 min-h-11 inline-flex items-center justify-center p-1.5 text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete"
                         >
                           <Trash2 className="h-4 w-4" />

@@ -101,7 +101,11 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def generate_presigned_get(
-        self, key: str, filename: Optional[str] = None, expires: int = 300
+        self,
+        key: str,
+        filename: Optional[str] = None,
+        expires: int = 300,
+        attachment: bool = False,
     ) -> str:
         ...
 
@@ -176,7 +180,7 @@ class S3Storage(StorageBackend):
         # them, and the Clerk Authorization header must NOT be sent to it.
         return {"url": url, "headers": {"Content-Type": content_type}, "via_backend": False}
 
-    def generate_presigned_get(self, key, filename=None, expires=300):
+    def generate_presigned_get(self, key, filename=None, expires=300, attachment=False):
         client = _client()
         params: dict[str, object] = {
             "Bucket": settings.supabase_storage_bucket,
@@ -184,7 +188,8 @@ class S3Storage(StorageBackend):
         }
         if filename:
             safe = filename.replace('"', "").replace("\n", " ")
-            params["ResponseContentDisposition"] = f'inline; filename="{safe}"'
+            kind = "attachment" if attachment else "inline"
+            params["ResponseContentDisposition"] = f'{kind}; filename="{safe}"'
         try:
             return client.generate_presigned_url(
                 "get_object", Params=params, ExpiresIn=expires, HttpMethod="GET"
@@ -274,7 +279,7 @@ class LocalStorage(StorageBackend):
         url = f"{settings.api_v1_prefix}/files/{file_id}/blob?token={token}"
         return {"url": url, "headers": {"Content-Type": content_type}, "via_backend": True}
 
-    def generate_presigned_get(self, key, filename=None, expires=300):
+    def generate_presigned_get(self, key, filename=None, expires=300, attachment=False):
         # Local files are always stream-served; the redirect branch never runs.
         raise StorageError("Local backend serves files by streaming, not redirect.")
 
@@ -362,7 +367,7 @@ class MongoStorage(StorageBackend):
         url = f"{settings.api_v1_prefix}/files/{file_id}/blob?token={token}"
         return {"url": url, "headers": {"Content-Type": content_type}, "via_backend": True}
 
-    def generate_presigned_get(self, key, filename=None, expires=300):
+    def generate_presigned_get(self, key, filename=None, expires=300, attachment=False):
         raise StorageError("Mongo backend serves files by streaming, not redirect.")
 
     def _head_sync(self, key: str) -> dict:
@@ -449,8 +454,12 @@ def prepare_upload(file_id: str, key: str, content_type: str, size_bytes: int) -
     )
 
 
-def generate_presigned_get(key: str, filename: Optional[str] = None, expires: int = 300) -> str:
-    return _backend().generate_presigned_get(key, filename=filename, expires=expires)
+def generate_presigned_get(
+    key: str, filename: Optional[str] = None, expires: int = 300, attachment: bool = False
+) -> str:
+    return _backend().generate_presigned_get(
+        key, filename=filename, expires=expires, attachment=attachment
+    )
 
 
 async def head_object(key: str) -> dict:
