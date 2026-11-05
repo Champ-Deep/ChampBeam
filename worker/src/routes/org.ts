@@ -437,6 +437,10 @@ router.post("/assignments", async (c) => {
     .get();
   let assignment: Assignment;
   if (existing) {
+    // Same rule as withdraw: a non-admin may only refresh an assignment it authored.
+    if (!isOrgAdmin(user) && existing.assignedByUserId !== user.userId) {
+      httpError(403, "You can only update your own assignments.");
+    }
     const patch: Partial<Assignment> = { note: data.note ?? null };
     if (data.asset_title) patch.assetTitle = data.asset_title;
     await db.update(assignments).set(patch).where(eq(assignments.id, existing.id));

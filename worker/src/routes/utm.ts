@@ -187,6 +187,7 @@ function linkIdOr400(c: Ctx, detail: string): string {
 // Link generation (public endpoint, auth optional)
 // ============================================================================
 
+
 router.post("/generate", async (c) => {
   const user = await getCurrentUser(c);
   const data = await parseJson(c, GenerateLinkRequest);

@@ -15,7 +15,8 @@ describe("system endpoints (test_maxmind_usage.py)", () => {
 
     // a deployment that really does call MaxMind, so the balance is graded
     setSettings({ maxmindAccountId: "123456", maxmindLicenseKey: "test-key", maxmindWsConfigured: true });
-    const { headers } = await authedUser();
+    const { headers, user } = await authedUser();
+    setSettings({ systemAdminClerkIds: `user_other, ${user.clerkId}` });
     await recordLookup(getDb(env.DB), { queriesRemaining: 42, ok: true });
 
     const r = await api("/api/v1/system/maxmind", { headers });
@@ -37,12 +38,27 @@ describe("system endpoints (test_maxmind_usage.py)", () => {
 
   it("status reports off when the service is not configured", async () => {
     setSettings({ maxmindAccountId: "", maxmindLicenseKey: "", maxmindWsConfigured: false });
-    const { headers } = await authedUser();
+    const { headers, user } = await authedUser();
+    setSettings({ systemAdminClerkIds: user.clerkId! });
     const r = await api("/api/v1/system/status", { headers });
     expect(r.status).toBe(200);
     const body = await r.json<any>();
     expect(body.checks.maxmind.status).toBe("off");
     expect(body.checks.maxmind.configured).toBe(false);
     expect(body.ok).toBe(true);
+  });
+
+  it("platform vitals are for SYSTEM_ADMIN_CLERK_IDS only (any other signed-in user gets 403)", async () => {
+    const admin = await authedUser();
+    const other = await authedUser();
+    setSettings({ systemAdminClerkIds: admin.user.clerkId! });
+    for (const path of ["/api/v1/system/maxmind", "/api/v1/system/status"]) {
+      expect((await api(path, { headers: other.headers })).status).toBe(403);
+      expect((await api(path, { headers: admin.headers })).status).toBe(200);
+    }
+    expect(await (await api("/api/v1/system/access", { headers: other.headers })).json()).toEqual({ is_admin: false });
+    expect(await (await api("/api/v1/system/access", { headers: admin.headers })).json()).toEqual({ is_admin: true });
+    setSettings({ systemAdminClerkIds: "" });
+    expect((await api("/api/v1/system/status", { headers: admin.headers })).status).toBe(403);
   });
 });

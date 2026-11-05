@@ -8,7 +8,8 @@ import { Hono } from "hono";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx, Settings } from "../env";
-import { requireAuth } from "../auth/security";
+import { can, requireAuth, requirePermission, type TokenData } from "../auth/security";
+import { enforceLimit } from "../lib/ratelimit";
 import { isUniqueViolation } from "../db/client";
 import {
   DOMAIN_STATUS_ACTIVE,
@@ -109,15 +110,20 @@ function canonicalUuid(v: string): string | null {
   return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
 }
 
-async function getOwnedDomain(c: Ctx, userId: string): Promise<DomainRow> {
+async function getOwnedDomain(c: Ctx, user: TokenData): Promise<DomainRow> {
   const id = canonicalUuid(c.req.param("domain_id") ?? "");
   if (!id) httpError(400, "Invalid domain ID.");
   const d = await c.var.db
     .select()
     .from(domains)
-    .where(and(eq(domains.id, id), eq(domains.userId, userId)))
+    .where(and(eq(domains.id, id), eq(domains.userId, user.userId)))
     .get();
   if (!d) httpError(404, "Domain not found.");
+  // Once attached to an org the domain is the org's: mutating it takes an active admin seat in that org,
+  // not just having been the member who attached it.
+  if (d.organizationId && !(user.orgUuid === d.organizationId && can(user, "org.domains.manage"))) {
+    httpError(403, "This domain belongs to an organization; an admin of that organization must manage it.");
+  }
   return d;
 }
 
@@ -349,8 +355,12 @@ router.post("/check", async (c) => {
  * Each wiring step degrades gracefully to a pending status with instructions
  * rather than failing the purchase.
  */
+// Registration spends the operator's Cloudflare account money, so it is an org-admin action with a daily cap.
+// shortcut: one fixed cap per org; move to a per-plan entitlement if purchases become a paid feature.
+export const DOMAIN_PURCHASES_PER_DAY = 3;
+
 router.post("/purchase", async (c) => {
-  const user = await requireAuth(c);
+  const user = await requirePermission(c, "org.domains.manage");
   const data = await parseJson(c, DomainPurchaseRequest);
   const settings = c.var.settings;
 
@@ -363,6 +373,8 @@ router.post("/purchase", async (c) => {
   }
 
   if (await hostnameTaken(c, hostname)) httpError(409, "This hostname is already registered.");
+  await enforceLimit(c.env.DB, `domain_purchase:${user.orgId}`, DOMAIN_PURCHASES_PER_DAY, 86_400,
+    `Domain purchase limit reached (${DOMAIN_PURCHASES_PER_DAY} per day for this organization)`);
 
   // 1) Register the domain (real money — only fires when configured).
   const contacts = settings.cloudflareRegistrantEmail
@@ -431,7 +443,7 @@ router.post("/purchase", async (c) => {
 router.post("/:domain_id/refresh", async (c) => {
   const user = await requireAuth(c);
   const settings = c.var.settings;
-  const domain = await getOwnedDomain(c, user.userId);
+  const domain = await getOwnedDomain(c, user);
   if (domain.cfCustomHostnameId) await applyCfStatus(domain, settings);
   else await applyLocalStatus(domain, settings);
   await persistDomainStatus(c.var.db, domain);
@@ -441,7 +453,7 @@ router.post("/:domain_id/refresh", async (c) => {
 /** Mark this domain as the user's primary (used as default for new links). */
 router.post("/:domain_id/set-primary", async (c) => {
   const user = await requireAuth(c);
-  const domain = await getOwnedDomain(c, user.userId);
+  const domain = await getOwnedDomain(c, user);
   if (domain.status !== DOMAIN_STATUS_ACTIVE) httpError(400, "Only active domains can be set as primary.");
   const db = c.var.db;
   await db.batch([
@@ -458,7 +470,7 @@ router.delete("/:domain_id", async (c) => {
   const { force } = parseQuery(c, z.object({ force: qBool(false) }));
   const settings = c.var.settings;
   const db = c.var.db;
-  const domain = await getOwnedDomain(c, user.userId);
+  const domain = await getOwnedDomain(c, user);
 
   if (!force) {
     const row = await db.select({ n: count() }).from(linkClicks).where(eq(linkClicks.domainId, domain.id)).get();
@@ -466,6 +478,20 @@ router.delete("/:domain_id", async (c) => {
     if (n > 0) {
       httpError(409, `${n} link(s) still use this domain. Pass force=true to delete anyway.`);
     }
+  }
+
+  // Deleting sets domain_id NULL on its links/files (FK SET NULL), moving their codes into the platform
+  // namespace. Refuse up front on a collision there, before the Cloudflare hostname is destroyed.
+  const clash = await c.env.DB.prepare(
+    `SELECT 1 FROM file_assets d JOIN file_assets g ON g.domain_id IS NULL AND (g.short_code = d.short_code OR (d.slug IS NOT NULL AND g.slug = d.slug))
+       WHERE d.domain_id = ?1
+     UNION ALL
+     SELECT 1 FROM link_clicks d JOIN link_clicks g ON g.domain_id IS NULL AND g.short_code = d.short_code
+       WHERE d.domain_id = ?1 AND d.short_code IS NOT NULL
+     LIMIT 1`,
+  ).bind(domain.id).first();
+  if (clash) {
+    httpError(409, "A link or page code on this domain is already used on the main domain. Rename or delete it, then delete the domain.");
   }
 
   if (domain.cfCustomHostnameId) {

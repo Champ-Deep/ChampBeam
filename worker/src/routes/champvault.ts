@@ -16,6 +16,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { type TokenData, requireAuth } from "../auth/security";
+import { assertCanShare } from "../services/domains";
 import { chunk, type Db } from "../db/client";
 import { champvaultFavorites, linkClicks } from "../db/schema";
 import { HTTPError, httpError } from "../lib/errors";
@@ -204,6 +205,7 @@ router.get("/assets/:asset_id", async (c) => {
  */
 router.post("/assets/:asset_id/beam", async (c) => {
   const user = await requireAuth(c);
+  assertCanShare(user);
   const data = await parseJson(c, BeamRequest);
   const assetId = c.req.param("asset_id");
   const db = c.var.db;

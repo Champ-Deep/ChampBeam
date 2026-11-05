@@ -8,12 +8,26 @@
  */
 import { Hono } from "hono";
 import { z } from "zod";
-import { requireAuth } from "../auth/security";
-import type { AppEnv } from "../env";
+import { requireAuth, type TokenData } from "../auth/security";
+import type { AppEnv, Ctx } from "../env";
+import { httpError } from "../lib/errors";
 import { parseQuery, qInt } from "../lib/validate";
 import { usageSummary } from "../services/maxmindUsage";
 
 export const router = new Hono<AppEnv>({ strict: false });
+
+const isSystemAdmin = (c: Ctx, u: TokenData): boolean =>
+  !!u.clerkUserId && c.var.settings.systemAdminClerkIds.split(",").map((s) => s.trim()).includes(u.clerkUserId);
+
+/** Port of require_system_admin: platform vitals are for operators listed in SYSTEM_ADMIN_CLERK_IDS only. */
+async function requireSystemAdmin(c: Ctx): Promise<TokenData> {
+  const u = await requireAuth(c);
+  if (!isSystemAdmin(c, u)) httpError(403, "System access requires a platform admin");
+  return u;
+}
+
+/** The SPA asks this to decide whether to show the System settings tab. */
+router.get("/access", async (c) => c.json({ is_admin: isSystemAdmin(c, await requireAuth(c)) }));
 
 /**
  * MaxMind GeoIP2 credit balance, burn rate, projected exhaustion and spend.
@@ -21,7 +35,7 @@ export const router = new Hono<AppEnv>({ strict: false });
  * web-service response — it costs no extra query to read.
  */
 router.get("/maxmind", async (c) => {
-  await requireAuth(c);
+  await requireSystemAdmin(c);
   const { days } = parseQuery(c, z.object({ days: qInt(30, { ge: 1, le: 365 }) }));
   return c.json(await usageSummary(c.var.db, c.var.settings, { days }));
 });
@@ -31,7 +45,7 @@ router.get("/maxmind", async (c) => {
  * dependency. `ok` is false when anything needs a human.
  */
 router.get("/status", async (c) => {
-  await requireAuth(c);
+  await requireSystemAdmin(c);
   const checks: Record<string, Record<string, unknown>> = {};
 
   try {

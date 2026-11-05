@@ -117,32 +117,48 @@ describe("serving", () => {
 
     const full = await api(`/f/${f.shortCode}`);
     expect(full.status).toBe(200);
+    // A browser's player sends its visitor cookie back on the follow-up Range requests.
+    const Cookie = (full.headers.get("set-cookie") ?? "").split(";")[0];
+    expect(Cookie).toMatch(/^cb_vid=/);
     expect(full.headers.get("accept-ranges")).toBe("bytes");
     expect(full.headers.get("content-length")).toBe("1000");
     expect(new Uint8Array(await full.arrayBuffer())).toEqual(bytes);
 
-    const first = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=0-99" } });
+    const first = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=0-99", Cookie } });
     expect(first.status).toBe(206);
     expect(first.headers.get("content-range")).toBe("bytes 0-99/1000");
     expect(first.headers.get("content-length")).toBe("100");
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(bytes.slice(0, 100));
 
-    const seek = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=900-" } });
+    const seek = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=900-", Cookie } });
     expect(seek.status).toBe(206);
     expect(seek.headers.get("content-range")).toBe("bytes 900-999/1000");
     expect(new Uint8Array(await seek.arrayBuffer())).toEqual(bytes.slice(900));
 
-    const suffix = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=-10" } });
+    const suffix = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=-10", Cookie } });
     expect(suffix.status).toBe(206);
     expect(suffix.headers.get("content-range")).toBe("bytes 990-999/1000");
 
-    const bad = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=5000-" } });
+    const bad = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=5000-", Cookie } });
     expect(bad.status).toBe(416);
     expect(bad.headers.get("content-range")).toBe("bytes */1000");
     await bad.arrayBuffer();
 
     // Seeks don't count as new views: full + bytes=0-99 counted, the rest not.
     expect((await row("SELECT view_count FROM file_assets WHERE id = ?", f.id))!.view_count).toBe(2);
+  });
+
+  it("a seek-shaped Range from a client with no counted view still counts toward max_views", async () => {
+    const uid = await newUser();
+    const bytes = new Uint8Array(1000).map((_, i) => i % 256);
+    const f = await seedFile(uid, { kind: "video", mime: "video/mp4", filename: "once.mp4", body: bytes, max_views: 1 });
+    const first = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=1-" } });
+    expect(first.status).toBe(206);
+    expect((await row("SELECT view_count FROM file_assets WHERE id = ?", f.id))!.view_count).toBe(1);
+    // the cap is reached: another fresh client gets the blocked page, not the bytes
+    const second = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=1-" } });
+    expect(second.status).not.toBe(206);
+    expect(await second.text()).not.toContain(String.fromCharCode(1, 2, 3));
   });
 
   it("missing blob -> 502", async () => {

@@ -277,7 +277,7 @@ async function publish(
     inserted = rows;
   } catch (err) {
     if (isUniqueViolation(err)) {
-      background(c, () => deleteBlobQuiet(c.env.FILES, key));
+      background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB));
       httpError(409, "That slug is already taken.");
     }
     throw err;
@@ -401,7 +401,7 @@ router.delete("/:page_id", async (c) => {
     db.delete(fileVersions).where(eq(fileVersions.fileId, asset.id)),
     db.update(fileAssets).set({ status: FILE_STATUS_DELETED }).where(eq(fileAssets.id, asset.id)),
   ]);
-  for (const key of keys) background(c, () => deleteBlobQuiet(c.env.FILES, key), "delete page blob");
+  for (const key of keys) background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB), "delete page blob");
   return c.body(null, 204);
 });
 
@@ -435,7 +435,7 @@ router.put("/:page_id", async (c) => {
     { storageKey: newKey, sizeBytes: payload.length, sha256: await sha256Hex(payload), filename },
     { keep: settings.pagesVersionsKeep, snapshot: true },
   );
-  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key), "prune version blob");
+  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB), "prune version blob");
   return c.json(await pageResponse(c, asset));
 });
 
@@ -468,7 +468,10 @@ router.patch("/:page_id", async (c) => {
     updates.htmlSandbox = asset.htmlSandbox = data.html_sandbox ? 1 : 0;
   }
   if (fields.has("access_code")) {
+    const before = asset.accessCodeHash;
     updates.accessCodeHash = await setAccessCode(c.var.settings, asset, data.access_code);
+    // A new or changed code must also end Beam State access for anyone who read the token before it.
+    if (updates.accessCodeHash && updates.accessCodeHash !== before) updates.stateToken = asset.stateToken = null;
   }
 
   if (Object.keys(updates).length) {
@@ -554,7 +557,7 @@ router.post("/:page_id/versions/:version_no/rollback", async (c) => {
     },
     { keep: settings.pagesVersionsKeep },
   );
-  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key), "prune version blob");
+  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB), "prune version blob");
   return c.json(await pageResponse(c, asset));
 });
 

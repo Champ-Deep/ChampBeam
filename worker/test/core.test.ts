@@ -71,6 +71,13 @@ describe("auth", () => {
     expect(row?.email).toBe("jwt1@example.com");
   });
 
+  it("a deactivated user's still-valid Clerk JWT is a 401 (same rule as API keys)", async () => {
+    const token = await clerkToken({ sub: "user_jwt_off", email: "off@example.com" });
+    expect((await api("/api/v1/auth/me", { headers: bearer(token) })).status).toBe(200);
+    await env.DB.prepare("UPDATE users SET is_active = 0 WHERE clerk_id = 'user_jwt_off'").run();
+    expect((await api("/api/v1/auth/me", { headers: bearer(token) })).status).toBe(401);
+  });
+
   it("a tampered or expired JWT is a 401", async () => {
     const token = await clerkToken({ sub: "user_jwt2" });
     const tampered = token.slice(0, -4) + (token.endsWith("AAAA") ? "BBBB" : "AAAA");

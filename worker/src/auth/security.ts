@@ -171,6 +171,8 @@ async function resolveUser(c: Ctx, payload: Record<string, unknown>): Promise<To
   let [orgId, orgRole, orgSlug] = extractOrgClaims(payload);
   const tokenEmail = typeof payload.email === "string" ? payload.email : null;
   const user = await userService.getOrCreateByClerkId(db, clerkUserId);
+  // Same rule as the API-key and service-key paths: a deactivated account has no session.
+  if (user.isActive === false) throw new HTTPError(401, "Account is deactivated");
   await maybeBackfillIdentity(c, user, tokenEmail);
   let orgUuid: string | null = null;
   if (orgId) {

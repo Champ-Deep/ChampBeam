@@ -244,15 +244,15 @@ async function serveAsset(c: Ctx, asset: FileAsset, domain: Domain | null): Prom
 
   // A video player's follow-up Range requests (seeks, resumes) belong to the
   // view already counted by its first request; don't count each one.
+  // The skip is bound to a view this visitor already has on record, so a bare seek-shaped Range header
+  // from a fresh client cannot read the bytes without counting toward max_views.
   const rangeHeader = c.req.header("range");
-  const countView = !isContinuationRange(rangeHeader);
+  const last = isNewVisitor ? null : await lastFileViewAt(db, asset.id, visitorId);
+  const countView = !(isContinuationRange(rangeHeader) && last !== null);
 
   if (countView) {
     let isRevisit = false;
-    if (!isNewVisitor) {
-      const last = await lastFileViewAt(db, asset.id, visitorId);
-      if (last !== null) isRevisit = diffSeconds(last, nowIso()) >= settings.pagesRevisitWindowS;
-    }
+    if (last !== null) isRevisit = diffSeconds(last, nowIso()) >= settings.pagesRevisitWindowS;
 
     // Beam State: hosted pages get a page-scoped public token (minted lazily,
     // persisted) that the injected helper uses.

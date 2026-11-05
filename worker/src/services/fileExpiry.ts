@@ -17,11 +17,13 @@ import { and, eq, inArray, isNotNull, lt, ne } from "drizzle-orm";
 import type { Env, Settings } from "../env";
 import type { Db } from "../db/client";
 import { FILE_STATUS_DELETED, fileAssets } from "../db/schema";
-import { deleteObject } from "../lib/storage";
+import { blobStillReferenced, deleteObject } from "../lib/storage";
 import { nowIso } from "../lib/time";
 
-async function deleteBlob(bucket: R2Bucket, storageKey: string): Promise<void> {
+async function deleteBlob(bucket: R2Bucket, db: Db, storageKey: string): Promise<void> {
   try {
+    // A content-share copy (or its master) may still use the same object: keep it until the last live row goes.
+    if (await blobStillReferenced(db.$client, storageKey)) return;
     await deleteObject(bucket, storageKey);
   } catch (err) {
     console.error(`file expiry: blob delete failed for key=${storageKey}`, err);
@@ -37,7 +39,7 @@ export async function expireAsset(bucket: R2Bucket, db: Db, fileId: string): Pro
     .where(and(eq(fileAssets.id, fileId), ne(fileAssets.status, FILE_STATUS_DELETED)))
     .returning({ storageKey: fileAssets.storageKey });
   if (!rows.length) return;
-  await deleteBlob(bucket, rows[0].storageKey);
+  await deleteBlob(bucket, db, rows[0].storageKey);
 }
 
 /** Delete a batch of expired files. Returns the number swept. */
@@ -55,7 +57,7 @@ export async function sweepExpired(bucket: R2Bucket, db: Db, limit = 200): Promi
     .set({ status: FILE_STATUS_DELETED })
     .where(and(inArray(fileAssets.id, due), ne(fileAssets.status, FILE_STATUS_DELETED)))
     .returning({ storageKey: fileAssets.storageKey });
-  for (const { storageKey } of rows) await deleteBlob(bucket, storageKey);
+  for (const { storageKey } of rows) await deleteBlob(bucket, db, storageKey);
   return rows.length;
 }
 

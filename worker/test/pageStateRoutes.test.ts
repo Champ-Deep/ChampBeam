@@ -7,7 +7,7 @@
  * is applied as the row change it makes.
  */
 import { describe, expect, it } from "vitest";
-import { api, env } from "./helpers";
+import { api, apiKeyHeaders, createApiKey, env } from "./helpers";
 import { MAX_COMMENTS_PER_PAGE, MAX_KEYS_PER_PAGE } from "../src/services/pageState";
 import { iso, newUser, rows, seedPage } from "./serveSeed";
 
@@ -163,5 +163,16 @@ describe("Beam State API (test_beam_state.py)", () => {
     await env.DB.prepare("UPDATE file_assets SET state_token = 'rotated-token-value' WHERE id = ?").bind(id).run();
     expect((await send("GET", `/api/pages/${slug}/state`, token)).status).toBe(401);
     expect((await send("GET", `/api/pages/${slug}/state`, "rotated-token-value")).status).toBe(200);
+  });
+
+  it("setting or changing a page's access code revokes the Beam State token earlier viewers hold", async () => {
+    const { slug, token, id } = await page();
+    expect((await send("GET", `/api/pages/${slug}/state`, token)).status).toBe(200);
+    const [{ user_id }] = await rows("SELECT user_id FROM file_assets WHERE id = ?", id);
+    const headers = apiKeyHeaders(await createApiKey(user_id));
+    const r = await api(`/api/v1/pages/${id}`, { method: "PATCH", json: { access_code: "4821" }, headers });
+    expect(r.status, await r.clone().text()).toBe(200);
+    expect((await send("GET", `/api/pages/${slug}/state`, token)).status).toBe(401);
+    expect(await rows("SELECT state_token FROM file_assets WHERE id = ?", id)).toEqual([{ state_token: null }]);
   });
 });

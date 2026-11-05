@@ -17,6 +17,7 @@
 import { AwsClient } from "aws4fetch";
 import type { Settings } from "../env";
 import { hmacSha256Hex, timingSafeEqual } from "./crypto";
+import { FILE_STATUS_DELETED } from "../db/schema";
 
 export class StorageError extends Error {
   constructor(message: string) {
@@ -127,6 +128,23 @@ export async function headObject(
   const obj = await bucket.head(key);
   if (!obj) throw new StorageError(`Object not found: ${key}`);
   return { size: obj.size, etag: obj.etag ?? null, content_type: obj.httpMetadata?.contentType ?? null };
+}
+
+/**
+ * True while a live asset or a live asset's version still points at `key`. Content-share copies clone
+ * their master's storage_key, so one R2 object can back several rows (services/content.ts mintShare).
+ */
+export async function blobStillReferenced(d1: D1Database, key: string): Promise<boolean> {
+  const row = await d1
+    .prepare(
+      `SELECT 1 FROM file_assets WHERE storage_key = ?1 AND status != '${FILE_STATUS_DELETED}'
+       UNION ALL
+       SELECT 1 FROM file_versions v JOIN file_assets f ON f.id = v.file_id WHERE v.storage_key = ?1 AND f.status != '${FILE_STATUS_DELETED}'
+       LIMIT 1`,
+    )
+    .bind(key)
+    .first();
+  return row !== null;
 }
 
 export async function deleteObject(bucket: R2Bucket, key: string): Promise<void> {

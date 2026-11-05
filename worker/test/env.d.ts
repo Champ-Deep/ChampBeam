@@ -6,3 +6,9 @@ declare namespace Cloudflare {
     TEST_MIGRATIONS: import("cloudflare:test").D1Migration[];
   }
 }
+
+/** Vite `?raw` imports (test fixtures read SQL and text files). */
+declare module "*?raw" {
+  const text: string;
+  export default text;
+}

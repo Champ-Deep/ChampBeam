@@ -9,12 +9,13 @@
 --
 -- Content moves only when its owner is a member of the org and existed before the cutoff, so
 -- personal content from accounts created after the switch stays personal (organization_id NULL).
+-- Revoked (tombstoned) memberships do not count: a removed member's personal content stays personal.
 
 UPDATE file_assets SET organization_id = (SELECT id FROM organizations WHERE clerk_org_id = ':org_id')
 WHERE organization_id IS NULL
   AND EXISTS (SELECT 1 FROM organizations WHERE clerk_org_id = ':org_id')
   AND user_id IN (SELECT u.id FROM users u
-                  JOIN organization_memberships m ON m.user_id = u.id
+                  JOIN organization_memberships m ON m.user_id = u.id AND m.status = 'active'
                   JOIN organizations o ON o.id = m.organization_id AND o.clerk_org_id = ':org_id'
                   WHERE u.created_at < ':before');
 
@@ -22,7 +23,7 @@ UPDATE link_clicks SET organization_id = (SELECT id FROM organizations WHERE cle
 WHERE organization_id IS NULL
   AND EXISTS (SELECT 1 FROM organizations WHERE clerk_org_id = ':org_id')
   AND user_id IN (SELECT u.id FROM users u
-                  JOIN organization_memberships m ON m.user_id = u.id
+                  JOIN organization_memberships m ON m.user_id = u.id AND m.status = 'active'
                   JOIN organizations o ON o.id = m.organization_id AND o.clerk_org_id = ':org_id'
                   WHERE u.created_at < ':before');
 

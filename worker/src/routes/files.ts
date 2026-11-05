@@ -400,7 +400,7 @@ router.put("/:file_id/content", async (c) => {
     httpError(502, `Storage error: ${(err as Error).message}`);
   }
   if (written <= 0) {
-    background(c, () => deleteBlobQuiet(c.env.FILES, newKey));
+    background(c, () => deleteBlobQuiet(c.env.FILES, newKey, c.env.DB));
     httpError(400, "Empty request body.");
   }
 
@@ -413,11 +413,13 @@ router.put("/:file_id/content", async (c) => {
     sizeBytes: written,
     sha256: null,
     serveMode: serveModeFor(c, kind),
+    // Content that only now becomes HTML is new HTML: it gets the sandbox like any create path (F2).
+    ...(kind === FILE_KIND_HTML && asset.kind !== FILE_KIND_HTML && settings.htmlSandbox ? { htmlSandbox: 1 } : {}),
   };
   await db.update(fileAssets).set(updates).where(eq(fileAssets.id, asset.id));
   Object.assign(asset, updates);
 
-  if (oldKey !== newKey) background(c, () => deleteBlobQuiet(c.env.FILES, oldKey), "replace_content cleanup");
+  if (oldKey !== newKey) background(c, () => deleteBlobQuiet(c.env.FILES, oldKey, c.env.DB), "replace_content cleanup");
   background(c, () => computeSha256Async(c.env.FILES, db, asset.id, newKey), "sha256");
   return c.json(await fileResponse(db, settings, asset));
 });
@@ -693,6 +695,6 @@ router.delete("/:file_id", async (c) => {
     .get();
   if (!asset) httpError(404, "File not found.");
   await c.var.db.update(fileAssets).set({ status: FILE_STATUS_DELETED }).where(eq(fileAssets.id, asset.id));
-  background(c, () => deleteBlobQuiet(c.env.FILES, asset.storageKey), "delete_object");
+  background(c, () => deleteBlobQuiet(c.env.FILES, asset.storageKey, c.env.DB), "delete_object");
   return c.body(null, 204);
 });

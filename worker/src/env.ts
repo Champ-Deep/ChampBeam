@@ -117,6 +117,8 @@ export function buildSettings(env: Env) {
     provisionerToken: str(env, "PROVISIONER_TOKEN"),
 
     serviceApiKeys: str(env, "SERVICE_API_KEYS"),
+    /** Clerk user ids allowed on /api/v1/system (comma separated). Empty = nobody. */
+    systemAdminClerkIds: str(env, "SYSTEM_ADMIN_CLERK_IDS"),
 
     /** Signed "link opened" webhook for contact-bound links. Both must be set, else it is off. */
     openWebhookUrl: str(env, "OPEN_WEBHOOK_URL"),

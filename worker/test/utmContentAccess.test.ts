@@ -134,6 +134,14 @@ describe("access control", () => {
     expect(ac.codeCookieName("x.y")).toBe("cbcode_xy");
   });
 
+  it("access codes fail closed without a server secret (no public fallback key)", async () => {
+    const bare = buildSettings({ ...(env as unknown as Env), STORAGE_UPLOAD_SECRET: "", CLERK_SECRET_KEY: "" } as Env);
+    expect(bare.resolvedUploadSecret).toBe("");
+    const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null };
+    await expect(ac.setAccessCode(bare, asset, "4821")).rejects.toMatchObject({ status: 503 });
+    await expect(ac.verifyAccessCode(bare, { ...asset, accessCodeHash: "a".repeat(64) }, "4821")).rejects.toMatchObject({ status: 503 });
+  });
+
   it("access codes: validate, hash, verify, cookie", async () => {
     const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null, shortCode: "pg1" };
     await expect(ac.setAccessCode(settings, asset, "12a4")).rejects.toMatchObject({ status: 422, detail: "Access code must be 4–8 digits." });
@@ -165,6 +173,19 @@ describe("access control", () => {
   it("codeAttemptLimited fails closed when the counter store errors", async () => {
     const broken = { prepare: () => { throw new Error("D1_ERROR: down"); } } as unknown as D1Database;
     expect(await ac.codeAttemptLimited(broken, "1.2.3.4", crypto.randomUUID())).toBe(true);
+  });
+
+  it("codeAttemptLimited: IPv6 counts per /64, and a page-wide ceiling stops address rotation", async () => {
+    const page = crypto.randomUUID();
+    for (let i = 0; i < 5; i++) expect(await ac.codeAttemptLimited(env.DB, `2001:db8:1:2::${i + 1}`, page)).toBe(false);
+    expect(await ac.codeAttemptLimited(env.DB, "2001:0db8:0001:0002:ffff::9", page)).toBe(true); // same /64
+    expect(ac.ipBucket("2001:db8:1:2::1")).toBe(ac.ipBucket("2001:0db8:0001:0002:abcd:0:0:1"));
+
+    const p2 = crypto.randomUUID();
+    const out: boolean[] = [];
+    for (let i = 0; i < ac.CODE_PAGE_ATTEMPTS_PER_WINDOW + 1; i++) out.push(await ac.codeAttemptLimited(env.DB, `10.0.${i >> 8}.${i & 255}`, p2));
+    expect(out.slice(0, -1).every((x) => !x)).toBe(true);
+    expect(out.at(-1)).toBe(true);
   });
 
   it("captureLead stores a trimmed email", async () => {

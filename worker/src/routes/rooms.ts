@@ -13,7 +13,7 @@ import { Hono } from "hono";
 import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv } from "../env";
-import { requireOrgMember } from "../auth/security";
+import { requireOrgMember, requirePermission } from "../auth/security";
 import type { Db } from "../db/client";
 import { ROOM_ARCHIVED, ROOM_PUBLISHED, roomEvents, roomLinks, roomRecipients, rooms } from "../db/schema";
 import { clientIp } from "../lib/accessControl";
@@ -112,7 +112,7 @@ async function linkByToken(db: Db, token: string): Promise<RoomLink | null> {
 // ============================================================================
 
 router.post("/", async (c) => {
-  const user = await requireOrgMember(c);
+  const user = await requirePermission(c, "share.create");
   const data = await parseJson(c, RoomCreate);
   const db = c.var.db;
   const orgUuid = await orgUuidForUser(db, user);
@@ -236,7 +236,7 @@ router.get("/:room_id", async (c) => {
 });
 
 router.patch("/:room_id", async (c) => {
-  const user = await requireOrgMember(c);
+  const user = await requirePermission(c, "share.create");
   const data = await parseJson(c, RoomUpdate);
   const db = c.var.db;
   const room = await getOrgRoom(db, c.req.param("room_id"), await orgUuidForUser(db, user));
@@ -254,7 +254,7 @@ router.patch("/:room_id", async (c) => {
 });
 
 router.post("/:room_id/publish", async (c) => {
-  const user = await requireOrgMember(c);
+  const user = await requirePermission(c, "share.create");
   const db = c.var.db;
   const room = await getOrgRoom(db, c.req.param("room_id"), await orgUuidForUser(db, user));
   await publishRoom(db, room);
@@ -266,7 +266,7 @@ router.post("/:room_id/publish", async (c) => {
  * "this briefing has ended" state instead of the content (never a 404).
  */
 router.post("/:room_id/archive", async (c) => {
-  const user = await requireOrgMember(c);
+  const user = await requirePermission(c, "share.create");
   const db = c.var.db;
   const room = await getOrgRoom(db, c.req.param("room_id"), await orgUuidForUser(db, user));
   const updatedAt = nowIso();
@@ -277,7 +277,7 @@ router.post("/:room_id/archive", async (c) => {
 });
 
 router.post("/:room_id/recipients", async (c) => {
-  const user = await requireOrgMember(c);
+  const user = await requirePermission(c, "share.create");
   const data = await parseJson(c, RecipientCreate);
   const db = c.var.db;
   const room = await getOrgRoom(db, c.req.param("room_id"), await orgUuidForUser(db, user));
@@ -307,7 +307,7 @@ router.post("/:room_id/recipients", async (c) => {
  * anonymous/forwarded-viewer signal.
  */
 router.get("/:room_id/analytics", async (c) => {
-  const user = await requireOrgMember(c);
+  const user = await requirePermission(c, "report.own");
   const db = c.var.db;
   const room = await getOrgRoom(db, c.req.param("room_id"), await orgUuidForUser(db, user));
 

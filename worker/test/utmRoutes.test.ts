@@ -180,6 +180,19 @@ describe("link management", () => {
     expect(left!.n).toBe(0);
   });
 
+  it("a link cannot be bound to another user's project (generate or patch)", async () => {
+    const victim = await authedUser();
+    const { user, headers } = await authedUser();
+    const theirs = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO projects (id, user_id, name, created_at) VALUES (?,?,?,?)").bind(theirs, victim.user.id, "Theirs", iso()).run();
+    const linkId = await seedLink(user.id);
+    expect((await api(`${U}/links/${linkId}`, { method: "PATCH", headers, json: { project_id: theirs } })).status).toBe(404);
+    const gen = await api(`${U}/generate`, { method: "POST", headers, json: { base_url: "https://example.com/x", utm_source: "s", utm_medium: "m", utm_campaign: "c", project_id: theirs } });
+    expect(gen.status).toBe(404);
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM link_clicks WHERE project_id = ?").bind(theirs).first<{ n: number }>();
+    expect(n!.n).toBe(0);
+  });
+
   it("patch reassigns / clears the project", async () => {
     const { user, headers } = await authedUser();
     const projectId = crypto.randomUUID();

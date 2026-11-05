@@ -116,7 +116,9 @@ export const CODE_ATTEMPTS_PER_WINDOW = 5;
 export const CODE_WINDOW_SECONDS = 600;
 
 function codeSecret(settings: Settings): string {
-  return settings.resolvedUploadSecret || settings.storageUploadSecret || settings.clerkSecretKey || "champbeam-access-code";
+  // Fail closed: a public fallback key would make every stored code recoverable offline from a DB read.
+  if (!settings.resolvedUploadSecret) httpError(503, "Access codes are not configured on this server.");
+  return settings.resolvedUploadSecret;
 }
 
 export function hashAccessCode(settings: Settings, pageId: string, code: string): Promise<string> {
@@ -168,9 +170,27 @@ export async function hasCodeCookie(c: Context, asset: CodeAsset & { shortCode: 
   return getCookie(c, codeCookieName(asset.shortCode)) === (await codeCookieValue(asset));
 }
 
-/** True when this IP has exhausted its attempts for this page. Fails closed: a 4-digit code cannot go unlimited. */
+/** Attempts per page per window from ALL sources: the per-IP limit alone falls to address rotation. */
+export const CODE_PAGE_ATTEMPTS_PER_WINDOW = 50;
+
+/** IPv6 sources count per /64 (one subscriber usually holds a whole /64); IPv4 as is. */
+export function ipBucket(ip: string | null): string {
+  if (!ip) return "-";
+  if (!ip.includes(":")) return ip;
+  const [head, tail = ""] = ip.toLowerCase().split("::");
+  const h = head.split(":").filter(Boolean);
+  const t = tail.split(":").filter(Boolean);
+  const full = [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return full.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+/**
+ * True when this source (or the page as a whole) has exhausted its attempts (fails closed: a counter error refuses the attempt).
+ * The page-wide ceiling lets an attacker lock the gate for one window: the accepted trade for a guessable code.
+ */
 export async function codeAttemptLimited(d1: D1Database, ip: string | null, pageId: string): Promise<boolean> {
   const window = windowIndex(CODE_WINDOW_SECONDS);
-  const count = await incrWithTtl(d1, `code_rl:${pageId}:${ip || "-"}:${window}`, CODE_WINDOW_SECONDS);
-  return count === null || count > CODE_ATTEMPTS_PER_WINDOW;
+  const perIp = await incrWithTtl(d1, `code_rl:${pageId}:${ipBucket(ip)}:${window}`, CODE_WINDOW_SECONDS);
+  const perPage = await incrWithTtl(d1, `code_rl_page:${pageId}:${window}`, CODE_WINDOW_SECONDS);
+  return perIp === null || perIp > CODE_ATTEMPTS_PER_WINDOW || perPage === null || perPage > CODE_PAGE_ATTEMPTS_PER_WINDOW;
 }
