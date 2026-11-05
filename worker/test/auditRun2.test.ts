@@ -3,7 +3,7 @@
  * platform-served hosts cannot be claimed as custom domains, and a removed or viewer-demoted owner
  * cannot keep editing content that sits on the org's domain.
  */
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { api, env, json } from "./helpers";
 import { member, newOrgId, setSettings, useRouteTestHooks } from "./orgTestUtils";
 import { seedFile } from "./serveSeed";
@@ -68,4 +68,40 @@ it("a shared UTM preset is listed to the owner's org, not to other tenants", asy
   const names = async (h: Record<string, string>) => (await json<any[]>(await api("/api/v1/utm/presets", { headers: h }))).map((p) => p.name);
   expect(await names(mate.headers)).toContain(name);
   expect(await names(outsider.headers)).not.toContain(name);
+});
+
+describe("namespace moves respect retired slugs (slug_aliases)", () => {
+  async function setup() {
+    setSettings({ platformSubdomainBase: "slugs.test" });
+    const victim = await member(newOrgId(), "member");
+    const mover = await member(newOrgId(), "member");
+    const base = `s-${crypto.randomUUID().slice(0, 6)}`;
+    const publish = async (h: Record<string, string>, slug: string, domain_id: string | null = null) => {
+      const r = await api("/api/v1/pages", { method: "POST", json: { html: HTML, title: "P", slug, domain_id }, headers: h });
+      expect(r.status, await r.clone().text()).toBe(201);
+      return json(r);
+    };
+    // The victim's platform page used to live at /<base>: that slug is retired and still belongs to it.
+    const v = await publish(victim.headers, base);
+    expect((await api(`/api/v1/pages/${v.page_id}`, { method: "PATCH", json: { slug: `${base}-new` }, headers: victim.headers })).status).toBe(200);
+    const d = await json(await api("/api/v1/domains", { method: "POST", json: { hostname: `m-${crypto.randomUUID().slice(0, 6)}.slugs.test` }, headers: mover.headers }));
+    return { base, victim, mover, d, publish };
+  }
+
+  it("moving a page onto the platform namespace cannot take another page's retired slug", async () => {
+    const s = await setup();
+    const p = await s.publish(s.mover.headers, s.base, s.d.id);
+    expect((await api(`/api/v1/pages/${p.page_id}`, { method: "PATCH", json: { domain_id: null }, headers: s.mover.headers })).status).toBe(409);
+    // Deleting the domain would move it there too: refused before anything is destroyed.
+    expect((await api(`/api/v1/domains/${s.d.id}?force=true`, { method: "DELETE", headers: s.mover.headers })).status).toBe(409);
+  });
+
+  it("a move plus slug change retires the old slug in the namespace it lived in", async () => {
+    const s = await setup();
+    const p = await s.publish(s.mover.headers, `keep-${s.base}`, s.d.id);
+    const r = await api(`/api/v1/pages/${p.page_id}`, { method: "PATCH", json: { domain_id: null, slug: `moved-${s.base}` }, headers: s.mover.headers });
+    expect(r.status, await r.clone().text()).toBe(200);
+    const alias = await q("SELECT domain_id FROM slug_aliases WHERE file_id = ? AND slug = ?", p.page_id, `keep-${s.base}`);
+    expect(alias!.domain_id).toBe(s.d.id);
+  });
 });

@@ -447,16 +447,25 @@ router.patch("/:page_id", async (c) => {
   const db = c.var.db;
   const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const updates: Partial<typeof fileAssets.$inferInsert> = {};
+  const fromDomainId = asset.domainId ?? null;
 
   if (fields.has("domain_id")) {
     updates.domainId = asset.domainId = await resolveDomainId(c, user, data.domain_id);
+    // A move into another namespace must not take a slug retired there by another page (the unique
+    // indexes do not see slug_aliases); a slug change in the same request is checked below instead.
+    const keepsSlug = !(fields.has("slug") && data.slug != null);
+    if (keepsSlug && asset.slug && (asset.domainId ?? null) !== fromDomainId &&
+        (await pagesService.slugTaken(db, asset.slug, asset.domainId ?? null, { excludeId: asset.id }))) {
+      httpError(409, "That slug is already taken.");
+    }
   }
   if (fields.has("slug") && data.slug != null) {
     const slug = pagesService.validateSlug(data.slug);
     if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id })) {
       httpError(409, "That slug is already taken.");
     }
-    if (slug !== asset.slug) await pagesService.retireSlug(db, asset);
+    // Retire the old slug where it actually lived, not in the namespace the page is moving to.
+    if (slug !== asset.slug) await pagesService.retireSlug(db, { ...asset, domainId: fromDomainId });
     updates.slug = asset.slug = slug;
   }
   if (fields.has("title") && data.title) {

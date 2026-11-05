@@ -508,6 +508,9 @@ router.delete("/:domain_id", async (c) => {
     `SELECT 1 FROM file_assets d JOIN file_assets g ON g.domain_id IS NULL AND (g.short_code = d.short_code OR (d.slug IS NOT NULL AND g.slug = d.slug))
        WHERE d.domain_id = ?1
      UNION ALL
+     SELECT 1 FROM file_assets d JOIN slug_aliases a ON a.domain_id IS NULL AND a.slug = d.slug AND a.file_id <> d.id
+       WHERE d.domain_id = ?1 AND d.slug IS NOT NULL
+     UNION ALL
      SELECT 1 FROM link_clicks d JOIN link_clicks g ON g.domain_id IS NULL AND g.short_code = d.short_code
        WHERE d.domain_id = ?1 AND d.short_code IS NOT NULL
      LIMIT 1`,
