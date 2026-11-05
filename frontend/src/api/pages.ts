@@ -283,4 +283,23 @@ export const pagesApi = {
   },
 };
 
+/**
+ * True when the page ends up gated (or no code was asked for). A backend that dropped the code on
+ * create gets a follow-up patch; if that fails the page is disabled so it is never live ungated.
+ */
+export async function ensureGated(
+  page: Pick<BeamPage, 'page_id' | 'has_access_code'>,
+  code: string,
+  patch: (pageId: string, data: PagePatch) => Promise<unknown>,
+): Promise<boolean> {
+  if (!code || page.has_access_code) return true;
+  try {
+    await patch(page.page_id, { access_code: code });
+    return true;
+  } catch {
+    await patch(page.page_id, { enabled: false }).catch(() => undefined);
+    return false;
+  }
+}
+
 export default pagesApi;

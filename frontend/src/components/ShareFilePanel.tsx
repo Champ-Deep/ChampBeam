@@ -18,7 +18,7 @@ import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloa
 import { FileUploadZone } from './ui/FileUploadZone';
 import { UPLOAD_ACCEPT, UPLOAD_HINT_COMPACT, UPLOAD_HINT_GUEST, UPLOAD_LABEL } from '../config/uploadLimits';
 import { filesApi } from '../api/files';
-import { pagesApi } from '../api/pages';
+import { ensureGated, pagesApi } from '../api/pages';
 import type { BeamPage } from '../api/pages';
 import { apiErrorDetail } from '../api/_shared';
 
@@ -433,6 +433,12 @@ function HtmlAsPageCreator({
         slug: slug.trim() || undefined,
         access_code: code || undefined,
       });
+      // shortcut: the Railway backend (live until cutover) ignores access_code on create; gate it with a patch, or take the page offline. Remove after cutover.
+      if (!(await ensureGated(created, code, (id, data) => pagesApi.patch(id, data)))) {
+        toast.error('The access code could not be set, so the page was taken offline. Set a code and enable it from Pages.');
+        onPublished(created);
+        return;
+      }
       toast.success('Page published. Your page is live.');
       onPublished(created);
     } catch (err: unknown) {
