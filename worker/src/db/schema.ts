@@ -186,6 +186,8 @@ export const domains = sqliteTable("domains", {
   /** Set for an org-owned domain (administered by org admins, usable by members). */
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   isOrgDefault: bool("is_org_default").notNull().default(false),
+  /** CF-issued TXT records IT must add (ownership + certificate): [{type,name,value,purpose}]. */
+  cfDnsRecords: json<{ type: string; name: string; value: string; purpose: string }[]>("cf_dns_records"),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
