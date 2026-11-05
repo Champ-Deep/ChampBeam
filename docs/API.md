@@ -86,6 +86,33 @@ File views are tracked like clicks, including per-page reading time for document
 | Campaign rollups | `GET /api/v1/utm/analytics/campaigns` |
 | Near-real-time feed | `GET /api/v1/utm/analytics/clicks/recent?since=<iso>` |
 | CSV export | `GET /api/v1/utm/analytics/export/events` |
+| Visitor journeys of one asset | `GET /api/v1/analytics/journeys?asset_type=link\|file&asset_id=<uuid>&days=90&limit=20` |
+| Top journeys in your scope | `GET /api/v1/analytics/journeys/top?days=30&limit=10` |
+
+### Visitor journeys
+
+Every touch one visitor made across your links and files, oldest first, with location, to draw on a map. `journeys` is the per-asset call: it finds the visitors who touched that asset, then returns their touches on every asset in your scope. `journeys/top` ranks your whole scope by distinct cities, then touches, then last touch.
+
+```json
+{
+  "journeys": [{
+    "visitor_id": "…", "first_at": "…Z", "last_at": "…Z", "cities": 2, "forwarded": true, "company_name": null,
+    "touches": [{
+      "at": "…Z", "asset": {"type": "link|file", "id": "…", "title": "…", "url": "…"},
+      "city": "Bengaluru", "region": "…", "country": "India", "country_code": "IN", "lat": 12.97, "lon": 77.59,
+      "device_type": "desktop", "browser": "Chrome", "is_revisit": false, "is_vpn": false,
+      "dwell_ms": null, "count": 1
+    }]
+  }],
+  "meta": {"days": 90, "unattributed": 3}
+}
+```
+
+- Scope follows the org permission map: `report.own` sees your own assets, a leader or team grant sees the team, `report.org` sees the active org. Another user's asset returns `404`; a seat with no reporting access returns `403` on `/top`. `limit` is 1 to 100, `days` 1 to 365.
+- Scanner clicks (device type `bot`, the rule `company-intent` already uses) are never counted.
+- Consecutive touches on the same asset with gaps of 30 minutes or less collapse into one touch; `count` is how many. `forwarded` means two or more distinct cities. `touches` ranking in `/top` counts raw clicks.
+- `dwell_ms` is the sum of page engagement time on that file, attached to the touch it followed; `null` for links and files with no engagement.
+- Clicks without a visitor id cannot form a journey and are left out; their number is `meta.unattributed`. IP address and user agent are never returned.
 
 ## Pages: hosted, tracked HTML pages (Beam Pages)
 
