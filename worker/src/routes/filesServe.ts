@@ -102,7 +102,8 @@ export function wantsDownload(asset: Pick<FileAsset, "kind" | "shareIntent">, dl
 function commonHeaders(c: Ctx, asset: FileAsset): Record<string, string> {
   const disposition = wantsDownload(asset, c.req.query("dl")) ? "attachment" : "inline";
   const headers: Record<string, string> = {
-    "Content-Type": asset.mimeType,
+    // A comma makes browsers take the LAST type ("image/png;,text/html" renders as HTML), so serve only the first.
+    "Content-Type": asset.mimeType.includes(",") ? asset.mimeType.split(/[;,]/, 1)[0].trim() || "application/octet-stream" : asset.mimeType,
     "Content-Disposition": `${disposition}; filename="${safeFilename(asset.filename)}"`,
     "Cache-Control": "private, max-age=300",
     "X-Content-Type-Options": "nosniff",

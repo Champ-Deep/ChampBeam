@@ -30,6 +30,7 @@ import {
   CONTENT_KIND_FILE,
   CONTENT_KIND_LINK,
   DOMAIN_STATUS_ACTIVE,
+  FILE_KIND_HTML,
   FILE_STATUS_ACTIVE,
   contentItems,
   contentShares,
@@ -199,6 +200,8 @@ export async function mintShare(
     const code = await allocateFileShortCode(db, domainUuid);
     const copy: FileAsset = {
       ...master,
+      // A share is a new asset: it gets the create-time sandbox whatever the master's legacy (pre-0003) state.
+      htmlSandbox: master.kind === FILE_KIND_HTML && settings.htmlSandbox ? 1 : master.htmlSandbox,
       id: crypto.randomUUID(),
       userId: memberUserId,
       domainId: domainUuid,

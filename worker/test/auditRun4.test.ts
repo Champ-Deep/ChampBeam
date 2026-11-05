@@ -6,6 +6,7 @@
 import { expect, it } from "vitest";
 import { api, env, json } from "./helpers";
 import { member, newOrgId, setSettings, useRouteTestHooks } from "./orgTestUtils";
+import { seedPage } from "./serveSeed";
 
 useRouteTestHooks();
 
@@ -57,4 +58,26 @@ it("a removed member cannot finalize a staged upload onto the org's domain", asy
   await s.revoke();
   expect((await api(`/api/v1/files/${init.file_id}/finalize`, { method: "POST", headers: s.rep.headers })).status).toBe(403);
   expect((await q("SELECT status FROM file_assets WHERE id = ?", init.file_id))!.status).not.toBe("active");
+});
+
+it("a comma content_type is never served with a browser-resolvable text/html", async () => {
+  const u = await member(newOrgId(), "member");
+  const body = new TextEncoder().encode("<script>parent.x=1</script>");
+  const init = await json(await api("/api/v1/files", { method: "POST", json: { filename: "a.png", content_type: "image/png;,text/html", size_bytes: body.length }, headers: u.headers }));
+  expect((await api(init.presigned_put_url, { method: "PUT", body, headers: { "Content-Type": "image/png;,text/html" } })).status).toBeLessThan(300);
+  expect((await api(`/api/v1/files/${init.file_id}/finalize`, { method: "POST", headers: u.headers })).status).toBe(200);
+  const r = await api(`/f/${init.short_code}`);
+  expect(r.status).toBe(200);
+  expect(r.headers.get("content-type")).toBe("image/png");
+});
+
+it("a content-library share of a legacy (unsandboxed) HTML file is a sandboxed new asset", async () => {
+  const org = newOrgId();
+  const admin = await member(org, "admin");
+  const rep = await member(org, "member");
+  const legacy = await seedPage(admin.userId, "<!doctype html><html><body>hi</body></html>"); // html_sandbox NULL, as before 0003
+  const content = await json(await api("/api/v1/content", { method: "POST", json: { title: "Legacy", kind: "file", file_id: legacy.id }, headers: admin.headers }));
+  expect((await api(`/api/v1/content/${content.id}/share`, { method: "POST", json: {}, headers: rep.headers })).status).toBeLessThan(300);
+  const copy = await q("SELECT html_sandbox FROM file_assets WHERE user_id = ? AND kind = 'html'", rep.userId);
+  expect(copy!.html_sandbox).toBe(1);
 });
