@@ -454,6 +454,7 @@ router.patch("/:page_id", async (c) => {
   const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const updates: Partial<typeof fileAssets.$inferInsert> = {};
   const fromDomainId = asset.domainId ?? null;
+  const fromSlug = asset.slug;
 
   if (fields.has("domain_id")) {
     updates.domainId = asset.domainId = await resolveDomainId(c, user, data.domain_id);
@@ -470,9 +471,12 @@ router.patch("/:page_id", async (c) => {
     if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id, ownerId: asset.userId })) {
       httpError(409, "That slug is already taken.");
     }
-    // Retire the old slug where it actually lived, not in the namespace the page is moving to.
-    if (slug !== asset.slug) await pagesService.retireSlug(db, { ...asset, domainId: fromDomainId });
     updates.slug = asset.slug = slug;
+  }
+  // Retire the old address where it actually lived whenever the slug OR the namespace changes,
+  // so a keep-slug domain move cannot free the published URL for another tenant.
+  if (fromSlug && (asset.slug !== fromSlug || (asset.domainId ?? null) !== fromDomainId)) {
+    await pagesService.retireSlug(db, { id: asset.id, slug: fromSlug, domainId: fromDomainId });
   }
   if (fields.has("title") && data.title) {
     updates.filename = asset.filename = filenameFor(data.title);

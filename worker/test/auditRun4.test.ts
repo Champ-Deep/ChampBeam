@@ -81,3 +81,14 @@ it("a content-library share of a legacy (unsandboxed) HTML file is a sandboxed n
   const copy = await q("SELECT html_sandbox FROM file_assets WHERE user_id = ? AND kind = 'html'", rep.userId);
   expect(copy!.html_sandbox).toBe(1);
 });
+
+it("a keep-slug domain move retires the old platform slug, so another tenant cannot take the published URL", async () => {
+  setSettings({ platformSubdomainBase: "mv4.test" });
+  const victim = await member(newOrgId(), "member");
+  const attacker = await member(newOrgId(), "member");
+  const slug = `mv4-${crypto.randomUUID().slice(0, 6)}`;
+  const v = await json(await pub(victim.headers, slug, "VICTIM"));
+  const d = await json(await api("/api/v1/domains", { method: "POST", json: { hostname: `v-${crypto.randomUUID().slice(0, 6)}.mv4.test` }, headers: victim.headers }));
+  expect((await api(`/api/v1/pages/${v.page_id}`, { method: "PATCH", json: { domain_id: d.id }, headers: victim.headers })).status).toBe(200);
+  expect((await pub(attacker.headers, slug, "ATTACKER")).status).toBe(409);
+});
