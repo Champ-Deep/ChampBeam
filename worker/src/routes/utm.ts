@@ -6,7 +6,7 @@
  * registered on this same router.
  */
 import { Hono } from "hono";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth, type TokenData } from "../auth/security";
@@ -18,6 +18,8 @@ import {
   linkClicks,
   linkTagAssociations,
   linkTags,
+  MEMBERSHIP_ACTIVE,
+  organizationMemberships,
   projects,
   utmPresets,
 } from "../db/schema";
@@ -343,10 +345,19 @@ router.get("/bulk/template", (c) => {
 
 router.get("/presets", async (c) => {
   const user = await requireAuth(c);
-  const rows = await c.var.db
+  const db = c.var.db;
+  const mine = eq(utmPresets.userId, user.userId);
+  // "Shared" means shared with the caller's active org, never with every tenant on the platform.
+  const orgMates = user.orgUuid
+    ? db
+        .select({ id: organizationMemberships.userId })
+        .from(organizationMemberships)
+        .where(and(eq(organizationMemberships.organizationId, user.orgUuid), eq(organizationMemberships.status, MEMBERSHIP_ACTIVE)))
+    : null;
+  const rows = await db
     .select()
     .from(utmPresets)
-    .where(or(eq(utmPresets.userId, user.userId), eq(utmPresets.isShared, true)))
+    .where(orgMates ? or(mine, and(eq(utmPresets.isShared, true), inArray(utmPresets.userId, orgMates))) : mine)
     .orderBy(desc(utmPresets.createdAt))
     .all();
   return c.json(rows.map(presetToResponse));

@@ -29,6 +29,20 @@ it("revoked former admin cannot delete, set-primary or refresh the org's domain"
   expect((await q("SELECT COUNT(*) AS n FROM domains WHERE id = ?", s.id))!.n).toBe(1);
 });
 
+it("another active admin of the org manages it after the attaching admin leaves; other orgs cannot see it", async () => {
+  const s = await orgDomain();
+  const clerkOrg = (await q("SELECT clerk_org_id FROM organizations WHERE id = ?", s.org))!.clerk_org_id as string;
+  const admin2 = await member(clerkOrg, "admin");
+  const rep = await member(clerkOrg, "member");
+  const outsider = await member(newOrgId(), "admin");
+  await env.DB.prepare("UPDATE users SET is_active = 0 WHERE id = ?").bind(s.admin.userId).run(); // user.deleted
+  expect((await api(`/api/v1/domains/${s.id}/refresh`, { method: "POST", headers: rep.headers })).status).toBe(404);
+  expect((await api(`/api/v1/domains/${s.id}`, { method: "DELETE", headers: outsider.headers })).status).toBe(404);
+  expect((await api(`/api/v1/domains/${s.id}/set-primary`, { method: "POST", headers: admin2.headers })).status).toBe(404);
+  expect((await api(`/api/v1/domains/${s.id}`, { method: "DELETE", headers: admin2.headers })).status).toBe(204);
+  expect((await q("SELECT COUNT(*) AS n FROM domains WHERE id = ?", s.id))!.n).toBe(0);
+});
+
 it("admin demoted to member by Clerk cannot delete it; an active admin can", async () => {
   const s = await orgDomain();
   await env.DB.prepare("UPDATE organization_memberships SET clerk_membership_id='mem_t', role='member' WHERE organization_id = ? AND user_id = ?").bind(s.org, s.admin.userId).run();

@@ -290,9 +290,10 @@ describe("presets", () => {
     });
     expect(p.created_at).toMatch(/Z$/);
 
+    // Another tenant's shared preset is not listed (shared means shared with your org, see auditRun2.test.ts).
     await api(`${U}/presets`, { method: "POST", headers: other.headers, json: { name: "Shared", is_shared: true } });
     const list = await json<any[]>(await api(`${U}/presets`, { headers }));
-    expect(list.map((x) => x.name).sort()).toEqual(["Mine", "Shared"]);
+    expect(list.map((x) => x.name).sort()).toEqual(["Mine"]);
 
     const upd = await json(
       await api(`${U}/presets/${p.id}`, { method: "PUT", headers, json: { utm_medium: "cpc", custom_params: { a: 1 } } }),

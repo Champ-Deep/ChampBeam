@@ -138,16 +138,12 @@ function canonicalUuid(v: string): string | null {
 async function getOwnedDomain(c: Ctx, user: TokenData): Promise<DomainRow> {
   const id = canonicalUuid(c.req.param("domain_id") ?? "");
   if (!id) httpError(400, "Invalid domain ID.");
-  const d = await c.var.db
-    .select()
-    .from(domains)
-    .where(and(eq(domains.id, id), eq(domains.userId, user.userId)))
-    .get();
-  if (!d) httpError(404, "Domain not found.");
-  // Once attached to an org the domain is the org's: mutating it takes an active admin seat in that org,
-  // not just having been the member who attached it.
+  const d = await c.var.db.select().from(domains).where(eq(domains.id, id)).get();
+  if (!d || (d.userId !== user.userId && !d.organizationId)) httpError(404, "Domain not found.");
+  // Once attached to an org the domain is the org's: any active admin seat in that org manages it (so it is
+  // not orphaned when the attaching admin leaves), and having been the member who attached it is not enough.
   if (d.organizationId && !(user.orgUuid === d.organizationId && can(user, "org.domains.manage"))) {
-    httpError(403, "This domain belongs to an organization; an admin of that organization must manage it.");
+    httpError(d.userId === user.userId ? 403 : 404, d.userId === user.userId ? "This domain belongs to an organization; an admin of that organization must manage it." : "Domain not found.");
   }
   return d;
 }
@@ -479,6 +475,7 @@ router.post("/:domain_id/refresh", async (c) => {
 router.post("/:domain_id/set-primary", async (c) => {
   const user = await requireAuth(c);
   const domain = await getOwnedDomain(c, user);
+  if (domain.userId !== user.userId) httpError(404, "Domain not found."); // is_primary is a per-user default
   if (domain.status !== DOMAIN_STATUS_ACTIVE) httpError(400, "Only active domains can be set as primary.");
   const db = c.var.db;
   await db.batch([

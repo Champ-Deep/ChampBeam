@@ -57,3 +57,15 @@ it("a current member edits their page on the org domain; once removed or made a 
   const f = await seedFile(s.rep.userId, { domain_id: s.domainId });
   expect((await api(`/api/v1/files/${f.id}/access`, { method: "PUT", json: { max_views: 3 }, headers: s.rep.headers })).status).toBe(403);
 });
+
+it("a shared UTM preset is listed to the owner's org, not to other tenants", async () => {
+  const clerkOrg = newOrgId();
+  const owner = await member(clerkOrg, "member");
+  const mate = await member(clerkOrg, "member");
+  const outsider = await member(newOrgId(), "member");
+  const name = `Shared ${crypto.randomUUID().slice(0, 6)}`;
+  expect((await api("/api/v1/utm/presets", { method: "POST", json: { name, is_shared: true }, headers: owner.headers })).status).toBe(201);
+  const names = async (h: Record<string, string>) => (await json<any[]>(await api("/api/v1/utm/presets", { headers: h }))).map((p) => p.name);
+  expect(await names(mate.headers)).toContain(name);
+  expect(await names(outsider.headers)).not.toContain(name);
+});
