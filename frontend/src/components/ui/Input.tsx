@@ -24,6 +24,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           id={inputId}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error || helperText ? `${inputId}-hint` : undefined}
           className={clsx(
             'w-full h-10 px-3 rounded-lg border bg-white text-sm outline-none transition-colors',
             'placeholder:text-slate-400',
@@ -38,6 +40,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         />
         {(error || helperText) && (
           <p
+            id={`${inputId}-hint`}
             className={clsx(
               'mt-1.5 text-sm',
               error ? 'text-red-600' : 'text-slate-500'

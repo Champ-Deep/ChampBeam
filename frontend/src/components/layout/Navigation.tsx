@@ -1,14 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-import { Link2, BarChart3, FolderOpen, Bell, Menu, X, Settings, FileText, Globe, Library, Users, Radio } from 'lucide-react';
+import { Link2, BarChart3, FolderOpen, Menu, X, Settings, FileText, Globe, Library, Users, Radio } from 'lucide-react';
 
 import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { Show, SignInButton, SignUpButton, UserButton, OrganizationSwitcher, useAuth } from '@clerk/react';
+import { useAuth } from '../../lib/authClient';
 import { Button } from '../ui/Button';
 import { LogoMark } from '../ui/Logo';
-import { useClickNotifications } from '../../hooks/useClickNotifications';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { champvaultApi } from '../../api/champvault';
 
@@ -39,9 +38,10 @@ const navLinks: NavLink[] = [
 
 export function Navigation() {
   const location = useLocation();
-  const { isSignedIn, userId } = useAuth();
+  const navigate = useNavigate();
+  // App.tsx renders this bar only for signed-out visitors; signed-in users get the Sidebar.
+  const { isSignedIn, isLoaded } = useAuth();
   const { inOrg, isAdmin, canManageTeam } = useOrgContext();
-  const { recentClicks, clearAll } = useClickNotifications(!!isSignedIn, userId);
   const { data: vaultConfig } = useQuery({
     queryKey: ['champvault-config'],
     queryFn: () => champvaultApi.config(),
@@ -49,19 +49,8 @@ export function Navigation() {
     staleTime: 5 * 60 * 1000,
   });
   const vaultEnabled = !!vaultConfig?.configured;
-  const [showBell, setShowBell] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const bellRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
-        setShowBell(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  const signedOut = isLoaded && !isSignedIn;
 
   // Close the mobile menu on navigation (adjust-state-during-render, no effect).
   const [lastPath, setLastPath] = useState(location.pathname);
@@ -121,73 +110,12 @@ export function Navigation() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Show when="signed-in">
-              <div className="relative" ref={bellRef}>
-                <button
-                  onClick={() => setShowBell(!showBell)}
-                  className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-                  title="Recent clicks"
-                >
-                  <Bell className="h-5 w-5" />
-                  {recentClicks.length > 0 && (
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-brand-purple rounded-full" />
-                  )}
-                </button>
-                {showBell && (
-                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-slate-200 z-50 max-h-96 overflow-y-auto">
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <p className="text-sm font-semibold text-slate-900">Recent Clicks</p>
-                      {recentClicks.length > 0 && <button type="button" onClick={() => void clearAll()} className="text-xs text-brand-purple hover:underline">Clear All</button>}
-                    </div>
-                    {recentClicks.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-sm text-slate-400">No recent clicks</div>
-                    ) : (
-                      <div className="divide-y divide-slate-100">
-                        {recentClicks.slice(0, 10).map((click) => (
-                          <div key={click.id} className="px-4 py-3 hover:bg-slate-50">
-                            <p className="text-sm text-slate-900 truncate" title={click.filename || click.original_url || undefined}>
-                              {(click.filename || click.original_url || 'Link open').slice(0, 35)}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}
-                              {' • '}
-                              {click.device_type || 'Unknown device'}
-                            </p>
-                            {click.clicked_at && (
-                              <p className="text-xs text-slate-400 mt-0.5">
-                                {new Date(click.clicked_at).toLocaleString('en-US', {
-                                  month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-                                })}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="hidden sm:block">
-                <OrganizationSwitcher
-                  hidePersonal={false}
-                  afterSelectOrganizationUrl="/library"
-                  afterSelectPersonalUrl="/"
-                  appearance={{ elements: { rootBox: 'flex items-center' } }}
-                />
-              </div>
-              <UserButton />
-            </Show>
-
-            <Show when="signed-out">
+            {signedOut && (
               <div className="hidden md:flex items-center gap-2">
-                <SignInButton>
-                  <Button variant="ghost" size="sm">Sign In</Button>
-                </SignInButton>
-                <SignUpButton>
-                  <Button variant="primary" size="sm">Sign Up</Button>
-                </SignUpButton>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/sign-in')}>Sign In</Button>
+                <Button variant="primary" size="sm" onClick={() => navigate('/sign-up')}>Sign Up</Button>
               </div>
-            </Show>
+            )}
 
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -226,16 +154,12 @@ export function Navigation() {
               );
             })}
           </div>
-          <Show when="signed-out">
+          {signedOut && (
             <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-2">
-              <SignInButton>
-                <Button variant="ghost" size="sm" className="flex-1 justify-center">Sign In</Button>
-              </SignInButton>
-              <SignUpButton>
-                <Button variant="primary" size="sm" className="flex-1 justify-center">Sign Up</Button>
-              </SignUpButton>
+              <Button variant="ghost" size="sm" className="flex-1 justify-center" onClick={() => navigate('/sign-in')}>Sign In</Button>
+              <Button variant="primary" size="sm" className="flex-1 justify-center" onClick={() => navigate('/sign-up')}>Sign Up</Button>
             </div>
-          </Show>
+          )}
         </div>
       )}
     </nav>

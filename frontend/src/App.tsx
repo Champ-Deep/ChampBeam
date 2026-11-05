@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Show, SignIn, SignUp, useAuth } from '@clerk/react';
+import { useAuth } from './lib/authClient';
+import { SignInPage, SignUpPage } from './pages/AuthPages';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
@@ -22,40 +23,11 @@ import { VaultPage } from './pages/VaultPage';
 import { useOrgContext } from './hooks/useOrgContext';
 
 
-// Standalone auth pages. These MUST exist because ProtectedRoute and the API
-// 401 handler both send signed-out users to /sign-in; without a mounted Clerk
-// component the route falls through to the catch-all and renders blank.
-function AuthLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center p-4" style={{ background: 'var(--cb-bg)' }}>
-      {children}
-    </div>
-  );
-}
-
-function SignInPage() {
-  return (
-    <AuthLayout>
-      <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" fallbackRedirectUrl="/" />
-    </AuthLayout>
-  );
-}
-
-function SignUpPage() {
-  return (
-    <AuthLayout>
-      <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" fallbackRedirectUrl="/" />
-    </AuthLayout>
-  );
-}
-
+// ProtectedRoute and the API 401 handler both send signed-out users to /sign-in.
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <Show when="signed-in">{children}</Show>
-      <Show when="signed-out"><Navigate to="/sign-in" replace /></Show>
-    </>
-  );
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return null;
+  return isSignedIn ? <>{children}</> : <Navigate to="/sign-in" replace />;
 }
 
 // Requires an active organization. `team` limits to the team-analytics tier

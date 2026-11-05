@@ -15,7 +15,7 @@ import type { Domain, DomainSearchResult, DomainsConfig, DomainStatus } from '..
 import { SystemSettings } from '../components/SystemSettings';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 import { systemApi } from '../api/system';
-import { useAuth } from '@clerk/react';
+import { useAuth } from '../lib/authClient';
 
 type SettingsTab = 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
 

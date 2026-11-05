@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAuth } from '@clerk/react';
+import { useAuth } from '../lib/authClient';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Bot, Send, Sparkles, X } from 'lucide-react';

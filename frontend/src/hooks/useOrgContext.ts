@@ -1,10 +1,10 @@
-import { useAuth } from '@clerk/react';
+import { useAuth } from '../lib/authClient';
 import { useQuery } from '@tanstack/react-query';
 import { orgApi } from '../api/org';
 
-// Clerk selects the workspace; only the server profile grants capabilities.
+// The session selects the workspace; only the server profile grants capabilities.
 export function useOrgContext() {
-  const { isSignedIn, orgId, orgSlug, userId } = useAuth();
+  const { isSignedIn, orgId, userId } = useAuth();
   const query = useQuery({
     queryKey: ['org-profile', userId, orgId],
     queryFn: () => orgApi.profile(),
@@ -19,7 +19,7 @@ export function useOrgContext() {
     isSignedIn: !!isSignedIn,
     inOrg: !!orgId,
     orgId: orgId ?? null,
-    orgSlug: orgSlug ?? null,
+    orgSlug: profile?.org?.slug ?? null,
     role: profile?.role ?? null,
     isAdmin,
     isLeader: canManageTeam && !isAdmin,
