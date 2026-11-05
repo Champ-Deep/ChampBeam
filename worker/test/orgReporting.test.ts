@@ -5,7 +5,7 @@
  * can do nothing else, and that scope is recomputed from D1 on every request.
  */
 import { describe, expect, it } from "vitest";
-import { api, apiKeyHeaders, bearer, clerkToken, createApiKey, createUser, env, json } from "./helpers";
+import { addMember, api, apiKeyHeaders, createApiKey, createUser, env, json, sessionHeaders } from "./helpers";
 import { addClicks, member, newOrgId, seedTeam, useRouteTestHooks } from "./orgTestUtils";
 import { iso, row, seedDomain, seedFile, seedLink } from "./serveSeed";
 
@@ -165,10 +165,9 @@ describe("stale sessions, revocation and org switching", () => {
     await seedActivity(a);
     const viewer = await member(a.org, "viewer");
     await grant(a.admin, { user_id: viewer.userId, scope: "org" });
-    const sub = viewer.sub;
-    // Same Clerk user, token switched to org B where they are a plain viewer.
-    const tokB = await clerkToken({ sub, org: { id: b.org, rol: "org:viewer", slg: "b" } });
-    const inB = { headers: bearer(tokB) };
+    // Same person, session switched to org B where they are a plain viewer.
+    await addMember(b.admin.orgId, viewer.userId, "viewer");
+    const inB = { headers: await sessionHeaders(viewer.userId, b.admin.orgId) };
     expect((await summary(inB)).status).toBe(403);
     expect((await json(await summary(viewer))).totals.shares_created).toBe(4);
   });
@@ -223,7 +222,7 @@ describe("profile context", () => {
   it("returns org, role, permissions, scope and share host; API key has no org", async () => {
     const t = await seedTeam();
     const p = await json(await api("/api/v1/org/profile", { headers: t.admin.headers }));
-    expect(p).toMatchObject({ role: "admin", report_scope: "org", org: { id: t.org } });
+    expect(p).toMatchObject({ role: "admin", report_scope: "org", org: { id: t.admin.orgId } });
     expect(p.permissions).toContain("org.viewers.grant");
     expect(p.share_host.default).toBeTruthy();
     const m = await json(await api("/api/v1/org/profile", { headers: t.rep1.headers }));

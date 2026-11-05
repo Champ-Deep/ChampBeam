@@ -1,6 +1,6 @@
 /** Smoke tests for the shared core: health, errors, CORS, auth paths, rate counters. */
 import { describe, expect, it } from "vitest";
-import { api, authedUser, bearer, clerkToken, createApiKey, createUser, env, json } from "./helpers";
+import { api, authedUser, bearer, clerkToken, createApiKey, createUser, env, json, sessionHeaders } from "./helpers";
 import { incrWithTtl } from "../src/lib/ratelimit";
 
 describe("core", () => {
@@ -62,22 +62,6 @@ describe("auth", () => {
     expect(res.status).toBe(401);
   });
 
-  it("a Clerk JWT creates the user on first use with a placeholder email, or the token email", async () => {
-    const token = await clerkToken({ sub: "user_jwt1", email: "jwt1@example.com" });
-    const res = await api("/api/v1/auth/me", { headers: bearer(token) });
-    expect(res.status).toBe(200);
-    expect((await json(res)).email).toBe("jwt1@example.com");
-    const row = await env.DB.prepare("SELECT email FROM users WHERE clerk_id = 'user_jwt1'").first<{ email: string }>();
-    expect(row?.email).toBe("jwt1@example.com");
-  });
-
-  it("a deactivated user's still-valid Clerk JWT is a 401 (same rule as API keys)", async () => {
-    const token = await clerkToken({ sub: "user_jwt_off", email: "off@example.com" });
-    expect((await api("/api/v1/auth/me", { headers: bearer(token) })).status).toBe(200);
-    await env.DB.prepare("UPDATE users SET is_active = 0 WHERE clerk_id = 'user_jwt_off'").run();
-    expect((await api("/api/v1/auth/me", { headers: bearer(token) })).status).toBe(401);
-  });
-
   it("PUT /auth/profile cannot self-assert an email (e.g. claim the service+<name> identity); name still updates", async () => {
     const { user, headers } = await authedUser();
     const bad = await api("/api/v1/auth/profile", { method: "PUT", json: { email: "service+composer@championsmail.com" }, headers });
@@ -88,31 +72,21 @@ describe("auth", () => {
     expect(row).toEqual({ email: user.email, full_name: "Ada" });
   });
 
-  it("a tampered or expired JWT is a 401", async () => {
-    const token = await clerkToken({ sub: "user_jwt2" });
-    const tampered = token.slice(0, -4) + (token.endsWith("AAAA") ? "BBBB" : "AAAA");
-    expect((await api("/api/v1/auth/me", { headers: bearer(tampered) })).status).toBe(401);
-    const expired = await clerkToken({ sub: "user_jwt2", expiresIn: "-1m" });
-    const res = await api("/api/v1/auth/me", { headers: bearer(expired) });
-    expect(res.status).toBe(401);
-    expect(await json(res)).toEqual({ detail: "Could not validate credentials" });
+  it("a tampered session cookie or an expired session is a 401", async () => {
+    const user = await createUser();
+    const { Cookie } = await sessionHeaders(user.id);
+    expect((await api("/api/v1/auth/me", { headers: { Cookie } })).status).toBe(200);
+    const tampered = Cookie.slice(0, -8) + (Cookie.endsWith("AAAAAAAA") ? "BBBBBBBB" : "AAAAAAAA");
+    expect((await api("/api/v1/auth/me", { headers: { Cookie: tampered } })).status).toBe(401);
+    await env.DB.prepare("UPDATE session SET expires_at = ? WHERE user_id = ?").bind(Date.now() - 1000, user.id).run();
+    expect((await api("/api/v1/auth/me", { headers: { Cookie } })).status).toBe(401);
   });
 
-  it("azp outside the authorized parties is rejected", async () => {
-    const token = await clerkToken({ sub: "user_jwt3", azp: "https://evil.example" });
+  it("a leftover Clerk session JWT in Authorization is a 401, not a session", async () => {
+    const token = await clerkToken({ sub: "user_jwt2" });
     const res = await api("/api/v1/auth/me", { headers: bearer(token) });
     expect(res.status).toBe(401);
-    expect(await json(res)).toEqual({ detail: "Unauthorized party" });
-  });
-
-  it("org claims mirror the organization and membership", async () => {
-    const token = await clerkToken({ sub: "user_jwt4", org: { id: "org_abc", rol: "org:admin", slg: "abc" } });
-    expect((await api("/api/v1/auth/me", { headers: bearer(token) })).status).toBe(200);
-    const m = await env.DB.prepare(
-      `SELECT m.role FROM organization_memberships m JOIN organizations o ON o.id = m.organization_id
-       JOIN users u ON u.id = m.user_id WHERE o.clerk_org_id = 'org_abc' AND u.clerk_id = 'user_jwt4'`,
-    ).first<{ role: string }>();
-    expect(m?.role).toBe("admin");
+    expect(await json(res)).toEqual({ detail: "Could not validate credentials" });
   });
 
   it("service keys: bad key 401, off-allowlist route 403", async () => {

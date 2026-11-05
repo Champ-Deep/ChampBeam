@@ -110,7 +110,7 @@ describe("org content library", () => {
     const ctx = await api("/api/v1/org/context", { headers: mark.headers });
     expect(ctx.status).toBe(200);
     const body = await json(ctx);
-    expect(body.org_id).toBe(org);
+    expect(body.org_id).toBe(mark.orgId);
     expect(body.is_admin).toBe(false);
     expect(body.role).toBe("member");
     expect(body.member_count).toBe(2);

@@ -37,15 +37,19 @@ export async function upsertOrganization(
   opts: { name?: string | null; slug?: string | null } = {},
 ): Promise<Organization> {
   const existing = await db.select().from(organizations).where(eq(organizations.clerkOrgId, clerkOrgId)).get();
+  // organizations.slug is unique since Better Auth (0007): a Clerk slug another org holds is not mirrored.
+  const slugFree = async (slug: string) =>
+    !(await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).get());
   if (!existing) {
     const now = nowIso();
+    const id = crypto.randomUUID();
     await db
       .insert(organizations)
       .values({
-        id: crypto.randomUUID(),
+        id,
         clerkOrgId,
         name: opts.name ?? null,
-        slug: opts.slug ?? null,
+        slug: opts.slug ? ((await slugFree(opts.slug)) ? opts.slug : `${opts.slug}-${id.slice(0, 8)}`) : null,
         createdAt: now,
         updatedAt: now,
       })
@@ -54,7 +58,7 @@ export async function upsertOrganization(
   }
   const patch: Partial<Organization> = {};
   if (opts.name != null) patch.name = opts.name;
-  if (opts.slug != null) patch.slug = opts.slug;
+  if (opts.slug != null && opts.slug !== existing.slug && (await slugFree(opts.slug))) patch.slug = opts.slug;
   if (Object.keys(patch).length) {
     patch.updatedAt = nowIso();
     await db.update(organizations).set(patch).where(eq(organizations.id, existing.id));

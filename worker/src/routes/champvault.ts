@@ -39,8 +39,6 @@ import {
   assetToDict,
   deliveryTarget,
 } from "./_champvault";
-import { NOT_PROVISIONED } from "./_org";
-import { resolveOrgUuid } from "../services/org";
 
 export const router = new Hono<AppEnv>({ strict: false });
 
@@ -273,8 +271,7 @@ async function beamForOrg(
   domainId: string | null,
 ) {
   const db = c.var.db;
-  const orgUuid = await resolveOrgUuid(db, user.orgId!);
-  if (!orgUuid) httpError(409, NOT_PROVISIONED);
+  const orgUuid = user.orgId!;
 
   let content = await getChampvaultContent(db, orgUuid, assetId);
   if (!content) {

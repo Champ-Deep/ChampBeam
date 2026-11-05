@@ -35,6 +35,9 @@ export const users = sqliteTable("users", {
   createdAt: createdAt(true),
   updatedAt: updatedAt(),
   lastLogin: text("last_login"),
+  // Better Auth (0007)
+  emailVerified: bool("email_verified").notNull().default(false),
+  image: text("image"),
 });
 
 export const ROLE_ADMIN = "admin";
@@ -44,9 +47,13 @@ export const ROLE_MEMBER = "member";
 
 export const organizations = sqliteTable("organizations", {
   id: id(),
-  clerkOrgId: text("clerk_org_id").notNull(),
+  // Orgs Better Auth creates get a placeholder: the column is NOT NULL and Better Auth does not know it.
+  clerkOrgId: text("clerk_org_id").notNull().$defaultFn(() => crypto.randomUUID()),
   name: text("name"),
   slug: text("slug"),
+  // Better Auth (0007)
+  logo: text("logo"),
+  metadata: text("metadata"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -548,3 +555,73 @@ export const rateCounters = sqliteTable("rate_counters", {
   expiresAt: integer("expires_at").notNull(),
 });
 
+
+// ---------------------------------------------------------------------------
+// Better Auth tables (migrations/0007_better_auth.sql, as its CLI generates them for sqlite)
+// ---------------------------------------------------------------------------
+
+const msTime = (name: string) => integer(name, { mode: "timestamp_ms" });
+
+export const session = sqliteTable("session", {
+  id: text("id").primaryKey(),
+  expiresAt: msTime("expires_at").notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: msTime("created_at").notNull(),
+  updatedAt: msTime("updated_at").notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** organizations.id the user picked; the membership is re-checked on every request. */
+  activeOrganizationId: text("active_organization_id"),
+});
+
+export const account = sqliteTable("account", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: msTime("access_token_expires_at"),
+  refreshTokenExpiresAt: msTime("refresh_token_expires_at"),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: msTime("created_at").notNull(),
+  updatedAt: msTime("updated_at").notNull(),
+});
+
+export const verification = sqliteTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: msTime("expires_at").notNull(),
+  createdAt: msTime("created_at").notNull(),
+  updatedAt: msTime("updated_at").notNull(),
+});
+
+export const invitation = sqliteTable("invitation", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: text("role"),
+  status: text("status").notNull().default("pending"),
+  expiresAt: msTime("expires_at").notNull(),
+  createdAt: msTime("created_at").notNull(),
+  inviterId: text("inviter_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+});
+
+export const rateLimit = sqliteTable("rate_limit", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: integer("last_request").notNull(),
+});

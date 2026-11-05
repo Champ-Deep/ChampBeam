@@ -9,6 +9,7 @@
 import type { Context } from "hono";
 import type { Db } from "./db/client";
 import type { TokenData } from "./auth/security";
+import type { Auth } from "./auth/betterAuth";
 
 export interface Env {
   DB: D1Database;
@@ -26,6 +27,8 @@ export type AppEnv = {
     db: Db;
     /** Memoized auth result for this request (undefined = not resolved yet). */
     authUser?: TokenData | null;
+    /** Better Auth for this request, built on first use (security.ts authOf). */
+    auth?: Auth;
     /** True when this request hit a share-only host (no control plane served). */
     sharePlane?: boolean;
   };
@@ -79,7 +82,14 @@ export function buildSettings(env: Env) {
     environment: str(env, "ENVIRONMENT", "development"),
     apiV1Prefix: "/api/v1",
 
-    // Clerk
+    // Better Auth (sessions in D1). BETTER_AUTH_SECRET is a Worker secret; BETTER_AUTH_URL is the app origin.
+    betterAuthSecret: str(env, "BETTER_AUTH_SECRET"),
+    betterAuthUrl: str(env, "BETTER_AUTH_URL").replace(/\/+$/, ""),
+    /** Google sign-in is on only when both are set. */
+    googleClientId: str(env, "GOOGLE_CLIENT_ID"),
+    googleClientSecret: str(env, "GOOGLE_CLIENT_SECRET"),
+
+    // Clerk (inert since Better Auth; removed after the rollback window, PRD section 7 step 9)
     clerkSecretKey: str(env, "CLERK_SECRET_KEY"),
     clerkPublishableKey: str(env, "CLERK_PUBLISHABLE_KEY"),
     clerkIssuer: str(env, "CLERK_ISSUER"),
@@ -162,6 +172,11 @@ export function buildSettings(env: Env) {
     companyIntelApiKey: str(env, "COMPANY_INTEL_API_KEY"),
   };
 
+  const missing = (["STORAGE_UPLOAD_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"] as const).filter((n) => !str(env, n));
+  if (missing.length) {
+    throw new Error(`Missing required Worker configuration: ${missing.join(", ")}. Set secrets with \`wrangler secret put <NAME>\` and vars in wrangler.jsonc.`);
+  }
+
   const platformRedirectHosts = new Set<string>();
   for (const h of splitCsv(s.platformRedirectHost)) platformRedirectHosts.add(h.toLowerCase());
   const derived = hostnameOf(s.redirectBaseUrl);
@@ -218,7 +233,7 @@ export function buildSettings(env: Env) {
     r2PresignConfigured: !!(s.r2AccountId && s.r2AccessKeyId && s.r2SecretAccessKey && s.r2BucketName),
     /** Storage is always configured on Cloudflare (the R2 binding). */
     storageConfigured: true,
-    resolvedUploadSecret: s.storageUploadSecret || s.clerkSecretKey,
+    resolvedUploadSecret: s.storageUploadSecret,
   };
 }
 

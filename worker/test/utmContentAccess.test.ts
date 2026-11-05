@@ -135,8 +135,9 @@ describe("access control", () => {
   });
 
   it("access codes fail closed without a server secret (no public fallback key)", async () => {
-    const bare = buildSettings({ ...(env as unknown as Env), STORAGE_UPLOAD_SECRET: "", CLERK_SECRET_KEY: "" } as Env);
-    expect(bare.resolvedUploadSecret).toBe("");
+    // The Worker no longer boots without STORAGE_UPLOAD_SECRET (betterAuth.test.ts); keep the 503 as defence.
+    expect(() => buildSettings({ ...(env as unknown as Env), STORAGE_UPLOAD_SECRET: "" } as Env)).toThrow(/STORAGE_UPLOAD_SECRET/);
+    const bare = { ...settings, resolvedUploadSecret: "" };
     const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null };
     await expect(ac.setAccessCode(bare, asset, "482100")).rejects.toMatchObject({ status: 503 });
     await expect(ac.verifyAccessCode(bare, { ...asset, accessCodeHash: "a".repeat(64) }, "4821")).rejects.toMatchObject({ status: 503 });

@@ -1,40 +1,39 @@
 /**
- * Port of backend/app/core/security.py: Clerk session-token verification,
- * cb_live_ API keys, the X-Service-Key identity, and org-role guards.
+ * Port of backend/app/core/security.py: Better Auth cookie sessions (replacing Clerk session
+ * JWTs), cb_live_ API keys, the X-Service-Key identity, and org-role guards.
  *
  * FastAPI dependencies become plain async functions taking the Hono context:
  *
  *   Depends(get_current_user)            -> await getCurrentUser(c)        (TokenData | null)
  *   Depends(require_auth)                -> await requireAuth(c)
- *   Depends(require_clerk_auth)          -> await requireClerkAuth(c)
+ *   Depends(require_clerk_auth)          -> await requireSessionAuth(c)
  *   Depends(require_org_member)          -> await requireOrgMember(c)
  *   Depends(require_org_admin)           -> await requireOrgAdmin(c)
  *   Depends(require_org_leader_or_admin) -> await requireOrgLeaderOrAdmin(c)
  */
-import { eq } from "drizzle-orm";
-import { decodeProtectedHeader, importJWK, jwtVerify, errors as joseErrors, type JWK } from "jose";
-import type { Ctx, Settings } from "../env";
-import { API_KEY_PREFIX, apiKeys, users } from "../db/schema";
+import { and, eq } from "drizzle-orm";
+import type { MiddlewareHandler } from "hono";
+import type { AppEnv, Ctx } from "../env";
+import { trustedOrigins } from "../lib/cors";
+import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, organizationMemberships, organizations, users } from "../db/schema";
 import { HTTPError } from "../lib/errors";
 import { enforceLimit } from "../lib/ratelimit";
 import { sha256Hex } from "../lib/crypto";
 import { diffSeconds, nowIso, parseIso } from "../lib/time";
-import * as userService from "../services/user";
-import * as orgService from "../services/org";
-import * as clerk from "../services/clerk";
 import { type Permission, roleHas } from "./permissions";
 import { resolveServiceIdentity } from "./serviceAuth";
+import { createAuth, type Auth } from "./betterAuth";
 
 export interface TokenData {
   userId: string;
   email: string;
   clerkUserId?: string | null;
-  /** Clerk org id (org_...) of the active organization, when one is selected. */
+  /** organizations.id of the active organization (set only for an active membership). */
   orgId?: string | null;
   /** Normalized role: "admin" | "member" | "leader" | "super_admin" | custom. */
   orgRole?: string | null;
   orgSlug?: string | null;
-  /** Local organizations.id of the active org (set only for an active, non-revoked membership). */
+  /** Same value as orgId since Better Auth (kept so its many readers need no change). */
   orgUuid?: string | null;
 }
 
@@ -44,155 +43,65 @@ export const isOrgAdmin = (u: TokenData): boolean => can(u, "org.members.manage"
 export const isOrgLeader = (u: TokenData): boolean => !!u.orgId && (u.orgRole ?? "").toLowerCase() === "leader";
 
 // ---------------------------------------------------------------------------
-// Clerk JWKS (cached per isolate)
+// Better Auth sessions
 // ---------------------------------------------------------------------------
 
-const JWKS_CACHE_TTL_MS = 3_600_000;
-let jwksCache: { keys: JWK[] } | null = null;
-let jwksFetchedAt = 0;
-
-async function fetchClerkJwks(settings: Settings, forceRefresh = false): Promise<{ keys: JWK[] }> {
-  // CLERK_JWKS_JSON pins the key set (tests; or to avoid a Clerk round-trip).
-  if (settings.clerkJwksJson) return JSON.parse(settings.clerkJwksJson) as { keys: JWK[] };
-  if (!forceRefresh && jwksCache && Date.now() - jwksFetchedAt < JWKS_CACHE_TTL_MS) return jwksCache;
-  const resp = await fetch(`${settings.clerkApiUrl.replace(/\/+$/, "")}/v1/jwks`, {
-    headers: { Authorization: `Bearer ${settings.clerkSecretKey}` },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!resp.ok) throw new UpstreamError(`Clerk JWKS HTTP ${resp.status}`);
-  jwksCache = (await resp.json()) as { keys: JWK[] };
-  jwksFetchedAt = Date.now();
-  return jwksCache;
+/** The request's Better Auth instance (built once per request: D1 bindings exist only per request). */
+export function authOf(c: Ctx): Auth {
+  let auth = c.get("auth");
+  if (!auth) {
+    auth = createAuth(c.env, c.var.db);
+    c.set("auth", auth);
+  }
+  return auth;
 }
 
-class UpstreamError extends Error {}
+/** True when the request carries a session cookie (any prefix). Cheap: no DB read for anonymous traffic. */
+export const hasSessionCookie = (c: Ctx): boolean => /(?:^|;\s*)(?:__Secure-)?champbeam\.session_token=/.test(c.req.header("cookie") ?? "");
 
-/** True if the token's authorized party is an origin we serve the SPA from. */
-export function azpAuthorized(settings: Settings, azp: string): boolean {
-  const origin = azp.replace(/\/+$/, "");
-  if (settings.clerkAuthorizedPartiesList.includes(origin)) return true;
-  const pattern = settings.corsAllowOriginRegex.trim();
-  if (pattern) {
-    try {
-      const re = new RegExp(`^(?:${pattern})$`);
-      return re.test(origin) || re.test(azp);
-    } catch {
-      console.warn("invalid CORS_ALLOW_ORIGIN_REGEX; ignoring for azp check");
-    }
+/**
+ * R6 CSRF: a cookie session is sent cross-site by the browser, so a cookie-authenticated mutation must
+ * carry an Origin we trust. API-key and service-key requests are exempt (no ambient credential).
+ */
+export const crossSiteGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const m = c.req.method;
+  if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && hasSessionCookie(c) && presentedApiKey(c) === null && !c.req.header("x-service-key")) {
+    const origin = c.req.header("origin");
+    if (!origin || !trustedOrigins(c.var.settings).includes(origin)) throw new HTTPError(403, "Cross-site request blocked");
   }
-  return false;
-}
+  await next();
+};
 
-function normalizeRoleClaim(raw: unknown): string | null {
-  if (typeof raw !== "string" || !raw) return null;
-  let r = raw.trim();
-  if (r.startsWith("org:")) r = r.slice(4);
-  return r.toLowerCase() || null;
-}
-
-/** (org_id, normalized_role, org_slug) from v2 ("o") or v1 claims. */
-export function extractOrgClaims(payload: Record<string, unknown>): [string | null, string | null, string | null] {
-  const o = payload.o;
-  if (o && typeof o === "object") {
-    const oo = o as Record<string, unknown>;
-    return [(oo.id as string) ?? null, normalizeRoleClaim(oo.rol), (oo.slg as string) ?? null];
-  }
-  return [
-    (payload.org_id as string) ?? null,
-    normalizeRoleClaim(payload.org_role),
-    (payload.org_slug as string) ?? null,
-  ];
-}
-
-const invalidCreds = () =>
-  new HTTPError(401, "Could not validate credentials", { "WWW-Authenticate": "Bearer" });
-
-export async function verifyClerkToken(settings: Settings, token: string): Promise<Record<string, unknown>> {
-  let kid: string | undefined;
-  try {
-    kid = decodeProtectedHeader(token).kid;
-  } catch {
-    throw invalidCreds();
-  }
-  let jwks = await fetchClerkJwks(settings);
-  let jwk = jwks.keys?.find((k) => k.kid === kid);
-  if (!jwk) {
-    jwks = await fetchClerkJwks(settings, true);
-    jwk = jwks.keys?.find((k) => k.kid === kid);
-    if (!jwk) throw new HTTPError(401, "Unknown signing key");
-  }
-  let payload: Record<string, unknown>;
-  try {
-    const key = await importJWK(jwk, "RS256");
-    const issuer = settings.resolvedClerkIssuer;
-    const res = await jwtVerify(token, key, { algorithms: ["RS256"], ...(issuer ? { issuer } : {}) });
-    payload = res.payload as Record<string, unknown>;
-  } catch (err) {
-    if (err instanceof joseErrors.JOSEError || err instanceof TypeError) throw invalidCreds();
-    throw err;
-  }
-  const parties = settings.clerkAuthorizedPartiesList;
-  const azp = payload.azp;
-  if (parties.length && typeof azp === "string" && azp && !azpAuthorized(settings, azp)) {
-    throw new HTTPError(401, "Unauthorized party");
-  }
-  if (!payload.sub) throw new HTTPError(401, "Invalid token: missing sub");
-  return payload;
-}
-
-// Throttle Clerk profile backfills: clerk_user_id -> last attempt (ms).
-const identityAttempts = new Map<string, number>();
-const IDENTITY_RETRY_MS = 600_000;
-
-async function maybeBackfillIdentity(c: Ctx, user: userService.User, tokenEmail: string | null): Promise<void> {
-  const db = c.var.db;
-  if (!userService.hasPlaceholderEmail(user)) return;
-  if (tokenEmail) {
-    await userService.applyIdentity(db, user, { email: tokenEmail });
-    return;
-  }
-  const clerkId = user.clerkId!;
-  const now = Date.now();
-  const last = identityAttempts.get(clerkId);
-  if (last !== undefined && now - last < IDENTITY_RETRY_MS) return;
-  identityAttempts.set(clerkId, now);
-  const payload = await clerk.fetchUser(c.var.settings, clerkId);
-  if (payload) {
-    await userService.applyIdentity(db, user, {
-      email: clerk.primaryEmail(payload),
-      fullName: clerk.fullName(payload),
-    });
-  }
-}
-
-async function resolveUser(c: Ctx, payload: Record<string, unknown>): Promise<TokenData> {
-  const db = c.var.db;
-  const clerkUserId = payload.sub as string;
-  let [orgId, orgRole, orgSlug] = extractOrgClaims(payload);
-  const tokenEmail = typeof payload.email === "string" ? payload.email : null;
-  const user = await userService.getOrCreateByClerkId(db, clerkUserId);
+async function resolveSession(c: Ctx): Promise<TokenData | null> {
+  const session = await authOf(c).api.getSession({ headers: c.req.raw.headers });
+  if (!session) return null;
+  const { user } = session;
   // Same rule as the API-key and service-key paths: a deactivated account has no session.
   if (user.isActive === false) throw new HTTPError(401, "Account is deactivated");
-  await maybeBackfillIdentity(c, user, tokenEmail);
-  let orgUuid: string | null = null;
-  if (orgId) {
-    const m = await orgService.resolveActiveMembership(db, user.id, orgId, orgRole ?? "member", orgSlug);
-    if (m) {
-      orgUuid = m.orgUuid;
-      orgRole = m.role;
-    } else {
-      // Revoked: behave exactly as if no organization were selected.
-      orgId = orgRole = orgSlug = null;
-    }
-  }
+  const activeOrg = session.session.activeOrganizationId;
+  // The membership is read on every request (cookieCache off), so a removal takes effect at once.
+  const m = activeOrg
+    ? await c.var.db
+        .select({ role: organizationMemberships.role, slug: organizations.slug })
+        .from(organizationMemberships)
+        .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
+        .where(
+          and(
+            eq(organizationMemberships.organizationId, activeOrg),
+            eq(organizationMemberships.userId, user.id),
+            eq(organizationMemberships.status, MEMBERSHIP_ACTIVE),
+          ),
+        )
+        .get()
+    : undefined;
   return {
     userId: user.id,
     email: user.email ?? "",
-    clerkUserId,
-    orgId,
-    orgRole,
-    orgSlug,
-    orgUuid,
+    clerkUserId: user.clerkId ?? null,
+    orgId: m ? activeOrg : null,
+    orgRole: m ? m.role.toLowerCase() : null,
+    orgSlug: m ? m.slug : null,
+    orgUuid: m ? activeOrg : null,
   };
 }
 
@@ -257,17 +166,20 @@ async function resolveApiKey(c: Ctx, rawKey: string): Promise<TokenData> {
 
 async function resolveIdentity(c: Ctx, opts: { allowApiKey: boolean }): Promise<TokenData | null> {
   const apiKey = opts.allowApiKey ? presentedApiKey(c) : null;
-  const bearer = bearerToken(c);
   const serviceKey = opts.allowApiKey ? c.req.header("x-service-key") : undefined;
-  if (apiKey === null && bearer === null && !serviceKey) return null;
+  const cookie = hasSessionCookie(c);
+  if (apiKey === null && !cookie && !serviceKey) {
+    // A bearer that is not an API key was a Clerk session token: there are no bearer sessions now.
+    if (bearerToken(c) !== null) throw new HTTPError(401, "Could not validate credentials", { "WWW-Authenticate": "Bearer" });
+    return null;
+  }
   try {
     if (serviceKey) return await resolveServiceIdentity(c, serviceKey.trim());
     if (apiKey !== null) return await resolveApiKey(c, apiKey);
-    const payload = await verifyClerkToken(c.var.settings, bearer!);
-    return await resolveUser(c, payload);
+    return await resolveSession(c);
   } catch (err) {
     if (err instanceof HTTPError) throw err;
-    if (err instanceof UpstreamError || isNetworkOrDbError(err)) {
+    if (isNetworkOrDbError(err)) {
       console.error("auth: upstream/DB failure resolving user", err);
       throw new HTTPError(503, "Auth service temporarily unavailable");
     }
@@ -302,14 +214,13 @@ export async function requireAuth(c: Ctx): Promise<TokenData> {
   return u;
 }
 
-/** Interactive Clerk session only; API keys are explicitly rejected (key management). */
-export async function requireClerkAuth(c: Ctx): Promise<TokenData> {
+/** Interactive cookie session only; API keys are explicitly rejected (key management). */
+export async function requireSessionAuth(c: Ctx): Promise<TokenData> {
   if (presentedApiKey(c) !== null) {
     throw new HTTPError(403, "API keys cannot access this endpoint; sign in required");
   }
-  const bearer = bearerToken(c);
   const serviceKey = c.req.header("x-service-key");
-  if (bearer === null && !serviceKey) {
+  if (!hasSessionCookie(c) && !serviceKey) {
     throw new HTTPError(401, "Authentication required", { "WWW-Authenticate": "Bearer" });
   }
   return requireAuth(c);

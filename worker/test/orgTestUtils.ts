@@ -15,7 +15,7 @@ export const REDIRECT_PORTED = redirectRouter.routes.length > 0;
 
 export type Session = Awaited<ReturnType<typeof orgSession>> & { userId: string };
 
-/** A Clerk org session in a given org, with an optional display name. */
+/** A signed-in member of the org keyed by `clerkOrgId`, with an optional display name. */
 export async function member(clerkOrgId: string, role: string, fullName?: string): Promise<Session> {
   const s = await orgSession({ role, clerkOrgId });
   if (!s.userId) throw new Error(`org session failed (auth/me -> ${s.meStatus})`);

@@ -47,6 +47,14 @@ function config(settings: Settings) {
   return cfg;
 }
 
+/**
+ * Origins trusted to act with a session cookie: the app itself (BETTER_AUTH_URL) plus the explicit CORS
+ * list. The preview regex is deliberately not included: a cookie session is first-party only.
+ */
+export function trustedOrigins(settings: Settings): string[] {
+  return [...new Set([settings.betterAuthUrl, ...config(settings).origins])];
+}
+
 export function allowedOrigin(settings: Settings, origin: string | undefined | null): string | null {
   if (!origin) return null;
   const { origins, re } = config(settings);

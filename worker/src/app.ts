@@ -11,6 +11,7 @@ import { getDb } from "./db/client";
 import { HTTPError } from "./lib/errors";
 import { cors, requestOrigin, withCors } from "./lib/cors";
 import { serviceKeyGate } from "./auth/serviceAuth";
+import { authOf, crossSiteGuard } from "./auth/security";
 import { shareOriginGuard } from "./lib/shareOrigin";
 import { requestHost } from "./lib/request";
 
@@ -76,6 +77,9 @@ app.get("/favicon.ico", (c) => {
 });
 
 const v1 = "/api/v1";
+// Better Auth: sign-in/up, sessions, OAuth callbacks, org management. Before every router and the SPA fallback.
+app.on(["GET", "POST"], "/api/auth/*", (c) => authOf(c).handler(c.req.raw));
+app.use(`${v1}/*`, crossSiteGuard);
 app.route("/", health);
 app.route("/", redirect);
 app.route("/", shortLinks);

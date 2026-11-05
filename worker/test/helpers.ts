@@ -6,12 +6,13 @@
  *
  * Auth in tests, two ways:
  *  - apiKeyHeaders(await createApiKey(userId))   -> X-API-Key (cb_live_...)
- *  - bearer(await clerkToken({ sub, org }))      -> a real RS256 JWT signed by
- *    test/fixtures/clerk-test-key.json, whose JWKS the Worker is pinned to
- *    (CLERK_JWKS_JSON in vitest.config.ts).
+ *  - await sessionHeaders(userId, orgId?)        -> a Better Auth session row plus its
+ *    signed cookie (BETTER_AUTH_SECRET in vitest.config.ts) and a trusted Origin.
+ * clerkToken() remains only to prove a leftover Clerk bearer is refused.
  */
 import { env, SELF } from "cloudflare:test";
 import { SignJWT, importJWK } from "jose";
+import { makeSignature } from "better-auth/crypto";
 import clerkKey from "./fixtures/clerk-test-key.json" with { type: "json" };
 
 export const BASE = "https://share.example.com";
@@ -74,7 +75,7 @@ export async function authedUser(opts: { email?: string } = {}) {
 export async function createOrg(clerkOrgId = `org_${crypto.randomUUID().slice(0, 8)}`, name = "Acme") {
   const id = crypto.randomUUID();
   await env.DB.prepare("INSERT INTO organizations (id, clerk_org_id, name, slug, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-    .bind(id, clerkOrgId, name, name.toLowerCase(), nowIso(), nowIso())
+    .bind(id, clerkOrgId, name, `${name.toLowerCase()}-${id.slice(0, 8)}`, nowIso(), nowIso())
     .run();
   return { id, clerkOrgId };
 }
@@ -113,22 +114,34 @@ export async function clerkToken(claims: {
 export const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 /**
- * Signed-in org user via a Clerk JWT (what the SPA sends). Creates the local
- * user row through the real auth path on first request.
+ * Signed-in org user: a users row, a membership with `role` in the org keyed by `clerkOrgId` (created
+ * on first use, as the import creates orgs), and a Better Auth session whose active org is that org.
  */
 export async function orgSession(opts: { role?: string; clerkOrgId?: string; email?: string } = {}) {
   const sub = `user_${crypto.randomUUID().slice(0, 12)}`;
   const clerkOrgId = opts.clerkOrgId ?? `org_${crypto.randomUUID().slice(0, 8)}`;
-  const token = await clerkToken({
-    sub,
-    email: opts.email ?? `${sub}@example.com`,
-    org: { id: clerkOrgId, rol: `org:${opts.role ?? "member"}`, slg: "acme" },
-  });
-  const headers = bearer(token);
-  // Resolve the identity once so the users/org rows exist for direct DB setup.
-  const me = await api("/api/v1/auth/me", { headers });
-  const userRow = await env.DB.prepare("SELECT id FROM users WHERE clerk_id = ?").bind(sub).first<{ id: string }>();
-  return { sub, clerkOrgId, headers, userId: userRow?.id ?? null, meStatus: me.status };
+  const user = await createUser({ clerkId: sub, email: opts.email ?? `${sub}@example.com` });
+  const existing = await env.DB.prepare("SELECT id FROM organizations WHERE clerk_org_id = ?").bind(clerkOrgId).first<{ id: string }>();
+  const orgId = existing?.id ?? (await createOrg(clerkOrgId)).id;
+  await addMember(orgId, user.id, opts.role ?? "member");
+  const headers = await sessionHeaders(user.id, orgId);
+  return { sub, clerkOrgId, orgId, headers, userId: user.id as string | null, meStatus: 200 };
+}
+
+/**
+ * A Better Auth session for `userId`, written straight to the `session` table, and the headers a
+ * browser on the app origin sends with it: the signed session cookie plus a trusted Origin (R6).
+ */
+export async function sessionHeaders(userId: string, activeOrganizationId: string | null = null) {
+  const token = crypto.randomUUID().replace(/-/g, "");
+  const now = Date.now();
+  await env.DB.prepare(
+    "INSERT INTO session (id, token, user_id, expires_at, created_at, updated_at, active_organization_id) VALUES (?,?,?,?,?,?,?)",
+  )
+    .bind(crypto.randomUUID(), token, userId, now + 7 * 86_400_000, now, now, activeOrganizationId)
+    .run();
+  const sig = await makeSignature(token, env.BETTER_AUTH_SECRET as string);
+  return { Cookie: `__Secure-champbeam.session_token=${encodeURIComponent(`${token}.${sig}`)}`, Origin: BASE };
 }
 
 export async function json<T = any>(res: Response): Promise<T> {

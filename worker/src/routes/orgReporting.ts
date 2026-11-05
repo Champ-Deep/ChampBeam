@@ -43,7 +43,7 @@ router.get("/profile", async (c) => {
     user_id: user.userId,
     email: me && !isPlaceholderEmail(me.email) ? me.email : null,
     full_name: me?.fullName ?? null,
-    org: org ? { id: org.clerkOrgId, name: org.name, slug: org.slug } : null,
+    org: org ? { id: org.id, name: org.name, slug: org.slug } : null,
     role: org ? user.orgRole ?? null : null,
     permissions: org ? [...permissionsForRole(user.orgRole)].sort() : [],
     report_scope: scope.kind,
