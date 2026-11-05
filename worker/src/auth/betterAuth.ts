@@ -19,9 +19,7 @@ import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
-
-/** The one org every user belongs to (Deep's ruling, 5 Nov). New sign-ups join it as `member`. */
-export const DEFAULT_ORG_SLUG = "champions-group";
+import { joinOrgByEmailDomain } from "../services/emailDomains";
 
 const ac = createAccessControl(defaultStatements);
 const roles = {
@@ -100,20 +98,18 @@ export function createAuth(env: Env, db: Db) {
     databaseHooks: {
       user: {
         create: {
+          // Sign-up: a verified (Google) email on a listed company domain joins that org.
           after: async (user) => {
-            const org = await db
-              .select({ id: schema.organizations.id })
-              .from(schema.organizations)
-              .where(eq(schema.organizations.slug, DEFAULT_ORG_SLUG))
-              .get();
-            if (!org) {
-              console.warn(`auth: no '${DEFAULT_ORG_SLUG}' org, new user ${user.id} joined no org`);
-              return;
-            }
-            await db
-              .insert(schema.organizationMemberships)
-              .values({ organizationId: org.id, userId: user.id, role: schema.ROLE_MEMBER })
-              .onConflictDoNothing();
+            await joinOrgByEmailDomain(db, user);
+          },
+        },
+      },
+      session: {
+        create: {
+          // First sign-in after verification catches users who signed up unverified; no-op once they have a membership.
+          after: async (session) => {
+            const user = await db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get();
+            if (user) await joinOrgByEmailDomain(db, user);
           },
         },
       },

@@ -97,6 +97,16 @@ export const reportingGrants = sqliteTable("reporting_grants", {
   revokedAt: text("revoked_at"),
 });
 
+/** Email domains whose verified users auto-join `organizationId` (0009). `domain` is lowercase and unique across orgs. */
+export const orgEmailDomains = sqliteTable("org_email_domains", {
+  domain: text("domain").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+});
+
 export const slugAliases = sqliteTable("slug_aliases", {
   id: id(),
   fileId: text("file_id")

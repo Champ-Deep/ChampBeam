@@ -92,8 +92,8 @@ describe("email and password", () => {
     expect(statuses[5]).toBe(429);
   });
 
-  it("a new sign-up auto-joins the Champions Group org as member", async () => {
-    const orgId = await defaultOrg();
+  it("a sign-up on an unlisted domain joins no org (domain joins: orgEmailDomains.test.ts)", async () => {
+    await defaultOrg();
     const email = `join-${crypto.randomUUID().slice(0, 8)}@example.com`;
     const up = await api("/api/auth/sign-up/email", {
       method: "POST",
@@ -101,12 +101,8 @@ describe("email and password", () => {
       json: { email, password: "long enough pw", name: "Joiner" },
     });
     expect(up.status).toBe(200);
-    const m = await env.DB.prepare(
-      "SELECT m.role FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ? AND m.organization_id = ?",
-    )
-      .bind(email, orgId)
-      .first<{ role: string }>();
-    expect(m?.role).toBe("member");
+    const m = await env.DB.prepare("SELECT 1 AS x FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ?").bind(email).first();
+    expect(m).toBeNull();
   });
 
   it("a deactivated user's session is a 401", async () => {
