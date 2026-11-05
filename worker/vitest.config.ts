@@ -33,6 +33,9 @@ export default defineConfig(async () => {
             CLERK_AUTHORIZED_PARTIES: "",
             CLERK_JWKS_JSON: JSON.stringify(clerkKey.jwks),
             SERVICE_API_KEYS: "champ-workspace:svc-test-key",
+            // Fake keys so the assistant tests can prove a key is used upstream and never echoed.
+            ASSISTANT_OPENROUTER_API_KEY: "sk-or-test-SECRET-openrouter",
+            ASSISTANT_VERCEL_API_KEY: "",
           },
         },
       }),

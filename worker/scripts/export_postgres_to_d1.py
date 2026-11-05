@@ -70,6 +70,7 @@ TABLE_ORDER = [
     "page_state",
     "page_events",
     "maxmind_usage",
+    "assistant_config",
 ]
 
 ROWS_PER_INSERT = 50
@@ -78,16 +79,19 @@ MAX_FILE_BYTES = 4 * 1024 * 1024
 
 def d1_columns() -> dict[str, list[str]]:
     """Table -> column names, parsed from the D1 schema file."""
-    sql = SCHEMA_SQL.read_text(encoding="utf-8")
+    # Later migrations that add whole tables (0008 assistant_config) count too; ALTER TABLE columns are
+    # not parsed, so take the live PRAGMA column map for those (see the cutover card).
     out: dict[str, list[str]] = {}
-    for m in re.finditer(r"CREATE TABLE (\w+) \((.*?)\n\);", sql, re.S):
-        cols = []
-        for line in m.group(2).splitlines():
-            line = line.strip()
-            if not line or line.startswith(("PRIMARY KEY", "--")):
-                continue
-            cols.append(line.split()[0])
-        out[m.group(1)] = cols
+    for path in sorted(SCHEMA_SQL.parent.glob("*.sql")):
+        sql = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+) \((.*?)\n\);", sql, re.S):
+            cols = []
+            for line in m.group(2).splitlines():
+                line = line.strip()
+                if not line or line.startswith(("PRIMARY KEY", "--")):
+                    continue
+                cols.append(line.split()[0])
+            out[m.group(1)] = cols
     return out
 
 
