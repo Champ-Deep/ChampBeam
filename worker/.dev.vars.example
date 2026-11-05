@@ -11,3 +11,6 @@ STORAGE_UPLOAD_SECRET=dev-upload-secret
 # Google sign-in, optional locally (redirect URI <BETTER_AUTH_URL>/api/auth/callback/google):
 # GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 # GOOGLE_CLIENT_SECRET=your-client-secret
+# Assistant (optional; `mock` provider needs no key). Production: `wrangler secret put` these, never vars.
+# ASSISTANT_OPENROUTER_API_KEY=
+# ASSISTANT_VERCEL_API_KEY=
