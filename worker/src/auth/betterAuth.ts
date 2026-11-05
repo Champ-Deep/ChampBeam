@@ -106,8 +106,9 @@ export function createAuth(env: Env, db: Db) {
       },
       session: {
         create: {
-          // First sign-in after verification catches users who signed up unverified; no-op once they have a membership.
-          after: async (session) => {
+          // First sign-in after verification catches users who signed up unverified. Runs in `before` so a hook that
+          // picks the session's active org (release branch) sees the membership; the join itself is once per user.
+          before: async (session) => {
             const user = await db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get();
             if (user) await joinOrgByEmailDomain(db, user);
           },

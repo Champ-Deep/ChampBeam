@@ -7,3 +7,8 @@ CREATE TABLE IF NOT EXISTS org_email_domains (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_org_email_domains_org ON org_email_domains (organization_id);
+
+-- Once-per-user marker: the sign-in join runs at most once, so removing a member (which deletes the row) sticks.
+-- Backfilled for everyone who exists today: they were all joined by the earlier join-everyone rule or removed on purpose.
+ALTER TABLE users ADD COLUMN org_join_checked_at TEXT;
+UPDATE users SET org_join_checked_at = datetime('now') WHERE org_join_checked_at IS NULL;

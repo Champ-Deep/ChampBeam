@@ -85,6 +85,18 @@ describe("auto-join on verified company email", () => {
     expect((await q("SELECT status FROM organization_memberships WHERE user_id = ?", u.id))!.status).toBe("revoked");
   });
 
+  it("a member an admin removes (row deleted) stays out after signing in again", async () => {
+    const s = await listedOrg();
+    const id = await googleUser(`gus@${s.domain}`, true);
+    expect(await orgOf(id)).not.toBeNull();
+    // Better Auth removeMember DELETES the row; no tombstone is left behind.
+    await env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = ?").bind(id).run();
+    const ctx = await createAuth(env as unknown as Env, getDb(env.DB)).$context;
+    await ctx.internalAdapter.createSession(id);
+    await ctx.internalAdapter.createSession(id);
+    expect(await orgOf(id)).toBeNull();
+  });
+
   it("existing members are untouched by listing and unlisting a domain", async () => {
     const s = await listedOrg();
     const old = await member(s.clerkOrg, "leader");

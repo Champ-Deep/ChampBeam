@@ -38,6 +38,8 @@ export const users = sqliteTable("users", {
   // Better Auth (0007)
   emailVerified: bool("email_verified").notNull().default(false),
   image: text("image"),
+  // Set once a verified user on a listed company domain was considered for auto-join (0009); never re-joins after.
+  orgJoinCheckedAt: text("org_join_checked_at"),
 });
 
 export const ROLE_ADMIN = "admin";
