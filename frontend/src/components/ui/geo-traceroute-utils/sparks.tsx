@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- Registry canvas helpers intentionally share this module. */
 "use client";
 
 /**
@@ -81,7 +82,7 @@ export class Sparks {
         age: 0,
         life: rand(life[0], life[1]),
         size: Math.random() < 0.3 ? size[1] : size[0],
-        fill: fills[i % fills.length],
+        fill: (fills[i % fills.length] as string),
         gravity,
         drag,
       });
@@ -96,7 +97,7 @@ export class Sparks {
     let alive = 0;
     let fill = "";
     for (let i = 0; i < list.length; i++) {
-      const spark = list[i];
+      const spark = (list[i] as Spark);
       spark.age += delta;
       const damping = Math.exp(-delta * spark.drag);
       spark.vx *= damping;

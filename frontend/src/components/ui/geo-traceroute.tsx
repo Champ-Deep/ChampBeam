@@ -83,6 +83,7 @@ export interface TraceHop {
    * did not answer at all.
    */
   readonly rtt: readonly number[];
+  readonly display?: string;
 }
 
 /** Props of GeoTraceroute. The remaining `div` props go to the root. */
@@ -94,6 +95,11 @@ export interface GeoTracerouteProps extends Omit<
    * The hops in order, from the first router to the destination. Without it the component shows an 11-hop demo trace;
    * an empty array shows an empty table and map.
    */
+  // ChampBeam reuses the playback engine with visitor-facing labels and real elapsed time.
+  title?: string;
+  metricLabel?: string;
+  formatMetric?: (ms: number) => string;
+  showProbes?: boolean;
   hops?: readonly TraceHop[];
   /**
    * The destination shown in the header. Default: the name or address of the last hop that answered
@@ -145,6 +151,10 @@ export interface GeoTracerouteProps extends Omit<
  */
 export function GeoTraceroute({
   hops,
+  title = "Traceroute",
+  metricLabel = "Round trip",
+  formatMetric,
+  showProbes = true,
   target,
   value,
   defaultValue = null,
@@ -169,7 +179,7 @@ export function GeoTraceroute({
   const layout = React.useMemo(() => markerLayout(model), [model]);
   const rowCount = model.rows.length;
   const lastLocated =
-    model.located.length > 0 ? model.located[model.located.length - 1] : -1;
+    model.located.length > 0 ? (model.located[model.located.length - 1] as number) : -1;
   const targetText = target ?? (demo ? DEMO_TARGET : defaultTarget(model));
 
   const [selection, setSelection] = useControllableState<number | null>({
@@ -252,7 +262,7 @@ export function GeoTraceroute({
       engine.playing = false;
       engine.cursor = model.rows.length;
       engine.arrived =
-        model.located.length > 0 ? model.located[model.located.length - 1] : -1;
+        model.located.length > 0 ? (model.located[model.located.length - 1] as number) : -1;
       engine.sparks.clear();
       setPlaying(false);
     }
@@ -289,7 +299,7 @@ export function GeoTraceroute({
     const box = boxRef.current;
     if (!box) return;
     const observer = new ResizeObserver((entries) => {
-      const width = entries[entries.length - 1]?.contentRect.width ?? 0;
+      const width = (entries[entries.length - 1] as ResizeObserverEntry)?.contentRect.width ?? 0;
       if (width > 0) setBoxWidth(Math.round(width));
     });
     observer.observe(box);
@@ -395,7 +405,7 @@ export function GeoTraceroute({
       geometry &&
       box
     ) {
-      const hop = geometry.hops[current.located.indexOf(current.pingRow)];
+      const hop = ((geometry.hops[current.located.indexOf(current.pingRow)] as HopGeometry));
       const offset = box.getBoundingClientRect();
       const layer = fxSurface.canvas.getBoundingClientRect();
       if (hop) {
@@ -420,10 +430,10 @@ export function GeoTraceroute({
     setPlaying(false);
     onComplete?.();
     const rtt = current.reached
-      ? `, ${formatRtt(current.total)} ms`
+      ? `, ${(formatMetric ?? formatRtt)(current.total)}${formatMetric ? "" : " ms"}`
       : ", no reply from the last hop";
     setAnnouncement(
-      `Trace to ${targetText} complete: ${current.rows.length} hops${rtt}.`,
+      `${title} to ${targetText} complete: ${current.rows.length} hops${rtt}.`,
     );
   }
 
@@ -448,9 +458,9 @@ export function GeoTraceroute({
     const current = engine.model;
     const index = engine.cursor;
     if (!node || index < 0 || index >= current.rows.length) return;
-    const row = current.rows[index];
+    const row = (current.rows[index] as HopRow);
     if (row.kind === "timeout") return;
-    const timing = current.timing.rows[index];
+    const timing = (current.timing.rows[index] as RowTiming);
     const share = clamp(
       (engine.clock - timing.countStart) /
         Math.max(1e-6, timing.countEnd - timing.countStart),
@@ -463,7 +473,7 @@ export function GeoTraceroute({
 
   function moveFocus(index: number) {
     setFocusIndex(index);
-    rowButtons.current[index]?.focus();
+    (rowButtons.current[index] as HTMLButtonElement)?.focus();
   }
 
   function toggleRow(index: number) {
@@ -524,7 +534,7 @@ export function GeoTraceroute({
     focusIndex >= 0 && focusIndex < rowCount
       ? focusIndex
       : Math.max(0, selectedIndex);
-  const selectedRow = selectedIndex >= 0 ? model.rows[selectedIndex] : null;
+  const selectedRow = selectedIndex >= 0 ? (model.rows[selectedIndex] as HopRow) : null;
   const mapDimmed = selectedRow !== null && selectedRow.kind !== "located";
   // the hop the packet is at or heading from, while the playback is under way (also while paused)
   const packetRow = cursor >= 0 && !complete ? trace.arrived : -1;
@@ -534,10 +544,10 @@ export function GeoTraceroute({
     [model, layout, width, selectedIndex, packetRow],
   );
   const totalText =
-    complete && model.reached ? formatRtt(model.total) : MISSING;
+    complete && model.reached ? (formatMetric ?? formatRtt)(model.total) : MISSING;
   const totalReserve = React.useMemo(
-    () => [...new Set([formatRtt(model.total), MISSING])],
-    [model.total],
+    () => [...new Set([(formatMetric ?? formatRtt)(model.total), MISSING])],
+    [model.total, formatMetric],
   );
 
   return (
@@ -553,7 +563,7 @@ export function GeoTraceroute({
       <div className="flex min-h-9 items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="m-0 text-[12px] leading-4 text-muted-foreground">
-            Traceroute
+            {title}
             <span aria-hidden="true"> · </span>
             <span className="tabular-nums">
               {rowCount === 1 ? "1 hop" : `${rowCount} hops`}
@@ -568,7 +578,7 @@ export function GeoTraceroute({
         </div>
         <div className="shrink-0 text-right">
           <p className="m-0 text-[12px] leading-4 text-muted-foreground">
-            Round trip
+            {metricLabel}
           </p>
           <p className="m-0 flex items-baseline justify-end gap-1 font-mono text-[13.5px] leading-5 font-medium tabular-nums">
             <span ref={totalRef} className="inline-block origin-right">
@@ -586,7 +596,7 @@ export function GeoTraceroute({
                 totalText === MISSING && "opacity-0",
               )}
             >
-              ms
+              {formatMetric ? null : "ms"}
             </span>
           </p>
         </div>
@@ -658,11 +668,11 @@ export function GeoTraceroute({
           />
           <div
             role="img"
-            aria-label={mapLabel(model)}
+            aria-label={formatMetric ? `Visitor journey: ${model.located.length} map locations. ${hopList.map((hop) => [hop.address, hop.location, hop.display].filter(Boolean).join(", ")).join("; ")}` : mapLabel(model)}
             className="absolute inset-0"
           />
           {model.located.map((row, li) => {
-            const point = layout.points[li];
+            const point = ((layout.points[li] as { x: number; y: number; }) as { x: number; y: number; });
             const reached = complete || row <= trace.arrived;
             const here = row === packetRow;
             const destination = complete && row === model.pingRow;
@@ -676,7 +686,7 @@ export function GeoTraceroute({
                     : "pending";
             return (
               <span
-                key={model.rows[row].key}
+                key={(model.rows[row] as HopRow).key}
                 aria-hidden="true"
                 data-hop={row}
                 data-state={state}
@@ -700,13 +710,13 @@ export function GeoTraceroute({
             )}
           >
             {model.segments.map((segment, k) => {
-              const placement = labels.chips[k];
+              const placement = ((labels.chips[k] as { x: number; y: number; width: number; }) as { x: number; y: number; width: number; });
               if (!segment.jump || !placement) return null;
               const drawn = complete || trace.arrived >= segment.to;
               const selected = segment.to === selectedIndex;
               return (
                 <span
-                  key={`${model.rows[segment.from].key}>${model.rows[segment.to].key}`}
+                  key={`${(model.rows[segment.from] as HopRow).key}>${(model.rows[segment.to] as HopRow).key}`}
                   data-state={drawn ? "drawn" : "pending"}
                   className={cn(
                     "absolute rounded-full border bg-card px-1.5 text-center font-mono text-[10px] leading-[14px] whitespace-nowrap tabular-nums transition-[opacity,scale,border-color,color] duration-300 data-[state=pending]:scale-75 data-[state=pending]:opacity-0 motion-reduce:transition-none",
@@ -728,9 +738,9 @@ export function GeoTraceroute({
               );
             })}
             {model.located.map((row, li) => {
-              const placement = labels.hops[li];
+              const placement = ((labels.hops[li] as { visible: boolean; x: number; y: number; named: boolean; }) as { visible: boolean; x: number; y: number; named: boolean; });
               if (!placement?.visible) return null;
-              const hop = model.rows[row];
+              const hop = (model.rows[row] as HopRow);
               const strong = row === selectedIndex || row === packetRow;
               return (
                 <span
@@ -769,7 +779,7 @@ export function GeoTraceroute({
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <table className="w-full table-fixed border-collapse text-left text-[12px] leading-4">
-          <caption className="sr-only">Hops to {targetText}</caption>
+          <caption className="sr-only">{formatMetric ? "Touches for" : "Hops to"} {targetText}</caption>
           <thead>
             <tr className="border-b border-border text-muted-foreground">
               <th
@@ -782,7 +792,7 @@ export function GeoTraceroute({
                 scope="col"
                 className="h-8 w-[28%] px-2 font-normal @max-[480px]:w-auto"
               >
-                Address
+                {title === "Traceroute" ? "Address" : "Item"}
               </th>
               <th
                 scope="col"
@@ -800,14 +810,14 @@ export function GeoTraceroute({
                 scope="col"
                 className="h-8 w-[76px] px-2 text-right font-normal @max-[480px]:w-[60px]"
               >
-                RTT<span className="hidden @max-[480px]:inline"> ms</span>
+                {formatMetric ? metricLabel : <>RTT<span className="hidden @max-[480px]:inline"> ms</span></>}
               </th>
-              <th
+              {showProbes && <th
                 scope="col"
                 className="h-8 w-[52px] pr-3 text-right font-normal @max-[480px]:w-[34px]"
               >
                 <span className="@max-[480px]:sr-only">Probes</span>
-              </th>
+              </th>}
             </tr>
           </thead>
           <tbody>
@@ -839,7 +849,7 @@ export function GeoTraceroute({
                       type="button"
                       tabIndex={i === tabStop ? 0 : -1}
                       aria-pressed={selected}
-                      aria-label={rowLabel(row)}
+                      aria-label={row.hop.display ? [row.number, row.address, row.hop.name, row.hop.location, row.hop.display].filter(Boolean).join(", ") : rowLabel(row)}
                       onFocus={() => setFocusIndex(i)}
                       onKeyDown={(event) => handleRowKeyDown(event, i)}
                       className="block h-[30px] w-full cursor-pointer border-0 bg-transparent p-0 pl-3 text-left font-mono text-[12px] text-muted-foreground tabular-nums outline-none group-data-[selected]/row:text-lumesec focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-lumesec focus-visible:outline-solid @max-[480px]:pl-2.5"
@@ -867,18 +877,18 @@ export function GeoTraceroute({
                     <LocationCell row={row} selected={selected} />
                   </td>
                   <td className="px-2 text-right font-mono whitespace-nowrap tabular-nums">
-                    <RttCell row={row} state={state} attachLive={attachLive} />
+                    {row.hop.display ?? <RttCell row={row} state={state} attachLive={attachLive} />}
                   </td>
-                  <td className="pr-3">
+                  {showProbes && <td className="pr-3">
                     <ProbeMarks marks={row.marks} state={state} />
-                  </td>
+                  </td>}
                 </tr>
               );
             })}
             {rowCount === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={showProbes ? 6 : 5}
                   className="h-16 text-center text-muted-foreground"
                 >
                   No hops
@@ -928,6 +938,7 @@ function ToolbarButton({
 }
 
 function LocationCell({ row, selected }: { row: HopRow; selected: boolean }) {
+  if (row.hop.location) return <span title={row.hop.location}>{row.hop.location}</span>;
   if (row.kind === "located") return <span title={row.place}>{row.place}</span>;
   if (row.kind === "private") {
     return (
@@ -1103,7 +1114,7 @@ const SPARK_OPTIONS = {
   jitter: 2,
 } as const;
 
-const MISSING = "–";
+const MISSING = "-";
 const PLAY_LABELS = ["Pause", "Play"] as const;
 const DEMO_TARGET = "app.example.com";
 
@@ -1344,18 +1355,18 @@ function resolveModel(
 
   const segments: TraceSegment[] = [];
   for (let k = 1; k < located.length; k++) {
-    const a = rows[located[k - 1]];
-    const b = rows[located[k]];
+    const a = (rows[(located[k - 1] as number)] as HopRow);
+    const b = (rows[(located[k] as number)] as HopRow);
     const delta = Math.max(0, b.median - a.median);
     segments.push({
-      from: located[k - 1],
-      to: located[k],
+      from: (located[k - 1] as number),
+      to: (located[k] as number),
       delta,
       jump: delta > threshold,
       km: a.point && b.point ? distanceKm(a.point, b.point) : 0,
     });
   }
-  const last = rows[rows.length - 1];
+  const last = (rows[rows.length - 1] as HopRow);
   const reached = last !== undefined && last.kind !== "timeout";
   return {
     key: traceKey(hops),
@@ -1363,7 +1374,7 @@ function resolveModel(
     located,
     segments,
     timing: scheduleTrace(rows, located, segments),
-    view: mapView(located.map((row) => rows[row].point ?? { lat: 0, lon: 0 })),
+    view: mapView(located.map((row) => (rows[row] as HopRow).point ?? { lat: 0, lon: 0 })),
     total: reached ? last.median : Number.NaN,
     reached,
     pingRow: reached && last.kind === "located" ? rows.length - 1 : -1,
@@ -1400,7 +1411,7 @@ function scheduleTrace(
   const dwell: Span[] = [];
   let t = 0;
   const turn = (index: number) => {
-    const row = rows[index];
+    const row = (rows[index] as HopRow);
     const duration =
       row.kind === "timeout"
         ? TIMEOUT_STEP
@@ -1420,11 +1431,11 @@ function scheduleTrace(
     rows.forEach((_, index) => turn(index));
     return { rows: timing, travel, dwell, total: t };
   }
-  const first = located[0];
+  const first = (located[0] as number);
   for (let i = 0; i < first; i++) turn(i);
   const opening = Math.max(
     MIN_DWELL,
-    Math.max(0, rows[first].median - rows[first].previous) * SECONDS_PER_MS,
+    Math.max(0, (rows[first] as HopRow).median - (rows[first] as HopRow).previous) * SECONDS_PER_MS,
   );
   timing[first] = {
     start: t,
@@ -1459,7 +1470,7 @@ function scheduleTrace(
     dwell.push({ start: arrival, end: arrival + wait });
     t = arrival + wait;
   }
-  for (let i = located[located.length - 1] + 1; i < rows.length; i++) turn(i);
+  for (let i = (located[located.length - 1] as number) + 1; i < rows.length; i++) turn(i);
   return { rows: timing, travel, dwell, total: t };
 }
 
@@ -1467,7 +1478,7 @@ function scheduleTrace(
 function rowAt(model: TraceModel, clock: number) {
   if (clock >= model.timing.total) return model.rows.length;
   const rows = model.timing.rows;
-  for (let i = 0; i < rows.length; i++) if (clock < rows[i].end) return i;
+  for (let i = 0; i < rows.length; i++) if (clock < (rows[i] as RowTiming).end) return i;
   return model.rows.length;
 }
 
@@ -1475,7 +1486,7 @@ function rowAt(model: TraceModel, clock: number) {
 function arrivedAt(model: TraceModel, clock: number) {
   let arrived = -1;
   model.timing.dwell.forEach((span, li) => {
-    if (clock >= span.start) arrived = model.located[li];
+    if (clock >= span.start) arrived = (model.located[li] as number);
   });
   return arrived;
 }
@@ -1483,7 +1494,7 @@ function arrivedAt(model: TraceModel, clock: number) {
 /** The last hop that answered, by name or address; a trace whose last hops did not answer still names where it got to. */
 function defaultTarget(model: TraceModel) {
   for (let i = model.rows.length - 1; i >= 0; i--) {
-    const row = model.rows[i];
+    const row = (model.rows[i] as HopRow);
     if (row.kind !== "timeout") return row.hop.name?.trim() || row.address;
   }
   return MISSING;
@@ -1497,8 +1508,8 @@ const jumpText = (delta: number) => `${formatNumber(delta, { sign: true })} ms`;
 function mapLabel(model: TraceModel) {
   const count = model.located.length;
   if (count === 0) return "Map: no hop has a location.";
-  const first = model.rows[model.located[0]];
-  const last = model.rows[model.located[count - 1]];
+  const first = (model.rows[(model.located[0] as number)] as HopRow);
+  const last = (model.rows[(model.located[count - 1] as number)] as HopRow);
   if (count === 1) return `1 located hop in ${first.place}. No path to draw.`;
   const jumps = model.segments.filter((segment) => segment.jump).length;
   const jumpNote =
@@ -1564,7 +1575,7 @@ function mapView(points: readonly LatLon[]): MapView {
       [north, lambda],
       [lat, bounds.west - middle],
       [lat, bounds.east - middle],
-    ]) {
+    ] as [number, number][]) {
       projection.projectRelative(la, lo, point);
       x0 = Math.min(x0, point.x);
       y0 = Math.min(y0, point.y);
@@ -1615,7 +1626,7 @@ function markerLayout(model: TraceModel): MarkerLayout {
   const projection = viewProjection(model.view, width, height);
   const screen = createScreenPoint();
   const points = model.located.map((row) => {
-    const point = model.rows[row].point ?? { lat: 0, lon: 0 };
+    const point = (model.rows[row] as HopRow).point ?? { lat: 0, lon: 0 };
     projection.project(point.lat, point.lon, screen);
     return { x: screen.x / width, y: screen.y / height };
   });
@@ -1623,8 +1634,8 @@ function markerLayout(model: TraceModel): MarkerLayout {
   const middle = { x: 0, y: 0 };
   const samples: { x: number; y: number }[] = [];
   const midpoints = model.segments.map((segment) => {
-    const a = model.rows[segment.from].point ?? { lat: 0, lon: 0 };
-    const b = model.rows[segment.to].point ?? { lat: 0, lon: 0 };
+    const a = (model.rows[segment.from] as HopRow).point ?? { lat: 0, lon: 0 };
+    const b = (model.rows[segment.to] as HopRow).point ?? { lat: 0, lon: 0 };
     // the same unwrapping as flatPaths: `to` follows `from` the short way round
     const lambdaA = wrapLongitude(a.lon - projection.centerLon);
     const lambdaB = unwrapLongitude(lambdaA, b.lon - projection.centerLon);
@@ -1696,7 +1707,7 @@ function placeMapLabels(
   const lastLocated = model.located.length - 1;
   const named: boolean[] = [];
   const anchors = model.located.map((row, li): HopLabelAnchor => {
-    const hop = model.rows[row];
+    const hop = (model.rows[row] as HopRow);
     const isNamed =
       li === 0 ||
       li === lastLocated ||
@@ -1707,8 +1718,8 @@ function placeMapLabels(
     const long = `${hop.number} ${hop.place}`.length * LABEL_CHAR_WIDTH + 2;
     const ringed = row === selectedIndex || row === packetRow;
     return {
-      x: markers[li].x,
-      y: markers[li].y,
+      x: ((markers[li] as { x: number; y: number; }) as { x: number; y: number; }).x,
+      y: ((markers[li] as { x: number; y: number; }) as { x: number; y: number; }).y,
       widths: isNamed ? [long, short] : [short],
       priority:
         row === selectedIndex
@@ -1752,8 +1763,8 @@ function placeMapLabels(
     for (let k = 0; k < 8; k++) {
       const angle = (k / 8) * TAU;
       points.push({
-        x: markers[li].x + Math.cos(angle) * 12,
-        y: markers[li].y + Math.sin(angle) * 12,
+        x: ((markers[li] as { x: number; y: number; }) as { x: number; y: number; }).x + Math.cos(angle) * 12,
+        y: ((markers[li] as { x: number; y: number; }) as { x: number; y: number; }).y + Math.sin(angle) * 12,
       });
     }
   });
@@ -1763,7 +1774,7 @@ function placeMapLabels(
       visible: placement.visible,
       x: placement.x,
       y: placement.y,
-      named: named[li] && placement.variant === 0,
+      named: (named[li] as boolean) && placement.variant === 0,
     })),
     chips,
   };
@@ -1791,7 +1802,7 @@ function placeHopLabels(
   }));
   const order = anchors
     .map((_, index) => index)
-    .sort((a, b) => anchors[b].priority - anchors[a].priority || a - b);
+    .sort((a, b) => (anchors[b] as HopLabelAnchor).priority - (anchors[a] as HopLabelAnchor).priority || a - b);
   const near = (point: Point, box: Box) =>
     point.x > box.x - POINT_MARGIN &&
     point.x < box.x + box.width + POINT_MARGIN &&
@@ -1815,15 +1826,15 @@ function placeHopLabels(
     }
     if (!avoidPoints) return true;
     for (let j = 0; j < anchors.length; j++) {
-      if (j !== index && near(anchors[j], box)) return false;
+      if (j !== index && near((anchors[j] as HopLabelAnchor), box)) return false;
     }
     return !points.some((point) => near(point, box));
   };
   for (const index of order) {
-    const anchor = anchors[index];
+    const anchor = (anchors[index] as HopLabelAnchor);
     const h = LABEL_HEIGHT;
     placing: for (let variant = 0; variant < anchor.widths.length; variant++) {
-      const w = anchor.widths[variant];
+      const w = (anchor.widths[variant] as number);
       for (const avoidPoints of [true, false]) {
         for (const side of LABEL_SIDES) {
           const box: Box = {
@@ -1869,11 +1880,11 @@ function placeChips(
     if (!segment.jump) return null;
     const chipWidth = jumpText(segment.delta).length * CHIP_CHAR_WIDTH + 14;
     const middle = {
-      x: layout.midpoints[k].x * width,
-      y: layout.midpoints[k].y * height,
+      x: ((layout.midpoints[k] as { x: number; y: number; }) as { x: number; y: number; }).x * width,
+      y: ((layout.midpoints[k] as { x: number; y: number; }) as { x: number; y: number; }).y * height,
     };
-    const from = markers[model.located.indexOf(segment.from)];
-    const to = markers[model.located.indexOf(segment.to)];
+    const from = ((markers[model.located.indexOf(segment.from)] as { x: number; y: number; }) as { x: number; y: number; });
+    const to = ((markers[model.located.indexOf(segment.to)] as { x: number; y: number; }) as { x: number; y: number; });
     const chord = Math.max(1e-6, Math.hypot(to.x - from.x, to.y - from.y));
     // the left normal of travel: the side the curve bends to
     const nx = (to.y - from.y) / chord;
@@ -2035,7 +2046,7 @@ function createEngine(model: TraceModel, playing: boolean): TraceEngine {
     arrived:
       playing || model.located.length === 0
         ? -1
-        : model.located[model.located.length - 1],
+        : (model.located[model.located.length - 1] as number),
     selected: -1,
     emphasis: [],
     hot: [],
@@ -2086,17 +2097,17 @@ function layoutEngine(engine: TraceEngine, width: number, height: number) {
   const lattice = mapLattice(projection, { pitch });
   const land = new Set<number>();
   for (let i = 0; i < lattice.count; i++)
-    land.add(lattice.row[i] * GRID_STRIDE + lattice.column[i]);
+    land.add((lattice.row[i] as number) * GRID_STRIDE + (lattice.column[i] as number));
 
   const segments = model.segments.map((segment): SegmentGeometry => {
-    const from = model.rows[segment.from].point ?? { lat: 0, lon: 0 };
-    const to = model.rows[segment.to].point ?? { lat: 0, lon: 0 };
+    const from = (model.rows[segment.from] as HopRow).point ?? { lat: 0, lon: 0 };
+    const to = (model.rows[segment.to] as HopRow).point ?? { lat: 0, lon: 0 };
     const tables = flatPaths(projection, from, to, {
       bend: BEND,
       segments: 48,
     });
     const tracks = tables.map((table) => sampleTrack(table));
-    const main = tables[0];
+    const main = (tables[0] as ArcLengthTable);
     let arrivalAngle = -Math.PI / 2;
     if (main && main.length > 0.5) {
       pointAtDistance(main, main.length, pathPoint);
@@ -2107,11 +2118,11 @@ function layoutEngine(engine: TraceEngine, width: number, height: number) {
 
   const screen = createScreenPoint();
   const hops = model.located.map((row, li): HopGeometry => {
-    const point = model.rows[row].point ?? { lat: 0, lon: 0 };
+    const point = (model.rows[row] as HopRow).point ?? { lat: 0, lon: 0 };
     projection.project(point.lat, point.lon, screen);
     // the ring starts where the packet lands heading; the first hop has no incoming segment and starts at the top
     const startAngle =
-      li > 0 ? (segments[li - 1]?.arrivalAngle ?? -Math.PI / 2) : -Math.PI / 2;
+      li > 0 ? ((segments[li - 1] as SegmentGeometry)?.arrivalAngle ?? -Math.PI / 2) : -Math.PI / 2;
     return {
       x: screen.x,
       y: screen.y,
@@ -2130,7 +2141,7 @@ function layoutEngine(engine: TraceEngine, width: number, height: number) {
 
   let ping: DiscDots | null = null;
   if (model.pingRow >= 0) {
-    const hop = hops[model.located.indexOf(model.pingRow)];
+    const hop = ((hops[model.located.indexOf(model.pingRow)] as HopGeometry));
     if (hop)
       ping = discDots(
         projection,
@@ -2144,7 +2155,7 @@ function layoutEngine(engine: TraceEngine, width: number, height: number) {
       );
   }
 
-  const origin = hops[0] ?? { x: width / 2, y: height / 2 };
+  const origin = (hops[0] as HopGeometry) ?? { x: width / 2, y: height / 2 };
   const reach = Math.max(
     Math.hypot(origin.x, origin.y),
     Math.hypot(width - origin.x, origin.y),
@@ -2172,16 +2183,16 @@ function layoutEngine(engine: TraceEngine, width: number, height: number) {
   engine.dirty = true;
   // springs follow the segment and hop count; a new trace starts with every segment at full strength
   engine.emphasis = model.segments.map(
-    (_, k) => engine.emphasis[k] ?? { position: 1, velocity: 0 },
+    (_, k) => (engine.emphasis[k] as Spring) ?? { position: 1, velocity: 0 },
   );
   engine.hot = model.segments.map(
-    (_, k) => engine.hot[k] ?? { position: 0, velocity: 0 },
+    (_, k) => (engine.hot[k] as Spring) ?? { position: 0, velocity: 0 },
   );
   engine.selectLight = model.located.map(
-    (_, li) => engine.selectLight[li] ?? 0,
+    (_, li) => (engine.selectLight[li] as number) ?? 0,
   );
   engine.selectRising = model.located.map(
-    (_, li) => engine.selectRising[li] ?? false,
+    (_, li) => (engine.selectRising[li] as boolean) ?? false,
   );
 }
 
@@ -2276,8 +2287,8 @@ function drawBase(
   const growing = progress < 1;
   const front = easeOutCubic(progress) * (1 + REVEAL_SOFTNESS * 2);
   for (let i = 0; i < lattice.count; i++) {
-    const x = lattice.x[i];
-    const y = lattice.y[i];
+    const x = (lattice.x[i] as number);
+    const y = (lattice.y[i] as number);
     const edge = smoothstep(
       0,
       EDGE_FADE,
@@ -2288,7 +2299,7 @@ function drawBase(
     if (growing) {
       const threshold =
         (Math.hypot(x - revealX, y - revealY) / revealReach) * 0.82 +
-        lattice.jitter[i] * 0.18;
+        (lattice.jitter[i] as number) * 0.18;
       shown = clamp((front - threshold) / REVEAL_SOFTNESS, 0, 1);
       crest = shown * (1 - shown) * 4;
     }
@@ -2305,8 +2316,8 @@ function stepEmphasis(engine: TraceEngine, delta: number, reduced: boolean) {
   const anySelected = selected >= 0 && selected < model.rows.length;
   let moving = false;
   model.segments.forEach((segment, k) => {
-    const emphasis = engine.emphasis[k];
-    const hot = engine.hot[k];
+    const emphasis = (engine.emphasis[k] as Spring);
+    const hot = (engine.hot[k] as Spring);
     if (!emphasis || !hot) return;
     const isSelected = anySelected && segment.to === selected;
     moving =
@@ -2323,7 +2334,7 @@ function stepEmphasis(engine: TraceEngine, delta: number, reduced: boolean) {
   });
   model.located.forEach((row, li) => {
     const target = row === selected ? 1 : 0;
-    const light = engine.selectLight[li] ?? 0;
+    const light = (engine.selectLight[li] as number) ?? 0;
     if (light === target) return;
     engine.selectRising[li] = target > light;
     engine.selectLight[li] = reduced
@@ -2357,28 +2368,28 @@ function drawTrace(
   const dimAll =
     selected >= 0 &&
     selected < model.rows.length &&
-    model.rows[selected].kind !== "located";
+    (model.rows[selected] as HopRow).kind !== "located";
   const dimMap = dimAll ? DIM : 1;
   const base = engine.ink?.dark ? PATH_ALPHA.dark : PATH_ALPHA.light;
 
   // segments: dotted, dashed for long-haul jumps, drawn up to the packet with a hot wake behind it
   model.segments.forEach((segment, k) => {
-    const span = timing.travel[k];
-    const shape = geometry.segments[k];
+    const span = (timing.travel[k] as Span);
+    const shape = (geometry.segments[k] as SegmentGeometry);
     if (!span || !shape || t <= span.start) return;
     const progress =
       t >= span.end
         ? 1
         : TRAVEL_EASE((t - span.start) / (span.end - span.start));
     const traveling = progress < 1;
-    const emphasis = clamp(engine.emphasis[k]?.position ?? 1, 0, 1.2) * dimMap;
-    const hot = clamp(engine.hot[k]?.position ?? 0, 0, 1);
+    const emphasis = clamp((engine.emphasis[k] as Spring)?.position ?? 1, 0, 1.2) * dimMap;
+    const hot = clamp((engine.hot[k] as Spring)?.position ?? 0, 0, 1);
     const size = DOT_SIZE * (1 + 0.5 * hot);
     for (const track of shape.tracks) {
       const length = track.table.length;
       const head = progress * length;
       for (let j = 0; j < track.count; j++) {
-        const s = track.s[j];
+        const s = (track.s[j] as number);
         if (s > head) break;
         if (s < TRIM || s > length - TRIM) continue;
         if (segment.jump && Math.round(s / DOT_SPACING) % 6 >= 3) continue;
@@ -2386,8 +2397,8 @@ function drawTrace(
         const alpha = (base + (1 - base) * hot) * emphasis + heat * 0.45;
         const tone = Math.max(hot * 0.55, heat);
         batch.add(
-          snapCenter(track.x[j], size, dpr),
-          snapCenter(track.y[j], size, dpr),
+          snapCenter((track.x[j] as number), size, dpr),
+          snapCenter((track.y[j] as number), size, dpr),
           size,
           tone,
           Math.min(1, alpha),
@@ -2398,8 +2409,8 @@ function drawTrace(
 
   // rings: the dwell fills clockwise from the landing heading; a selected hop's ring fills the same way and holds
   model.located.forEach((_, li) => {
-    const hop = geometry.hops[li];
-    const span = timing.dwell[li];
+    const hop = (geometry.hops[li] as HopGeometry);
+    const span = (timing.dwell[li] as Span);
     if (!hop || !span) return;
     let share = 0;
     let fade = 0;
@@ -2411,15 +2422,15 @@ function drawTrace(
       );
       fade = t <= span.end ? 1 : 1 - smoothstep(0, RING_FADE, t - span.end);
     }
-    const select = engine.selectLight[li] ?? 0;
-    const rising = engine.selectRising[li] ?? false;
+    const select = (engine.selectLight[li] as number) ?? 0;
+    const rising = (engine.selectRising[li] as boolean) ?? false;
     if (fade <= 0 && select <= 0) return;
     const ring = hop.ring;
     // the whole ring shows faintly as a track while it fills, so it reads as a progress ring
     const track =
       Math.max(share < 1 ? fade : 0, rising && select < 1 ? 1 : 0) * 0.16;
     for (let i = 0; i < ring.count; i++) {
-      const threshold = ring.turn[i] * 0.9 + ring.jitter[i] * 0.1;
+      const threshold = (ring.turn[i] as number) * 0.9 + (ring.jitter[i] as number) * 0.1;
       let lit = 0;
       let lead = 0;
       if (fade > 0) {
@@ -2431,13 +2442,13 @@ function drawTrace(
         ? clamp((select - threshold) / 0.05, 0, 1)
         : select;
       const shown = Math.max(lit, selectLit * 0.75);
-      const depth = (ring.distance[i] - RING_INNER) / (RING_OUTER - RING_INNER);
+      const depth = ((ring.distance[i] as number) - RING_INNER) / (RING_OUTER - RING_INNER);
       const alpha =
         (Math.max(track, shown * (0.95 - 0.4 * depth)) + lead * 0.35) * dimMap;
       if (alpha < 0.02) continue;
       batch.add(
-        snapCenter(ring.x[i], geometry.dotSize, dpr),
-        snapCenter(ring.y[i], geometry.dotSize, dpr),
+        snapCenter((ring.x[i] as number), geometry.dotSize, dpr),
+        snapCenter((ring.y[i] as number), geometry.dotSize, dpr),
         geometry.dotSize,
         Math.max(lead, 0.08),
         Math.min(1, alpha),
@@ -2473,12 +2484,12 @@ function drawPacket(
       snapCenter(y, size, dpr),
       size,
       k === 0 ? 1 : 0.65 - k * 0.2,
-      TAIL_ALPHA[k],
+      (TAIL_ALPHA[k] as number),
     );
   };
   for (let k = 0; k < model.segments.length; k++) {
-    const span = timing.travel[k];
-    const shape = geometry.segments[k];
+    const span = (timing.travel[k] as Span);
+    const shape = (geometry.segments[k] as SegmentGeometry);
     if (!span || !shape || t < span.start || t >= span.end) continue;
     const progress = TRAVEL_EASE((t - span.start) / (span.end - span.start));
     for (const track of shape.tracks) {
@@ -2493,13 +2504,13 @@ function drawPacket(
     return;
   }
   for (let li = 0; li < model.located.length; li++) {
-    const span = timing.dwell[li];
-    const hop = geometry.hops[li];
+    const span = (timing.dwell[li] as Span);
+    const hop = (geometry.hops[li] as HopGeometry);
     if (!span || !hop || t < span.start || t >= span.end) continue;
     const share = (t - span.start) / Math.max(1e-6, span.end - span.start);
     const startAngle =
       li > 0
-        ? (geometry.segments[li - 1]?.arrivalAngle ?? -Math.PI / 2)
+        ? ((geometry.segments[li - 1] as SegmentGeometry)?.arrivalAngle ?? -Math.PI / 2)
         : -Math.PI / 2;
     // out of the centre into the orbit, once round, and back in to leave along the next segment
     const radius =
@@ -2531,7 +2542,7 @@ function drawPing(
   )
     return;
   for (let i = 0; i < ping.count; i++) {
-    if (!ping.land[i]) continue;
+    if (!(ping.land[i] as number)) continue;
     let value = 0;
     for (let ring = 0; ring < 2; ring++) {
       const p = (since - ring * PING_DELAY) / PING_SECONDS;
@@ -2539,13 +2550,13 @@ function drawPing(
       const radius = easeOutCubic(p) * PING_RADIUS;
       value = Math.max(
         value,
-        ringFront(ping.distance[i], radius, 4.5, ping.jitter[i], 5) *
+        ringFront((ping.distance[i] as number), radius, 4.5, (ping.jitter[i] as number), 5) *
           Math.pow(1 - p, 1.2) *
           (ring === 0 ? 1 : 0.65),
       );
     }
     if (value < 0.04) continue;
-    batch.add(ping.x[i], ping.y[i], geometry.dotSize, value, value);
+    batch.add((ping.x[i] as number), (ping.y[i] as number), geometry.dotSize, value, value);
   }
 }
 

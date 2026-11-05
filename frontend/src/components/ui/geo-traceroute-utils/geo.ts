@@ -19,7 +19,7 @@ import * as React from "react";
 
 import { THEME_TOKENS, type ColorToken, type Palette } from "@/components/ui/geo-traceroute-utils/color";
 import { COUNTRIES, countryAt, countryShape, isSeam } from "@/components/ui/geo-traceroute-utils/geo-countries";
-import { coastlines, isLand, landCoverage } from "@/components/ui/geo-traceroute-utils/geo-world";
+import { coastlines, isLand, landCoverage, type GeoRing } from "@/components/ui/geo-traceroute-utils/geo-world";
 import { clamp, hash, mixRgb, rgba, TAU, type RGB } from "@/components/ui/geo-traceroute-utils/math";
 import { springStep } from "@/components/ui/geo-traceroute-utils/motion";
 
@@ -104,7 +104,7 @@ export const BAYER4: Uint8Array = Uint8Array.of(0, 8, 2, 10, 12, 4, 14, 6, 3, 11
  * this.
  */
 export function bayer4(row: number, column: number): number {
-  return (BAYER4[(row & 3) * 4 + (column & 3)] + 0.5) / 16;
+  return (((BAYER4[(row & 3) * 4 + (column & 3)] as number)) + 0.5) / 16;
 }
 
 /* angles */
@@ -359,7 +359,7 @@ export function geodesicCircle(center: LatLon, km: number, steps = 96): LatLon[]
   const count = Math.max(3, Math.round(steps));
   const points: LatLon[] = [];
   for (let i = 0; i < count; i++) points.push(destinationPoint(center, (360 * i) / count, km));
-  points.push(points[0]);
+  points.push((points[0] as LatLon));
   return points;
 }
 
@@ -375,7 +375,7 @@ export function nearestLocation<T extends LatLon>(
   let best = -1;
   let bestKm = Infinity;
   for (let i = 0; i < items.length; i++) {
-    const km = distanceKm(items[i], point);
+    const km = distanceKm((items[i] as T), point);
     if (km < bestKm) {
       bestKm = km;
       best = i;
@@ -401,15 +401,15 @@ export function boundsOf(points: readonly LatLon[], margin = 0.15, minSpanDeg = 
   }
   lons.sort((a, b) => a - b);
   // the box is the complement of the widest empty gap between neighbouring longitudes (the wrap gap included)
-  let gap = lons[0] + 360 - lons[lons.length - 1];
-  let west = lons[0];
-  let east = lons[lons.length - 1];
+  let gap = (lons[0] as number) + 360 - (lons[lons.length - 1] as number);
+  let west = (lons[0] as number);
+  let east = (lons[lons.length - 1] as number);
   for (let i = 1; i < lons.length; i++) {
-    const g = lons[i] - lons[i - 1];
+    const g = (lons[i] as number) - (lons[i - 1] as number);
     if (g > gap) {
       gap = g;
-      west = lons[i];
-      east = lons[i - 1] + 360;
+      west = (lons[i] as number);
+      east = (lons[i - 1] as number) + 360;
     }
   }
   let lonSpan = east - west;
@@ -512,9 +512,9 @@ export function rotateVector(m: Rotation, v: Readonly<Vec3>, out: Vec3): Vec3 {
   const x = v[0];
   const y = v[1];
   const z = v[2];
-  out[0] = m[0] * x + m[1] * y + m[2] * z;
-  out[1] = m[3] * x + m[4] * y + m[5] * z;
-  out[2] = m[6] * x + m[7] * y + m[8] * z;
+  out[0] = (m[0] as number) * x + (m[1] as number) * y + (m[2] as number) * z;
+  out[1] = (m[3] as number) * x + (m[4] as number) * y + (m[5] as number) * z;
+  out[2] = (m[6] as number) * x + (m[7] as number) * y + (m[8] as number) * z;
   return out;
 }
 
@@ -535,9 +535,9 @@ export interface GlobeView {
  */
 export function projectGlobe(view: GlobeView, v: Readonly<Vec3>, out: ScreenPoint, altitude = 0): boolean {
   const m = view.rotation;
-  const x = m[0] * v[0] + m[1] * v[1] + m[2] * v[2];
-  const y = m[3] * v[0] + m[4] * v[1] + m[5] * v[2];
-  const z = m[6] * v[0] + m[7] * v[1] + m[8] * v[2];
+  const x = (m[0] as number) * v[0] + (m[1] as number) * v[1] + (m[2] as number) * v[2];
+  const y = (m[3] as number) * v[0] + (m[4] as number) * v[1] + (m[5] as number) * v[2];
+  const z = (m[6] as number) * v[0] + (m[7] as number) * v[1] + (m[8] as number) * v[2];
   const lift = 1 + altitude;
   const r = view.radius * lift;
   out.x = view.cx + x * r;
@@ -573,9 +573,9 @@ export function screenToGlobe(view: GlobeView, x: number, y: number): LatLon | n
   if (rho2 > 1) return null;
   const vz = Math.sqrt(1 - rho2);
   const m = view.rotation;
-  projectScratch[0] = m[0] * vx + m[3] * vy + m[6] * vz;
-  projectScratch[1] = m[1] * vx + m[4] * vy + m[7] * vz;
-  projectScratch[2] = m[2] * vx + m[5] * vy + m[8] * vz;
+  projectScratch[0] = (m[0] as number) * vx + (m[3] as number) * vy + (m[6] as number) * vz;
+  projectScratch[1] = (m[1] as number) * vx + (m[4] as number) * vy + (m[7] as number) * vz;
+  projectScratch[2] = (m[2] as number) * vx + (m[5] as number) * vy + (m[8] as number) * vz;
   return vectorToLatLon(projectScratch);
 }
 
@@ -966,15 +966,15 @@ export function useGlobeDrag(
       if (sampleCount < 2) return;
       const newest = (sampleHead - 1 + DRAG_SAMPLES) % DRAG_SAMPLES;
       // a pointer that rested before release throws nothing
-      if (now - samples[newest * 3] > DRAG_VELOCITY_WINDOW) return;
+      if (now - (samples[newest * 3] as number) > DRAG_VELOCITY_WINDOW) return;
       let base = newest;
       for (let k = 1; k < sampleCount; k++) {
         base = (newest - k + DRAG_SAMPLES) % DRAG_SAMPLES;
-        if (now - samples[base * 3] > DRAG_VELOCITY_WINDOW) break;
+        if (now - (samples[base * 3] as number) > DRAG_VELOCITY_WINDOW) break;
       }
-      const seconds = Math.max(0.016, (samples[newest * 3] - samples[base * 3]) / 1000);
-      const lonSpeed = (samples[newest * 3 + 1] - samples[base * 3 + 1]) / seconds;
-      const latSpeed = (samples[newest * 3 + 2] - samples[base * 3 + 2]) / seconds;
+      const seconds = Math.max(0.016, ((samples[newest * 3] as number) - (samples[base * 3] as number)) / 1000);
+      const lonSpeed = ((samples[newest * 3 + 1] as number) - (samples[base * 3 + 1] as number)) / seconds;
+      const latSpeed = ((samples[newest * 3 + 2] as number) - (samples[base * 3 + 2] as number)) / seconds;
       state.velocityLon = clamp(lonSpeed, -MAX_DRAG_SPEED, MAX_DRAG_SPEED);
       state.velocityLat = clamp(latSpeed, -MAX_DRAG_SPEED, MAX_DRAG_SPEED);
     };
@@ -1488,15 +1488,15 @@ export function projectPath(
   let min = Infinity;
   let max = -Infinity;
   for (let i = 0; i < count; i++) {
-    const point = points[i % points.length];
+    const point = (points[i % points.length] as LatLon);
     const relative = point.lon - lon0;
-    lambdas[i] = i === 0 ? windowLambda(projection, point.lon) : unwrapLongitude(lambdas[i - 1], relative);
-    min = Math.min(min, lambdas[i]);
-    max = Math.max(max, lambdas[i]);
+    lambdas[i] = i === 0 ? windowLambda(projection, point.lon) : unwrapLongitude((lambdas[i - 1] as number), relative);
+    min = Math.min(min, (lambdas[i] as number));
+    max = Math.max(max, (lambdas[i] as number));
   }
   const build = (shift: number) => {
     for (let i = 0; i < count; i++) {
-      projection.projectRelative(points[i % points.length].lat, lambdas[i] + shift, screen);
+      projection.projectRelative((points[i % points.length] as LatLon).lat, (lambdas[i] as number) + shift, screen);
       xs[i] = screen.x;
       ys[i] = screen.y;
     }
@@ -1574,10 +1574,10 @@ export function createSpatialGrid(xs: Float32Array, ys: Float32Array, count: num
   let maxX = -Infinity;
   let maxY = -Infinity;
   for (let i = 0; i < count; i++) {
-    minX = Math.min(minX, xs[i]);
-    minY = Math.min(minY, ys[i]);
-    maxX = Math.max(maxX, xs[i]);
-    maxY = Math.max(maxY, ys[i]);
+    minX = Math.min(minX, (xs[i] as number));
+    minY = Math.min(minY, (ys[i] as number));
+    maxX = Math.max(maxX, (xs[i] as number));
+    maxY = Math.max(maxY, (ys[i] as number));
   }
   if (count === 0) {
     return { query() {}, nearest: () => -1 };
@@ -1588,14 +1588,14 @@ export function createSpatialGrid(xs: Float32Array, ys: Float32Array, count: num
   const cellOf = new Int32Array(count);
   const items = new Int32Array(count);
   for (let i = 0; i < count; i++) {
-    const c = Math.floor((xs[i] - minX) / size);
-    const r = Math.floor((ys[i] - minY) / size);
+    const c = Math.floor(((xs[i] as number) - minX) / size);
+    const r = Math.floor(((ys[i] as number) - minY) / size);
     cellOf[i] = r * columns + c;
-    starts[cellOf[i] + 1]++;
+    ((starts[(cellOf[i] as number) + 1] as number))++;
   }
-  for (let k = 0; k < columns * rows; k++) starts[k + 1] += starts[k];
+  for (let k = 0; k < columns * rows; k++) (starts[k + 1] as number) += (starts[k] as number);
   const fill = starts.slice(0, columns * rows);
-  for (let i = 0; i < count; i++) items[fill[cellOf[i]]++] = i;
+  for (let i = 0; i < count; i++) items[(fill[(cellOf[i] as number)] as number)++] = i;
 
   let bestIndex = -1;
   let bestDistance = Infinity;
@@ -1610,10 +1610,10 @@ export function createSpatialGrid(xs: Float32Array, ys: Float32Array, count: num
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
         const k = r * columns + c;
-        for (let j = starts[k]; j < starts[k + 1]; j++) {
-          const i = items[j];
-          const dx = xs[i] - x;
-          const dy = ys[i] - y;
+        for (let j = (starts[k] as number); j < (starts[k + 1] as number); j++) {
+          const i = (items[j] as number);
+          const dx = (xs[i] as number) - x;
+          const dy = (ys[i] as number) - y;
           const d = dx * dx + dy * dy;
           if (d <= bestDistance) {
             bestDistance = d;
@@ -1634,10 +1634,10 @@ export function createSpatialGrid(xs: Float32Array, ys: Float32Array, count: num
       for (let r = r0; r <= r1; r++) {
         for (let c = c0; c <= c1; c++) {
           const k = r * columns + c;
-          for (let j = starts[k]; j < starts[k + 1]; j++) {
-            const i = items[j];
-            const dx = xs[i] - x;
-            const dy = ys[i] - y;
+          for (let j = (starts[k] as number); j < (starts[k + 1] as number); j++) {
+            const i = (items[j] as number);
+            const dx = (xs[i] as number) - x;
+            const dy = (ys[i] as number) - y;
             const d = dx * dx + dy * dy;
             if (d <= limit) visit(i, d);
           }
@@ -1896,11 +1896,11 @@ export function sphereLattice(options: SphereLatticeOptions): SphereLattice {
   const indices = Array.from({ length: count }, (_, i) => i);
   let lonBuckets: Int32Array | null = null;
   if (order === "longitude") {
-    indices.sort((a, b) => lons[a] - lons[b]);
+    indices.sort((a, b) => (lons[a] as number) - (lons[b] as number));
     lonBuckets = new Int32Array(361);
     let bucket = 0;
     for (let i = 0; i < count; i++) {
-      const b = clamp(Math.floor(lons[indices[i]] + 180), 0, 359);
+      const b = clamp(Math.floor((lons[(indices[i] as number)] as number) + 180), 0, 359);
       while (bucket <= b) lonBuckets[bucket++] = i;
     }
     while (bucket <= 360) lonBuckets[bucket++] = count;
@@ -1913,13 +1913,13 @@ export function sphereLattice(options: SphereLatticeOptions): SphereLattice {
   const column = new Int32Array(count);
   const v: Vec3 = [0, 0, 0];
   for (let i = 0; i < count; i++) {
-    const source = indices[i];
-    lat[i] = lats[source];
-    lon[i] = lons[source];
-    land[i] = lands[source];
-    row[i] = rowIndex[source];
-    column[i] = columnIndex[source];
-    latLonToVector(lats[source], lons[source], v);
+    const source = (indices[i] as number);
+    lat[i] = (lats[source] as number);
+    lon[i] = (lons[source] as number);
+    land[i] = (lands[source] as number);
+    row[i] = (rowIndex[source] as number);
+    column[i] = (columnIndex[source] as number);
+    latLonToVector((lats[source] as number), (lons[source] as number), v);
     xyz[i * 3] = v[0];
     xyz[i * 3 + 1] = v[1];
     xyz[i * 3 + 2] = v[2];
@@ -1948,7 +1948,7 @@ export function latticeVectors(lattice: DotLattice): Float32Array {
   const xyz = new Float32Array(lattice.count * 3);
   const v: Vec3 = [0, 0, 0];
   for (let i = 0; i < lattice.count; i++) {
-    latLonToVector(lattice.lat[i], lattice.lon[i], v);
+    latLonToVector((lattice.lat[i] as number), (lattice.lon[i] as number), v);
     xyz[i * 3] = v[0];
     xyz[i * 3 + 1] = v[1];
     xyz[i * 3 + 2] = v[2];
@@ -1973,7 +1973,7 @@ export function bakeLattice(
   const half = size / 2;
   context.fillStyle = rgba(color);
   context.globalAlpha = alpha;
-  for (let i = 0; i < lattice.count; i++) context.fillRect(lattice.x[i] - half, lattice.y[i] - half, size, size);
+  for (let i = 0; i < lattice.count; i++) context.fillRect((lattice.x[i] as number) - half, (lattice.y[i] as number) - half, size, size);
   context.globalAlpha = 1;
 }
 
@@ -1989,7 +1989,7 @@ export function shadeRamp(stops: readonly RGB[], steps = 32): string[] {
     const t = count === 1 ? 0 : i / (count - 1);
     const position = t * (stops.length - 1);
     const index = Math.min(stops.length - 2, Math.floor(position));
-    ramp.push(stops.length === 1 ? rgba(stops[0]) : rgba(mixRgb(stops[index], stops[index + 1], position - index)));
+    ramp.push(stops.length === 1 ? rgba((stops[0] as RGB)) : rgba(mixRgb((stops[index] as RGB), (stops[index + 1] as RGB), position - index)));
   }
   return ramp;
 }
@@ -2060,18 +2060,18 @@ export function createDotBatch(
     flush(context) {
       if (count === 0) return;
       starts.fill(0);
-      for (let i = 0; i < count; i++) starts[bucketOf[i] + 1]++;
-      for (let b = 0; b < buckets; b++) starts[b + 1] += starts[b];
-      for (let b = 0; b < buckets; b++) cursor[b] = starts[b];
-      for (let i = 0; i < count; i++) order[cursor[bucketOf[i]]++] = i;
+      for (let i = 0; i < count; i++) ((starts[(bucketOf[i] as number) + 1] as number))++;
+      for (let b = 0; b < buckets; b++) (starts[b + 1] as number) += (starts[b] as number);
+      for (let b = 0; b < buckets; b++) cursor[b] = (starts[b] as number);
+      for (let i = 0; i < count; i++) order[(cursor[(bucketOf[i] as number)] as number)++] = i;
       for (let b = 0; b < buckets; b++) {
-        if (starts[b] === starts[b + 1]) continue;
-        context.fillStyle = ramp[Math.floor(b / levels)];
+        if ((starts[b] as number) === (starts[b + 1] as number)) continue;
+        context.fillStyle = ((ramp[Math.floor(b / levels)] as string));
         context.globalAlpha = ((b % levels) + 1) / levels;
-        for (let j = starts[b]; j < starts[b + 1]; j++) {
-          const i = order[j];
-          const half = sizes[i] / 2;
-          context.fillRect(xs[i] - half, ys[i] - half, sizes[i], sizes[i]);
+        for (let j = (starts[b] as number); j < (starts[b + 1] as number); j++) {
+          const i = (order[j] as number);
+          const half = (sizes[i] as number) / 2;
+          context.fillRect((xs[i] as number) - half, (ys[i] as number) - half, (sizes[i] as number), (sizes[i] as number));
         }
       }
       context.globalAlpha = 1;
@@ -2121,8 +2121,8 @@ function traceProjected(
   let py = 0;
   for (let k = 0; k <= segments; k++) {
     const i = k % n;
-    const lon = lonLat[i * 2];
-    const lat = lonLat[i * 2 + 1];
+    const lon = (lonLat[i * 2] as number);
+    const lat = (lonLat[i * 2 + 1] as number);
     const lambda = wrapLongitude(lon - lon0 - center) + center;
     projection.projectRelative(lat, lambda, traceScratch);
     const x = traceScratch.x;
@@ -2222,15 +2222,15 @@ export function countryOutline(code: string, projection: MapProjection): Country
 /** The narrowest longitude interval [west, east] that holds every longitude (east may exceed 180). */
 function narrowestLonSpan(lons: number[]): [number, number] {
   const sorted = lons.map(wrapLongitude).sort((a, b) => a - b);
-  let gap = sorted[0] + 360 - sorted[sorted.length - 1];
-  let west = sorted[0];
-  let east = sorted[sorted.length - 1];
+  let gap = (sorted[0] as number) + 360 - (sorted[sorted.length - 1] as number);
+  let west = (sorted[0] as number);
+  let east = (sorted[sorted.length - 1] as number);
   for (let i = 1; i < sorted.length; i++) {
-    const g = sorted[i] - sorted[i - 1];
+    const g = (sorted[i] as number) - (sorted[i - 1] as number);
     if (g > gap) {
       gap = g;
-      west = sorted[i];
-      east = sorted[i - 1] + 360;
+      west = (sorted[i] as number);
+      east = (sorted[i - 1] as number) + 360;
     }
   }
   return [west, east];
@@ -2250,12 +2250,12 @@ export function countryBounds(code: string): GeoBounds | null {
   let south = Infinity;
   let north = -Infinity;
   for (const polygon of countryShape(key)) {
-    const outer = polygon[0];
+    const outer = polygon[0] as GeoRing;
     if (!outer) continue;
     for (let i = 0; i + 1 < outer.length; i += 2) {
-      lons.push(outer[i]);
-      south = Math.min(south, outer[i + 1]);
-      north = Math.max(north, outer[i + 1]);
+      lons.push((outer[i] as number));
+      south = Math.min(south, (outer[i + 1] as number));
+      north = Math.max(north, (outer[i + 1] as number));
     }
   }
   let bounds: GeoBounds | null = null;
@@ -2286,7 +2286,7 @@ export function countryMembership(lattice: DotLattice): Int16Array {
   if (cached) return cached;
   const membership = new Int16Array(lattice.count);
   for (let i = 0; i < lattice.count; i++) {
-    const country = countryAt(lattice.lat[i], lattice.lon[i]);
+    const country = countryAt((lattice.lat[i] as number), (lattice.lon[i] as number));
     membership[i] = country ? countryIndex(country.code) : -1;
   }
   membershipCache.set(lattice, membership);
@@ -2298,10 +2298,10 @@ export function pointInRing(lat: number, lon: number, ring: ArrayLike<number>): 
   let inside = false;
   const n = Math.floor(ring.length / 2);
   for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = ring[i * 2];
-    const yi = ring[i * 2 + 1];
-    const xj = ring[j * 2];
-    const yj = ring[j * 2 + 1];
+    const xi = (ring[i * 2] as number);
+    const yi = (ring[i * 2 + 1] as number);
+    const xj = (ring[j * 2] as number);
+    const yj = (ring[j * 2 + 1] as number);
     if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
@@ -2324,9 +2324,9 @@ function zoneRing(polygon: readonly LatLon[]) {
   let min = Infinity;
   let max = -Infinity;
   for (let i = 0; i < polygon.length; i++) {
-    const lon = i === 0 ? wrapLongitude(polygon[0].lon) : unwrapLongitude(ring[(i - 1) * 2], polygon[i].lon);
+    const lon = i === 0 ? wrapLongitude((polygon[0] as LatLon).lon) : unwrapLongitude(((ring[(i - 1) * 2] as number)), (polygon[i] as LatLon).lon);
     ring[i * 2] = lon;
-    ring[i * 2 + 1] = polygon[i].lat;
+    ring[i * 2 + 1] = (polygon[i] as LatLon).lat;
     min = Math.min(min, lon);
     max = Math.max(max, lon);
   }
@@ -2374,8 +2374,8 @@ export function zoneMembership(lattice: DotLattice, zone: ZoneShape): Uint8Array
   const membership = indices.size > 0 ? countryMembership(lattice) : null;
   const polygon = zone.polygon && zone.polygon.length >= 3 ? zoneRing(zone.polygon) : null;
   for (let i = 0; i < lattice.count; i++) {
-    if (membership && indices.has(membership[i])) inside[i] = 1;
-    else if (polygon && pointInRing(lattice.lat[i], unwrapLongitude(polygon.center, lattice.lon[i]), polygon.ring)) {
+    if (membership && indices.has((membership[i] as number))) inside[i] = 1;
+    else if (polygon && pointInRing((lattice.lat[i] as number), unwrapLongitude(polygon.center, (lattice.lon[i] as number)), polygon.ring)) {
       inside[i] = 1;
     }
   }
@@ -2395,11 +2395,11 @@ function ensureRotatedBuffer(points: number) {
 
 /** Limb point between two rotated vertices a and b (view space) where z crosses 0, pushed onto the unit circle. */
 function limbPoint(buffer: Float64Array, a: number, b: number, out: { x: number; y: number }) {
-  const za = buffer[a * 3 + 2];
-  const zb = buffer[b * 3 + 2];
+  const za = (buffer[a * 3 + 2] as number);
+  const zb = (buffer[b * 3 + 2] as number);
   const t = za / (za - zb);
-  const x = buffer[a * 3] + (buffer[b * 3] - buffer[a * 3]) * t;
-  const y = buffer[a * 3 + 1] + (buffer[b * 3 + 1] - buffer[a * 3 + 1]) * t;
+  const x = (buffer[a * 3] as number) + ((buffer[b * 3] as number) - (buffer[a * 3] as number)) * t;
+  const y = (buffer[a * 3 + 1] as number) + ((buffer[b * 3 + 1] as number) - (buffer[a * 3 + 1] as number)) * t;
   const length = Math.hypot(x, y) || 1;
   out.x = x / length;
   out.y = y / length;
@@ -2411,7 +2411,7 @@ const limbScratch = { x: 0, y: 0 };
 function viewArea(buffer: Float64Array, n: number) {
   let area = 0;
   for (let i = 0, j = n - 1; i < n; j = i++) {
-    area += buffer[j * 3] * buffer[i * 3 + 1] - buffer[i * 3] * buffer[j * 3 + 1];
+    area += (buffer[j * 3] as number) * (buffer[i * 3 + 1] as number) - (buffer[i * 3] as number) * (buffer[j * 3 + 1] as number);
   }
   return area / 2;
 }
@@ -2422,13 +2422,13 @@ function traceRotated(target: CanvasPath, view: GlobeView, n: number, closed: bo
   const r = view.radius * (1 + altitude);
   const cx = view.cx;
   const cy = view.cy;
-  const sx = (i: number) => cx + buffer[i * 3] * r;
-  const sy = (i: number) => cy - buffer[i * 3 + 1] * r;
+  const sx = (i: number) => cx + (buffer[i * 3] as number) * r;
+  const sy = (i: number) => cy - (buffer[i * 3 + 1] as number) * r;
   if (n < 2) return;
   if (!closed) {
     let penDown = false;
     for (let i = 0; i < n; i++) {
-      const front = buffer[i * 3 + 2] >= 0;
+      const front = (buffer[i * 3 + 2] as number) >= 0;
       if (i === 0) {
         if (front) {
           target.moveTo(sx(0), sy(0));
@@ -2436,7 +2436,7 @@ function traceRotated(target: CanvasPath, view: GlobeView, n: number, closed: bo
         }
         continue;
       }
-      const previousFront = buffer[(i - 1) * 3 + 2] >= 0;
+      const previousFront = ((buffer[(i - 1) * 3 + 2] as number)) >= 0;
       if (front && previousFront) {
         if (!penDown) target.moveTo(sx(i - 1), sy(i - 1));
         target.lineTo(sx(i), sy(i));
@@ -2461,9 +2461,9 @@ function traceRotated(target: CanvasPath, view: GlobeView, n: number, closed: bo
   let visible = 0;
   let entry = -1;
   for (let i = 0; i < n; i++) {
-    if (buffer[i * 3 + 2] < 0) continue;
+    if ((buffer[i * 3 + 2] as number) < 0) continue;
     visible++;
-    if (entry < 0 && buffer[((i - 1 + n) % n) * 3 + 2] < 0) entry = i;
+    if (entry < 0 && ((buffer[((i - 1 + n) % n) * 3 + 2] as number)) < 0) entry = i;
   }
   if (visible === 0 || visible === n) {
     const clockwise = viewArea(buffer, n) < 0;
@@ -2489,8 +2489,8 @@ function traceRotated(target: CanvasPath, view: GlobeView, n: number, closed: bo
   for (let k = 0; k < n; k++) {
     const a = (entry + k) % n;
     const b = (a + 1) % n;
-    const frontA = buffer[a * 3 + 2] >= 0;
-    const frontB = buffer[b * 3 + 2] >= 0;
+    const frontA = (buffer[a * 3 + 2] as number) >= 0;
+    const frontB = (buffer[b * 3 + 2] as number) >= 0;
     if (frontA && frontB) {
       target.lineTo(sx(b), sy(b));
     } else if (frontA) {
@@ -2526,15 +2526,15 @@ export function traceGlobeLine(
   const buffer = ensureRotatedBuffer(n);
   const m = view.rotation;
   for (let i = 0; i < n; i++) {
-    const phi = lonLat[i * 2 + 1] * DEG;
-    const lambda = lonLat[i * 2] * DEG;
+    const phi = (lonLat[i * 2 + 1] as number) * DEG;
+    const lambda = (lonLat[i * 2] as number) * DEG;
     const cosPhi = Math.cos(phi);
     const x = cosPhi * Math.sin(lambda);
     const y = Math.sin(phi);
     const z = cosPhi * Math.cos(lambda);
-    buffer[i * 3] = m[0] * x + m[1] * y + m[2] * z;
-    buffer[i * 3 + 1] = m[3] * x + m[4] * y + m[5] * z;
-    buffer[i * 3 + 2] = m[6] * x + m[7] * y + m[8] * z;
+    buffer[i * 3] = (m[0] as number) * x + (m[1] as number) * y + (m[2] as number) * z;
+    buffer[i * 3 + 1] = (m[3] as number) * x + (m[4] as number) * y + (m[5] as number) * z;
+    buffer[i * 3 + 2] = (m[6] as number) * x + (m[7] as number) * y + (m[8] as number) * z;
   }
   traceRotated(context, view, n, closed, altitude);
 }
@@ -2543,8 +2543,8 @@ export function traceGlobeLine(
 export function toLonLat(points: readonly LatLon[]): Float64Array {
   const flat = new Float64Array(points.length * 2);
   for (let i = 0; i < points.length; i++) {
-    flat[i * 2] = points[i].lon;
-    flat[i * 2 + 1] = points[i].lat;
+    flat[i * 2] = (points[i] as LatLon).lon;
+    flat[i * 2 + 1] = (points[i] as LatLon).lat;
   }
   return flat;
 }
@@ -2559,7 +2559,7 @@ function coastlineVectors(): readonly Float32Array[] {
     const n = Math.floor(ring.length / 2);
     const xyz = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-      latLonToVector(ring[i * 2 + 1], ring[i * 2], v);
+      latLonToVector((ring[i * 2 + 1] as number), (ring[i * 2] as number), v);
       xyz[i * 3] = v[0];
       xyz[i * 3 + 1] = v[1];
       xyz[i * 3 + 2] = v[2];
@@ -2579,12 +2579,12 @@ export function traceGlobeCoastlines(context: CanvasPath, view: GlobeView): void
     const n = xyz.length / 3;
     const buffer = ensureRotatedBuffer(n);
     for (let i = 0; i < n; i++) {
-      const x = xyz[i * 3];
-      const y = xyz[i * 3 + 1];
-      const z = xyz[i * 3 + 2];
-      buffer[i * 3] = m[0] * x + m[1] * y + m[2] * z;
-      buffer[i * 3 + 1] = m[3] * x + m[4] * y + m[5] * z;
-      buffer[i * 3 + 2] = m[6] * x + m[7] * y + m[8] * z;
+      const x = (xyz[i * 3] as number);
+      const y = (xyz[i * 3 + 1] as number);
+      const z = (xyz[i * 3 + 2] as number);
+      buffer[i * 3] = (m[0] as number) * x + (m[1] as number) * y + (m[2] as number) * z;
+      buffer[i * 3 + 1] = (m[3] as number) * x + (m[4] as number) * y + (m[5] as number) * z;
+      buffer[i * 3 + 2] = (m[6] as number) * x + (m[7] as number) * y + (m[8] as number) * z;
     }
     traceRotated(context, view, n, false, 0);
   }
@@ -2679,9 +2679,9 @@ export function buildArcLength(
   const table = tableWithCapacity(count, out);
   let length = 0;
   for (let i = 0; i < count; i++) {
-    const x = xs[i];
-    const y = ys[i];
-    if (i > 0) length += Math.hypot(x - table.xs[i - 1], y - table.ys[i - 1]);
+    const x = (xs[i] as number);
+    const y = (ys[i] as number);
+    if (i > 0) length += Math.hypot(x - (table.xs[i - 1] as number), y - (table.ys[i - 1] as number));
     table.xs[i] = x;
     table.ys[i] = y;
     table.distances[i] = length;
@@ -2718,8 +2718,8 @@ export function resampleArcLength(table: ArcLengthTable, count: number, out?: Ar
     resampleY = new Float32Array(n);
   }
   if (table.count < 2) {
-    const x = table.count > 0 ? table.xs[0] : 0;
-    const y = table.count > 0 ? table.ys[0] : 0;
+    const x = table.count > 0 ? (table.xs[0] as number) : 0;
+    const y = table.count > 0 ? (table.ys[0] as number) : 0;
     resampleX.fill(x, 0, n);
     resampleY.fill(y, 0, n);
     return buildArcLength(resampleX, resampleY, n, out);
@@ -2727,11 +2727,11 @@ export function resampleArcLength(table: ArcLengthTable, count: number, out?: Ar
   let j = 0;
   for (let k = 0; k < n; k++) {
     const s = (table.length * k) / (n - 1);
-    while (j < table.count - 2 && table.distances[j + 1] < s) j++;
-    const span = table.distances[j + 1] - table.distances[j];
-    const t = span > 0 ? clamp((s - table.distances[j]) / span, 0, 1) : 0;
-    resampleX[k] = table.xs[j] + (table.xs[j + 1] - table.xs[j]) * t;
-    resampleY[k] = table.ys[j] + (table.ys[j + 1] - table.ys[j]) * t;
+    while (j < table.count - 2 && (table.distances[j + 1] as number) < s) j++;
+    const span = (table.distances[j + 1] as number) - (table.distances[j] as number);
+    const t = span > 0 ? clamp((s - (table.distances[j] as number)) / span, 0, 1) : 0;
+    resampleX[k] = (table.xs[j] as number) + ((table.xs[j + 1] as number) - (table.xs[j] as number)) * t;
+    resampleY[k] = (table.ys[j] as number) + ((table.ys[j + 1] as number) - (table.ys[j] as number)) * t;
   }
   return buildArcLength(resampleX, resampleY, n, out);
 }
@@ -2749,8 +2749,8 @@ export function pointAtDistance(table: ArcLengthTable, s: number, out: { x: numb
     return;
   }
   if (count === 1) {
-    out.x = table.xs[0];
-    out.y = table.ys[0];
+    out.x = (table.xs[0] as number);
+    out.y = (table.ys[0] as number);
     out.angle = 0;
     return;
   }
@@ -2759,7 +2759,7 @@ export function pointAtDistance(table: ArcLengthTable, s: number, out: { x: numb
   let high = count - 2;
   while (low < high) {
     const middle = (low + high + 1) >> 1;
-    if (table.distances[middle] <= d) low = middle;
+    if ((table.distances[middle] as number) <= d) low = middle;
     else high = middle - 1;
   }
   segmentPoint(table, low, d, out);
@@ -2767,12 +2767,12 @@ export function pointAtDistance(table: ArcLengthTable, s: number, out: { x: numb
 
 /** Interpolates on segment j (j, j + 1) at distance d, writing position and angle. */
 function segmentPoint(table: ArcLengthTable, j: number, d: number, out: { x: number; y: number; angle: number }) {
-  const span = table.distances[j + 1] - table.distances[j];
-  const t = span > 0 ? clamp((d - table.distances[j]) / span, 0, 1) : 0;
-  const dx = table.xs[j + 1] - table.xs[j];
-  const dy = table.ys[j + 1] - table.ys[j];
-  out.x = table.xs[j] + dx * t;
-  out.y = table.ys[j] + dy * t;
+  const span = (table.distances[j + 1] as number) - (table.distances[j] as number);
+  const t = span > 0 ? clamp((d - (table.distances[j] as number)) / span, 0, 1) : 0;
+  const dx = (table.xs[j + 1] as number) - (table.xs[j] as number);
+  const dy = (table.ys[j + 1] as number) - (table.ys[j] as number);
+  out.x = (table.xs[j] as number) + dx * t;
+  out.y = (table.ys[j] as number) + dy * t;
   out.angle = Math.atan2(dy, dx);
 }
 
@@ -2795,13 +2795,13 @@ export function forEachDot(
   const end = Math.min(table.length, to);
   if (end < start) return;
   if (table.count === 1) {
-    if (start <= 0) visit(table.xs[0], table.ys[0], 0);
+    if (start <= 0) visit((table.xs[0] as number), (table.ys[0] as number), 0);
     return;
   }
   let j = 0;
   for (let k = Math.ceil(start / spacing - 1e-9); k * spacing <= end + 1e-9; k++) {
     const s = Math.min(k * spacing, table.length);
-    while (j < table.count - 2 && table.distances[j + 1] < s) j++;
+    while (j < table.count - 2 && (table.distances[j + 1] as number) < s) j++;
     segmentPoint(table, j, s, dotScratch);
     visit(dotScratch.x, dotScratch.y, k * spacing);
   }
@@ -2846,9 +2846,9 @@ export function flatPaths(
       slerpVector(pathFrom, pathTo, i / segments, pathPoint);
       lats[i] = Math.asin(clamp(pathPoint[1], -1, 1)) / DEG;
       const lon = Math.atan2(pathPoint[0], pathPoint[2]) / DEG;
-      lambdas[i] = i === 0 ? lambdaFrom : unwrapLongitude(lambdas[i - 1], lon - lon0);
-      min = Math.min(min, lambdas[i]);
-      max = Math.max(max, lambdas[i]);
+      lambdas[i] = i === 0 ? lambdaFrom : unwrapLongitude((lambdas[i - 1] as number), lon - lon0);
+      min = Math.min(min, (lambdas[i] as number));
+      max = Math.max(max, (lambdas[i] as number));
     }
   }
   const curve: QuadCurve = { x0: 0, y0: 0, cx: 0, cy: 0, x1: 0, y1: 0 };
@@ -2856,7 +2856,7 @@ export function flatPaths(
   const build = (shift: number) => {
     if (lats && lambdas) {
       for (let i = 0; i <= segments; i++) {
-        projection.projectRelative(lats[i], lambdas[i] + shift, screen);
+        projection.projectRelative((lats[i] as number), (lambdas[i] as number) + shift, screen);
         xs[i] = screen.x;
         ys[i] = screen.y;
       }
@@ -2899,8 +2899,8 @@ export function nearestIndex(
   let best = -1;
   let bestDistance = maxDistance * maxDistance;
   for (let i = 0; i < count; i++) {
-    const dx = xs[i] - x;
-    const dy = ys[i] - y;
+    const dx = (xs[i] as number) - x;
+    const dy = (ys[i] as number) - y;
     const d = dx * dx + dy * dy;
     if (d <= bestDistance) {
       bestDistance = d;
@@ -2930,14 +2930,14 @@ export function spatialNavigate(
   from: number,
   direction: NavigationDirection,
 ): number {
-  const origin = points[from];
+  const origin = ((points[from] as { x: number; y: number; }) as { x: number; y: number; });
   if (!origin) return from;
   let best = from;
   let bestScore = Infinity;
   for (let i = 0; i < points.length; i++) {
     if (i === from) continue;
-    const dx = points[i].x - origin.x;
-    const dy = points[i].y - origin.y;
+    const dx = ((points[i] as { x: number; y: number; }) as { x: number; y: number; }).x - origin.x;
+    const dy = ((points[i] as { x: number; y: number; }) as { x: number; y: number; }).y - origin.y;
     const along = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
     const across = direction === "right" || direction === "left" ? Math.abs(dy) : Math.abs(dx);
     if (along <= 0 || across > along) continue;
@@ -2985,27 +2985,27 @@ export function placeLabels(anchors: readonly LabelAnchor[], width: number, heig
     y: anchor.y,
     side: "right",
   }));
-  const order = anchors.map((_, index) => index).sort((a, b) => anchors[b].priority - anchors[a].priority || a - b);
+  const order = anchors.map((_, index) => index).sort((a, b) => (anchors[b] as LabelAnchor).priority - (anchors[a] as LabelAnchor).priority || a - b);
   const boxes: number[] = [];
   const POINT = 4;
   const fits = (index: number, x: number, y: number, w: number, h: number, avoidPoints: boolean) => {
     if (x < 0 || y < 0 || x + w > width || y + h > height) return false;
     for (let k = 0; k < boxes.length; k += 4) {
-      const apartX = x >= boxes[k] + boxes[k + 2] || x + w <= boxes[k];
-      const apartY = y >= boxes[k + 1] + boxes[k + 3] || y + h <= boxes[k + 1];
+      const apartX = x >= (boxes[k] as number) + (boxes[k + 2] as number) || x + w <= (boxes[k] as number);
+      const apartY = y >= (boxes[k + 1] as number) + (boxes[k + 3] as number) || y + h <= (boxes[k + 1] as number);
       if (!apartX && !apartY) return false;
     }
     if (avoidPoints) {
       for (let j = 0; j < anchors.length; j++) {
         if (j === index) continue;
-        const p = anchors[j];
+        const p = (anchors[j] as LabelAnchor);
         if (p.x > x - POINT && p.x < x + w + POINT && p.y > y - POINT && p.y < y + h + POINT) return false;
       }
     }
     return true;
   };
   for (const index of order) {
-    const anchor = anchors[index];
+    const anchor = (anchors[index] as LabelAnchor);
     const gap = anchor.gap ?? 6;
     const w = anchor.width;
     const h = anchor.height;

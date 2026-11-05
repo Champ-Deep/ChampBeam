@@ -37,7 +37,7 @@ function decodeVarints(code: string): number[] {
   let value = 0;
   let shift = 0;
   for (let i = 0; i < code.length; i++) {
-    const digit = digits[code.charCodeAt(i)];
+    const digit = ((digits[code.charCodeAt(i)] as number));
     value += (digit & 31) * 2 ** shift;
     if (digit & 32) shift += 5;
     else {
@@ -56,8 +56,8 @@ export function decodeRing(code: string): GeoRing {
   let x = 0;
   let y = 0;
   for (let i = 0; i + 1 < values.length; i += 2) {
-    const dx = values[i];
-    const dy = values[i + 1];
+    const dx = (values[i] as number);
+    const dy = (values[i + 1] as number);
     x += dx & 1 ? -(dx + 1) / 2 : dx / 2;
     y += dy & 1 ? -(dy + 1) / 2 : dy / 2;
     ring[i] = x / 10;
@@ -97,7 +97,7 @@ const wrapLon = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
 export function isLand(lat: number, lon: number): boolean {
   const row = Math.min(LAND_MASK_ROWS - 1, Math.max(0, Math.floor((90 - lat) / LAND_MASK_RESOLUTION)));
   const column = Math.min(LAND_MASK_COLUMNS - 1, Math.floor((wrapLon(lon) + 180) / LAND_MASK_RESOLUTION));
-  return landMask()[row * LAND_MASK_COLUMNS + column] === 1;
+  return ((landMask()[row * LAND_MASK_COLUMNS + column] as number)) === 1;
 }
 
 /**

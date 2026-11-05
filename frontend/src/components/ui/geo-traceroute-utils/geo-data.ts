@@ -447,7 +447,7 @@ const normalizeAxis = (value: number, axis: "lat" | "lon") =>
 /**
  * One coordinate as text and parts. `decimal`: '48.8566° N' (precision = decimals, default 4). `dms`:
  * '48°51′24″ N' (precision = decimals of the seconds, default 0; seconds are rounded and carry into minutes and
- * degrees). Latitudes are clamped, longitudes wrapped; non-finite values give '–'.
+ * degrees). Latitudes are clamped, longitudes wrapped; non-finite values give '-'.
  */
 export function formatCoordinate(
   value: number,
@@ -560,7 +560,7 @@ function tokenizeCoordinates(text: string): CoordinateToken[] | null {
   const tokens: CoordinateToken[] = [];
   let i = 0;
   while (i < text.length) {
-    const ch = text[i];
+    const ch = (text[i] as string);
     if (/\s/.test(ch)) {
       i++;
       continue;
@@ -575,14 +575,14 @@ function tokenizeCoordinates(text: string): CoordinateToken[] | null {
     if (number) {
       const raw = number[0];
       i += raw.length;
-      const previous = tokens[tokens.length - 1];
+      const previous = (tokens[tokens.length - 1] as CoordinateToken);
       const previousMark = previous?.kind === "number" ? previous.mark : -1;
       let mark = -1;
       let j = i;
-      while (text[j] === " ") j++;
-      if (text[j] === "°") mark = 0;
-      else if (text[j] === "'") mark = 1;
-      else if (text[j] === '"') mark = 2;
+      while ((text[j] as string) === " ") j++;
+      if ((text[j] as string) === "°") mark = 0;
+      else if ((text[j] as string) === "'") mark = 1;
+      else if ((text[j] as string) === '"') mark = 2;
       if (mark >= 0) i = j + 1;
       else {
         // letter marks must touch the number; m and s count only after degrees and minutes, so S stays south
@@ -605,7 +605,7 @@ function tokenizeCoordinates(text: string): CoordinateToken[] | null {
     }
     WORD_PATTERN.lastIndex = i;
     const word = WORD_PATTERN.exec(text)?.[0];
-    const letter = word ? HEMISPHERE_WORDS[word.toLowerCase()] : undefined;
+    const letter = word ? ((HEMISPHERE_WORDS[word.toLowerCase()] as Hemisphere)) : undefined;
     if (!word || !letter) return null;
     tokens.push({ kind: "hemisphere", letter });
     i += word.length;
@@ -623,7 +623,7 @@ function splitByMarks(numbers: NumberToken[]): NumberToken[][] {
       groups.push([]);
       slot = token.mark >= 0 ? token.mark : 0;
     } else slot = next;
-    groups[groups.length - 1].push(token);
+    (groups[groups.length - 1] as NumberToken[]).push(token);
   }
   return groups;
 }
@@ -656,7 +656,7 @@ function groupCoordinates(tokens: CoordinateToken[]): CoordinateGroup[] | null {
   }
   const letters = tokens.filter((token) => token.kind === "hemisphere").length;
   if (letters > 0) {
-    const prefix = tokens[0].kind === "hemisphere";
+    const prefix = (tokens[0] as CoordinateToken).kind === "hemisphere";
     let current: CoordinateGroup | null = null;
     for (const token of tokens) {
       if (token.kind === "hemisphere") {
@@ -698,7 +698,7 @@ function groupValue(group: CoordinateGroup): number | null {
   let slot = -1;
   let value = 0;
   for (let k = 0; k < numbers.length; k++) {
-    const token = numbers[k];
+    const token = (numbers[k] as NumberToken);
     const next = token.mark >= 0 ? token.mark : slot + 1;
     if (next <= slot || next > 2) return null;
     if (k > 0 && token.negative) return null;
@@ -708,7 +708,7 @@ function groupValue(group: CoordinateGroup): number | null {
     value += token.value / 60 ** next;
     slot = next;
   }
-  const negative = numbers[0].negative;
+  const negative = (numbers[0] as NumberToken).negative;
   if (hemisphere && negative) return null;
   return negative || hemisphere === "S" || hemisphere === "W" ? -value : value;
 }
@@ -737,7 +737,7 @@ const axisOf = (letter: Hemisphere | null) =>
 export function parseCoordinates(text: string): LatLon | null {
   const groups = readCoordinateGroups(text);
   if (!groups) return null;
-  let [first, second] = groups;
+  let [first, second] = groups as [CoordinateGroup, CoordinateGroup];
   const firstAxis = axisOf(first.hemisphere);
   const secondAxis = axisOf(second.hemisphere);
   if (firstAxis && firstAxis === secondAxis) return null;
@@ -791,7 +791,7 @@ export interface NumberOptions {
   locale?: string;
 }
 
-/** A number with grouping ('2,400', '412.6' with one fraction digit) and a true minus sign; '–' when not finite. */
+/** A number with grouping ('2,400', '412.6' with one fraction digit) and a true minus sign; '-' when not finite. */
 export function formatNumber(value: number, options: NumberOptions = {}): string {
   if (!Number.isFinite(value)) return MISSING;
   const { fractionDigits, sign = false, locale = DEFAULT_LOCALE } = options;
@@ -808,7 +808,7 @@ const tenthsBelow = (value: number, limit: number) => (Math.abs(Math.round(value
 
 /**
  * A distance given in km: '2,140 km', '3.4 km' below 10 km, '350 m' below 1 km (metres rounded to 10 from 100 m).
- * With `mi`: '1,330 mi', '2.1 mi', and feet below 0.1 mi ('350 ft'). '–' when not finite.
+ * With `mi`: '1,330 mi', '2.1 mi', and feet below 0.1 mi ('350 ft'). '-' when not finite.
  */
 export function formatDistance(km: number, unit: "km" | "mi" = "km", locale: string = DEFAULT_LOCALE): string {
   if (!Number.isFinite(km)) return MISSING;
@@ -830,7 +830,7 @@ export function formatDistance(km: number, unit: "km" | "mi" = "km", locale: str
 
 /**
  * A duration in milliseconds as latency: '18 ms', '162 ms', '0.4 ms' below 1 ms, then seconds from 1,000 ms with two
- * decimals ('1.24 s'), one from 10 s, none from 100 s. '–' when not finite.
+ * decimals ('1.24 s'), one from 10 s, none from 100 s. '-' when not finite.
  */
 export function formatMs(ms: number, locale: string = DEFAULT_LOCALE): string {
   if (!Number.isFinite(ms)) return MISSING;
@@ -845,7 +845,7 @@ export function formatMs(ms: number, locale: string = DEFAULT_LOCALE): string {
 
 /**
  * A speed given in km/h, in `km/h` (default), `mph` or `kn`: one decimal below 100 ('16.4 kn'), none above
- * ('8,400 km/h'). '–' when not finite.
+ * ('8,400 km/h'). '-' when not finite.
  */
 export function formatSpeed(
   kmh: number,
@@ -860,7 +860,7 @@ export function formatSpeed(
 
 /**
  * A span of time in its two largest units: '45 s', '40 m', '2 h 10 m', '3 d 4 h' (a zero second unit is left out:
- * '2 h', '3 d'). Rounded to the smallest unit shown, with carry; negative spans get a true minus sign. '–' when not
+ * '2 h', '3 d'). Rounded to the smallest unit shown, with carry; negative spans get a true minus sign. '-' when not
  * finite.
  */
 export function formatDuration(ms: number): string {
@@ -885,7 +885,7 @@ const relativeFormats = new Map<string, Intl.RelativeTimeFormat>();
 /**
  * How long ago (or ahead) `time` is from `now`, both epoch ms: 'now', '5 minutes ago', '2 hours ago', 'yesterday',
  * 'in 3 days' (Intl.RelativeTimeFormat, numeric auto, cached). Under 45 s reads 'now'. Pass `now` from a prop or
- * `useNow`, never Date.now() in render. '–' when either time is not finite.
+ * `useNow`, never Date.now() in render. '-' when either time is not finite.
  */
 export function formatAgo(time: number, now: number, locale: string = DEFAULT_LOCALE): string {
   const seconds = (time - now) / 1000;
@@ -920,7 +920,7 @@ export function quantile(values: readonly number[], q: number): number {
   const position = Math.min(1, Math.max(0, q)) * (sorted.length - 1);
   const below = Math.floor(position);
   const above = Math.min(sorted.length - 1, below + 1);
-  return sorted[below] + (sorted[above] - sorted[below]) * (position - below);
+  return (sorted[below] as number) + ((sorted[above] as number) - (sorted[below] as number)) * (position - below);
 }
 
 /** The median of a list (quantile 0.5); NaN for an empty list. */
@@ -956,8 +956,8 @@ function parseIpv4Bytes(text: string): Uint8Array | null {
   if (parts.length !== 4) return null;
   const bytes = new Uint8Array(4);
   for (let i = 0; i < 4; i++) {
-    if (!/^(?:0|[1-9]\d{0,2})$/.test(parts[i])) return null;
-    const value = Number(parts[i]);
+    if (!/^(?:0|[1-9]\d{0,2})$/.test((parts[i] as string))) return null;
+    const value = Number((parts[i] as string));
     if (value > 255) return null;
     bytes[i] = value;
   }
@@ -970,11 +970,11 @@ function parseIpv6Groups(text: string, allowIpv4Tail: boolean): number[] | null 
   const parts = text.split(":");
   const groups: number[] = [];
   for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
+    const part = (parts[i] as string);
     if (allowIpv4Tail && i === parts.length - 1 && part.includes(".")) {
       const bytes = parseIpv4Bytes(part);
       if (!bytes) return null;
-      groups.push((bytes[0] << 8) | bytes[1], (bytes[2] << 8) | bytes[3]);
+      groups.push(((bytes[0] as number) << 8) | (bytes[1] as number), ((bytes[2] as number) << 8) | (bytes[3] as number));
     } else if (/^[0-9a-f]{1,4}$/i.test(part)) groups.push(parseInt(part, 16));
     else return null;
   }
@@ -982,26 +982,26 @@ function parseIpv6Groups(text: string, allowIpv4Tail: boolean): number[] | null 
 }
 
 const isZero = (bytes: Uint8Array, from: number, to: number) => {
-  for (let i = from; i < to; i++) if (bytes[i] !== 0) return false;
+  for (let i = from; i < to; i++) if ((bytes[i] as number) !== 0) return false;
   return true;
 };
 
 /** RFC 5952 text: lowercase, no leading zeros, the longest run of two or more zero groups as '::'. */
 function ipv6Text(bytes: Uint8Array): string {
-  if (isZero(bytes, 0, 10) && bytes[10] === 0xff && bytes[11] === 0xff) {
-    return `::ffff:${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
+  if (isZero(bytes, 0, 10) && (bytes[10] as number) === 0xff && (bytes[11] as number) === 0xff) {
+    return `::ffff:${(bytes[12] as number)}.${(bytes[13] as number)}.${(bytes[14] as number)}.${(bytes[15] as number)}`;
   }
   const groups: number[] = [];
-  for (let i = 0; i < 16; i += 2) groups.push((bytes[i] << 8) | bytes[i + 1]);
+  for (let i = 0; i < 16; i += 2) groups.push(((bytes[i] as number) << 8) | (bytes[i + 1] as number));
   let bestStart = -1;
   let bestLength = 1;
   for (let i = 0; i < 8;) {
-    if (groups[i] !== 0) {
+    if ((groups[i] as number) !== 0) {
       i++;
       continue;
     }
     let j = i;
-    while (j < 8 && groups[j] === 0) j++;
+    while (j < 8 && (groups[j] as number) === 0) j++;
     if (j - i > bestLength) {
       bestStart = i;
       bestLength = j - i;
@@ -1037,8 +1037,8 @@ export function parseIpAddress(text: string): IpAddress | null {
   const halves = s.split("::");
   if (halves.length > 2) return null;
   const compressed = halves.length === 2;
-  const head = parseIpv6Groups(halves[0], !compressed);
-  const tail = compressed ? parseIpv6Groups(halves[1], true) : [];
+  const head = parseIpv6Groups((halves[0] as string), !compressed);
+  const tail = compressed ? parseIpv6Groups((halves[1] as string), true) : [];
   if (!head || !tail) return null;
   const count = head.length + tail.length;
   if (compressed ? count > 7 : count !== 8) return null;
@@ -1082,20 +1082,20 @@ function ipv4Scope(a: number, b: number, c: number, d: number): IpScope {
  */
 export function ipScope(address: IpAddress): IpScope {
   const b = address.bytes;
-  if (address.version === 4) return ipv4Scope(b[0], b[1], b[2], b[3]);
-  if (isZero(b, 0, 10) && b[10] === 0xff && b[11] === 0xff) return ipv4Scope(b[12], b[13], b[14], b[15]);
+  if (address.version === 4) return ipv4Scope((b[0] as number), (b[1] as number), (b[2] as number), (b[3] as number));
+  if (isZero(b, 0, 10) && (b[10] as number) === 0xff && (b[11] as number) === 0xff) return ipv4Scope((b[12] as number), (b[13] as number), (b[14] as number), (b[15] as number));
   if (isZero(b, 0, 16)) return "unspecified";
-  if (isZero(b, 0, 15) && b[15] === 1) return "loopback";
-  const nat64 = b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b;
-  if (nat64 && isZero(b, 4, 12)) return ipv4Scope(b[12], b[13], b[14], b[15]);
-  if (nat64 && b[4] === 0x00 && b[5] === 0x01) return "private";
-  if (b[0] === 0x01 && b[1] === 0x00 && isZero(b, 2, 8)) return "reserved";
-  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x00 && b[3] === 0x02 && isZero(b, 4, 6)) return "reserved";
-  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return "documentation";
-  if (b[0] === 0x3f && b[1] === 0xff && (b[2] & 0xf0) === 0x00) return "documentation";
-  if ((b[0] & 0xfe) === 0xfc) return "private";
-  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return "link-local";
-  if (b[0] === 0xff) return "multicast";
+  if (isZero(b, 0, 15) && (b[15] as number) === 1) return "loopback";
+  const nat64 = (b[0] as number) === 0x00 && (b[1] as number) === 0x64 && (b[2] as number) === 0xff && (b[3] as number) === 0x9b;
+  if (nat64 && isZero(b, 4, 12)) return ipv4Scope((b[12] as number), (b[13] as number), (b[14] as number), (b[15] as number));
+  if (nat64 && (b[4] as number) === 0x00 && (b[5] as number) === 0x01) return "private";
+  if ((b[0] as number) === 0x01 && (b[1] as number) === 0x00 && isZero(b, 2, 8)) return "reserved";
+  if ((b[0] as number) === 0x20 && (b[1] as number) === 0x01 && (b[2] as number) === 0x00 && (b[3] as number) === 0x02 && isZero(b, 4, 6)) return "reserved";
+  if ((b[0] as number) === 0x20 && (b[1] as number) === 0x01 && (b[2] as number) === 0x0d && (b[3] as number) === 0xb8) return "documentation";
+  if ((b[0] as number) === 0x3f && (b[1] as number) === 0xff && ((b[2] as number) & 0xf0) === 0x00) return "documentation";
+  if (((b[0] as number) & 0xfe) === 0xfc) return "private";
+  if ((b[0] as number) === 0xfe && ((b[1] as number) & 0xc0) === 0x80) return "link-local";
+  if ((b[0] as number) === 0xff) return "multicast";
   return "public";
 }
 
@@ -1385,9 +1385,9 @@ export function pickWeighted<T>(random: () => number, items: readonly T[], weigh
     const w = weight(item);
     if (w > 0) total += w;
   }
-  if (!(total > 0)) return items[Math.min(items.length - 1, Math.floor(random() * items.length))];
+  if (!(total > 0)) return ((items[Math.min(items.length - 1, Math.floor(random() * items.length))] as NonNullable<T>));
   let remaining = random() * total;
-  let last = items[0];
+  let last = ((items[0] as NonNullable<T>) as T);
   for (const item of items) {
     const w = weight(item);
     if (!(w > 0)) continue;

@@ -239,7 +239,7 @@ export function countryShape(code: string): CountryShape {
   const key = code.toUpperCase();
   const cached = decoded.get(key);
   if (cached) return cached;
-  const stored = Object.hasOwn(SHAPES, key) ? SHAPES[key] : undefined;
+  const stored = Object.hasOwn(SHAPES, key) ? ((SHAPES[key] as readonly (readonly string[])[])) : undefined;
   const shape: CountryShape = stored ? stored.map((polygon) => polygon.map(decodeRing)) : [];
   decoded.set(key, shape);
   return shape;
@@ -258,10 +258,10 @@ export function isSeam(lonA: number, lonB: number): boolean {
 function evenOdd(ring: ArrayLike<number>, lon: number, lat: number): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 2; i + 1 < ring.length; j = i, i += 2) {
-    const xi = ring[i];
-    const yi = ring[i + 1];
-    const xj = ring[j];
-    const yj = ring[j + 1];
+    const xi = (ring[i] as number);
+    const yi = (ring[i + 1] as number);
+    const xj = (ring[j] as number);
+    const yj = (ring[j + 1] as number);
     if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
@@ -285,7 +285,7 @@ function continuousRing(ring: GeoRing): Float64Array | null {
   let latitudeSum = 0;
   for (let i = 0; i < length; i += 2) {
     if (i > 0) {
-      const step = ring[i] - ring[i - 2];
+      const step = (ring[i] as number) - (ring[i - 2] as number);
       if (step > 180) {
         shift -= 360;
         crossings++;
@@ -294,18 +294,18 @@ function continuousRing(ring: GeoRing): Float64Array | null {
         crossings++;
       }
     }
-    out[i] = ring[i] + shift;
-    out[i + 1] = ring[i + 1];
-    latitudeSum += ring[i + 1];
+    out[i] = (ring[i] as number) + shift;
+    out[i + 1] = (ring[i + 1] as number);
+    latitudeSum += (ring[i + 1] as number);
   }
   let result: Float64Array | null = null;
   if (crossings > 0 && shift === 0) {
     result = out.subarray(0, length);
   } else if (crossings > 0) {
     const pole = latitudeSum < 0 ? -90 : 90;
-    out[length] = out[length - 2];
+    out[length] = (out[length - 2] as number);
     out[length + 1] = pole;
-    out[length + 2] = out[0];
+    out[length + 2] = (out[0] as number);
     out[length + 3] = pole;
     result = out;
   }
@@ -335,12 +335,12 @@ let bounds: Map<string, Bounds> | null = null;
 function boundsOf(shape: CountryShape): Bounds {
   const box: Bounds = { west: 180, south: 90, east: -180, north: -90 };
   for (const polygon of shape) {
-    const outer = continuousRing(polygon[0]) ?? polygon[0];
+    const outer = continuousRing((polygon[0] as GeoRing)) ?? (polygon[0] as GeoRing);
     for (let i = 0; i + 1 < outer.length; i += 2) {
-      box.west = Math.min(box.west, outer[i]);
-      box.east = Math.max(box.east, outer[i]);
-      box.south = Math.min(box.south, outer[i + 1]);
-      box.north = Math.max(box.north, outer[i + 1]);
+      box.west = Math.min(box.west, (outer[i] as number));
+      box.east = Math.max(box.east, (outer[i] as number));
+      box.south = Math.min(box.south, (outer[i + 1] as number));
+      box.north = Math.max(box.north, (outer[i + 1] as number));
     }
   }
   // continuous longitudes can run past ±180°; such a country is tested at every longitude
@@ -365,7 +365,7 @@ export function countryAt(lat: number, lon: number): Country | undefined {
     const box = bounds.get(country.code);
     if (!box || x < box.west || x > box.east || lat < box.south || lat > box.north) continue;
     for (const polygon of countryShape(country.code)) {
-      if (!insideRing(polygon[0], x, lat)) continue;
+      if (!insideRing((polygon[0] as GeoRing), x, lat)) continue;
       if (!polygon.slice(1).some((hole) => insideRing(hole, x, lat))) return country;
     }
   }

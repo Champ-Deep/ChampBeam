@@ -27,7 +27,7 @@ export function parseColor(value: string): RGB {
   // the canvas ignores a colour it cannot parse, so the grey stays
   probe.fillStyle = key;
   probe.fillRect(0, 0, 1, 1);
-  const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+  const [r = 0, g = 0, b = 0] = probe.getImageData(0, 0, 1, 1).data;
   if (cache.size > 256) cache.clear();
   cache.set(key, [r, g, b]);
   return [r, g, b];
@@ -106,7 +106,7 @@ function watchTheme(): () => void {
   const notify = () => listeners.forEach((listener) => listener());
   // shadcn toggles `.dark`; other setups use data-theme or inline style variables
   const observer = new MutationObserver(notify);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "data-cb-theme", "style"] });
   const scheme = window.matchMedia("(prefers-color-scheme: dark)");
   scheme.addEventListener("change", notify);
   return () => {

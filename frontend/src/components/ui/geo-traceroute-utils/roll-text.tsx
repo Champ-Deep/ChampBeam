@@ -48,13 +48,13 @@ export function RollText({ text, direction = 1, animate = true, reserve, classNa
 
   // Derive the item list during render, so the new text is in the first paint after the change.
   if (state.text !== text) {
-    const key = state.items[state.items.length - 1].key + 1;
+    const key = (state.items[state.items.length - 1] as RollItem).key + 1;
     // keep at most two outgoing labels when the text changes faster than the animation
     setState({ text, items: [...state.items.slice(-2), { key, text, direction }] });
   }
 
-  const current = state.items[state.items.length - 1];
-  const previous = state.items.length > 1 ? state.items[state.items.length - 2] : null;
+  const current = (state.items[state.items.length - 1] as RollItem);
+  const previous = state.items.length > 1 ? (state.items[state.items.length - 2] as RollItem) : null;
 
   React.useLayoutEffect(() => {
     if (!previous) return;
