@@ -105,11 +105,14 @@ describe("briefing rooms", () => {
 
     await post(`/api/v1/rooms/${room.id}/publish`, m.headers);
     expect((await api(`/api/v1/rooms/public/${room.slug}`)).status).toBe(200);
+    const recip = await json(await post(`/api/v1/rooms/${room.id}/recipients`, m.headers, { name: "Ana García", company: "Ferrovial" }));
 
     await post(`/api/v1/rooms/${room.id}/archive`, m.headers);
-    const ended = await json(await api(`/api/v1/rooms/public/${room.slug}`));
+    const ended = await json(await api(`/api/v1/rooms/public/${room.slug}?t=${recip.token}`));
     expect(ended.state).toBe("archived");
     expect(ended.ended).toBe(true);
+    // Archiving revokes: no content and no recipient resolution, even with a valid token.
+    expect(ended).toMatchObject({ asset_ids: [], personalization: {}, identified: false });
 
     // Archived rooms cannot be re-published.
     expect((await post(`/api/v1/rooms/${room.id}/publish`, m.headers)).status).toBe(409);
@@ -198,7 +201,7 @@ describe("briefing rooms", () => {
     for (let i = 0; i <= TRACK_EVENTS_PER_WINDOW; i++) codes.push((await post("/api/v1/rooms/track", ip, { slug: room.slug, type: "page_view", session_id: "s" })).status);
     expect(codes.filter((x) => x === 204)).toHaveLength(TRACK_EVENTS_PER_WINDOW);
     expect(codes.at(-1)).toBe(429);
-  });
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 
   it("lists, updates and scopes rooms to the org", async () => {
     const m = await seedOrg();

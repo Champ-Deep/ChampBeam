@@ -417,22 +417,22 @@ function HtmlAsPageCreator({
       toast.error('Slug must be lowercase letters, numbers and hyphens.');
       return;
     }
+    const code = accessCode.trim();
+    if (code && !/^\d{6,8}$/.test(code)) {
+      toast.error('Access code must be 6 to 8 digits.');
+      return;
+    }
     setPublishing(true);
     try {
       const html = await file.text();
       const slugifiedTitle = title.trim() === '' ? file.name.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ') : title.trim();
+      // The code travels with the publish: a rejected code fails the publish, never a live ungated page.
       const created = await pagesApi.create({
         html,
         title: slugifiedTitle,
         slug: slug.trim() || undefined,
+        access_code: code || undefined,
       });
-      if (accessCode.trim()) {
-        try {
-          await pagesApi.patch(created.page_id, { access_code: accessCode.trim() });
-        } catch {
-          toast.warning('Page published, but the access code could not be set.');
-        }
-      }
       toast.success('Page published. Your page is live.');
       onPublished(created);
     } catch (err: unknown) {

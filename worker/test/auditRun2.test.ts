@@ -96,6 +96,16 @@ describe("namespace moves respect retired slugs (slug_aliases)", () => {
     expect((await api(`/api/v1/domains/${s.d.id}?force=true`, { method: "DELETE", headers: s.mover.headers })).status).toBe(409);
   });
 
+  it("a page moved off a domain is no longer served there through its retired slug", async () => {
+    const s = await setup();
+    const host = `${s.d.hostname}`;
+    const p = await s.publish(s.mover.headers, `old-${s.base}`, s.d.id);
+    expect((await api(`https://${host}/p/old-${s.base}`)).status).toBe(200);
+    const r = await api(`/api/v1/pages/${p.page_id}`, { method: "PATCH", json: { domain_id: null, slug: `new-${s.base}` }, headers: s.mover.headers });
+    expect(r.status, await r.clone().text()).toBe(200);
+    expect((await api(`https://${host}/p/old-${s.base}`)).status).toBe(404);
+  });
+
   it("a move plus slug change retires the old slug in the namespace it lived in", async () => {
     const s = await setup();
     const p = await s.publish(s.mover.headers, `keep-${s.base}`, s.d.id);
@@ -104,4 +114,15 @@ describe("namespace moves respect retired slugs (slug_aliases)", () => {
     const alias = await q("SELECT domain_id FROM slug_aliases WHERE file_id = ? AND slug = ?", p.page_id, `keep-${s.base}`);
     expect(alias!.domain_id).toBe(s.d.id);
   });
+});
+
+it("an access code sent with the publish is set atomically; a rejected code publishes nothing", async () => {
+  const owner = await member(newOrgId(), "member");
+  const slug = `ac-${crypto.randomUUID().slice(0, 6)}`;
+  const bad = await api("/api/v1/pages", { method: "POST", json: { html: HTML, title: "Gated", slug, access_code: "1234" }, headers: owner.headers });
+  expect(bad.status).toBe(422);
+  expect(await q("SELECT id FROM file_assets WHERE slug = ?", slug)).toBeNull();
+  const ok = await api("/api/v1/pages", { method: "POST", json: { html: HTML, title: "Gated", slug, access_code: "483920" }, headers: owner.headers });
+  expect(ok.status, await ok.clone().text()).toBe(201);
+  expect((await json(ok)).has_access_code).toBe(true);
 });

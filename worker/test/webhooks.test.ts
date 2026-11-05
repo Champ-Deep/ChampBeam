@@ -162,8 +162,10 @@ describe("clerk webhook", () => {
     await send({ type: "organizationMembership.updated", data: m("org:member", 3000) }); // exact retry
     expect(await status()).toMatchObject({ status: "active", role: "member" });
 
-    await send({ type: "organizationMembership.deleted", data: m("org:member", 5000) });
-    await send({ type: "organizationMembership.created", data: m("org:admin", 4000, "orgmem_p") }); // older add, new id
+    // A delete carrying the same updated_at as the last update (Clerk need not bump it on deletion) still removes.
+    await send({ type: "organizationMembership.deleted", data: m("org:member", 3000) });
+    expect((await status()).status).toBe("revoked");
+    await send({ type: "organizationMembership.created", data: m("org:admin", 2500, "orgmem_p") }); // older add, new id
     expect((await status()).status).toBe("revoked");
     await send({ type: "organizationMembership.created", data: m("org:member", 6000, "orgmem_q") }); // real re-add
     expect(await status()).toMatchObject({ status: "active", role: "member" });

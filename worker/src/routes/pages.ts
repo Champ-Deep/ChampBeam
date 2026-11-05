@@ -68,6 +68,8 @@ const PagePublish = z.object({
   title: z.string().max(200).default("Untitled page"),
   domain_id: z.string().nullable().optional(),
   slug: z.string().max(80).nullable().optional(),
+  // Set at publish time so a rejected code fails the publish instead of leaving the page live and ungated.
+  access_code: z.string().max(8).nullable().optional(),
 });
 
 const PageUpdate = z.object({
@@ -213,6 +215,7 @@ async function publish(
     slug: string | null | undefined;
     filename: string | null;
     contentType: string | null;
+    accessCode?: string | null;
   },
 ): Promise<FileAsset> {
   const settings = c.var.settings;
@@ -235,8 +238,9 @@ async function publish(
     slug = await pagesService.uniqueSlug(db, opts.title, domainId);
   }
 
-  const shortCode = await allocateUniqueShortCode(db, domainId);
   const fileId = crypto.randomUUID();
+  const accessCodeHash = await setAccessCode(settings, { id: fileId, accessCodeHash: null }, opts.accessCode);
+  const shortCode = await allocateUniqueShortCode(db, domainId);
   const storedName = filenameFor(opts.title);
   const key = storageKey(opts.user.userId, fileId, storedName);
   await writeBlob(c, key, opts.payload);
@@ -254,6 +258,7 @@ async function publish(
           organizationId: shareOrgUuid(opts.user),
           shareIntent: "host",
           htmlSandbox: settings.htmlSandbox ? 1 : null,
+          accessCodeHash,
           shortCode,
           slug,
           filename: storedName,
@@ -305,6 +310,7 @@ router.post("/", async (c) => {
     slug: data.slug,
     filename: null,
     contentType: HTML_MIME,
+    accessCode: data.access_code,
   });
   return c.json(await pageResponse(c, asset), 201);
 });

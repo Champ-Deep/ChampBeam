@@ -277,5 +277,5 @@ describe("page-events beacon bounds", () => {
     expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW);
     await beacon(f.shortCode, "8.8.8.8");
     expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW + 1);
-  });
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 });

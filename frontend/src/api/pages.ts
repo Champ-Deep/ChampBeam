@@ -84,6 +84,8 @@ export interface PagePublish {
   title?: string;
   domain_id?: string;
   slug?: string;
+  /** 6 to 8 digits; set atomically with the publish. */
+  access_code?: string;
 }
 
 export interface PagePatch {

@@ -97,8 +97,12 @@ async function deleteOrganization(db: Db, clerkOrgId: string | null | undefined)
 /** Clerk's updated_at (ms) for the event, when present. */
 const eventTime = (data: Data): number | null => (typeof data.updated_at === "number" ? data.updated_at : null);
 
-/** True when a newer Clerk event was already applied to this membership (late, retried or out of order). */
-const isStale = (at: number | null, stored: number | null | undefined) => at != null && stored != null && at <= stored;
+/**
+ * True when a newer Clerk event was already applied to this membership (late, retried or out of order).
+ * A delete wins a tie: Clerk may not bump updated_at on deletion, and dropping a real removal fails open.
+ */
+const isStale = (at: number | null, stored: number | null | undefined, isDelete = false) =>
+  at != null && stored != null && (isDelete ? at < stored : at <= stored);
 
 async function stampEventTime(db: Db, organizationId: string, userId: string, at: number | null): Promise<void> {
   if (at == null) return;
@@ -155,7 +159,7 @@ async function handleMembershipDeleted(db: Db, data: Data): Promise<void> {
   // before any create was mirrored, write the tombstone anyway so the late create cannot revive it.
   const at = eventTime(data);
   if (row) {
-    if (isStale(at, row.clerkUpdatedAt)) return; // a later re-add already won
+    if (isStale(at, row.clerkUpdatedAt, true)) return; // a later re-add already won
     await orgService.revokeMembership(db, row.orgId, row.userId, data.id ?? null);
     await stampEventTime(db, row.orgId, row.userId, at);
     return;

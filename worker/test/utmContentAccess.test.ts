@@ -191,7 +191,7 @@ describe("access control", () => {
     for (let i = 0; i < ac.CODE_PAGE_ATTEMPTS_PER_WINDOW + 1; i++) out.push(await ac.codeAttemptLimited(env.DB, `10.0.${i >> 8}.${i & 255}`, p2));
     expect(out.slice(0, -1).every((x) => !x)).toBe(true);
     expect(out.at(-1)).toBe(true);
-  });
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 
   it("codeAttemptLimited: one source hammering a page cannot lock it for everyone else", async () => {
     await awayFromWindowEdge();
@@ -199,7 +199,7 @@ describe("access control", () => {
     for (let i = 0; i < ac.CODE_PAGE_ATTEMPTS_PER_WINDOW + 10; i++) await ac.codeAttemptLimited(env.DB, "203.0.113.9", page);
     expect(await ac.codeAttemptLimited(env.DB, "203.0.113.9", page)).toBe(true);
     expect(await ac.codeAttemptLimited(env.DB, "198.51.100.20", page)).toBe(false); // a new visitor still gets in
-  });
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 
   it("captureLead stores a trimmed email", async () => {
     const user = await createUser();

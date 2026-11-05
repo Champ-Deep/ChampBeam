@@ -158,6 +158,10 @@ router.get("/public/:slug", async (c) => {
   const db = c.var.db;
   const room = await getPublicRoom(db, c.req.param("slug"));
   if (room.state !== ROOM_PUBLISHED && room.state !== ROOM_ARCHIVED) httpError(404, "Room not found.");
+  // Archiving is the owner's revocation: an ended room shows only its ended page, no content or recipient.
+  if (room.state === ROOM_ARCHIVED) {
+    return c.json({ slug: room.slug, title: room.title, state: room.state, ended: true, asset_ids: [], personalization: {}, identified: false });
+  }
 
   let recipient: RoomRecipient | null = null;
   if (t) {
@@ -172,7 +176,7 @@ router.get("/public/:slug", async (c) => {
     slug: room.slug,
     title: room.title,
     state: room.state,
-    ended: room.state === ROOM_ARCHIVED,
+    ended: false,
     asset_ids: [...(room.assetIds ?? [])],
     personalization: renderPersonalization(room, recipient),
     identified: recipient !== null,
