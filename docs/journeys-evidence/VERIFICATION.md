@@ -1,4 +1,4 @@
-# ChampBeam visitor journeys: verification and publication hold
+# ChampBeam visitor journeys: verification and publication approval
 
 ## Local result
 
@@ -74,13 +74,13 @@ The mid-flight critique claimed collisions between the first marker and its labe
 
 Audit caveats: the default-font WARN matches Arial in the existing Hanken Grotesk fallback list; this product's established font stack was preserved. The fixture omits global navigation, hence the skip-link INFO. The legacy Analytics project select has pre-existing label/iOS-size findings even when its ancestor is hidden. State probes scope the form-label scan to the new journey region rather than claiming that legacy control was fixed. Graphite is an alternate light workspace palette in this product, not a newly shipped inverted dark mode.
 
-## Publication decision required
+## Publication approved
 
-The card prohibits deployment but requires a PR. Before publication, live GitHub checks showed PR 54's feature-branch Vercel Preview already deployed at API head `2782706`, and recent repository deployment records include those Preview deployments. A Workers Builds production integration is also registered on the parent, currently failing. There is no verified branch-specific exclusion for this UI branch.
+The main lane for Deep explicitly approved PR publication with automatic Vercel previews on 2026-11-06. Production deployment and merge remain prohibited. No integration settings were changed. The original local verification above predates publication.
 
-Do not knowingly trigger those integrations under a no-deploy instruction. Recommended decision: approve PR publication with automatic preview builds explicitly permitted, while keeping production release prohibited. Alternatively, authorize a narrowly scoped branch build exclusion first. No integration settings were changed.
+On resume, reran `npx tsc -b`, `npm run lint`, `npx vitest run`, `npm run build` and the registry runtime comparison. All passed: 54 existing lint warnings, 108 tests, 39 unchanged runtime functions. The build retains the same chunk-size warning. Repeated all 21 browser cases into the task workspace's `resume-evidence` directory: zero audit failures, no runtime errors or geometric overflow, nonblank canvas buffers, stable reduced-motion paths and all-five-theme repaints. Three-week playback measured 2713.3 ms.
 
-Staged PR text: `docs/visitor-journeys-pr.md`. Once publication policy is resolved: push this local branch, create a PR targeting `feat/visitor-journeys-api` using that body file, read back its exact base and head, inspect exact-head CI and deployment checks, then request the same-card reviewer lane.
+PR body: `docs/visitor-journeys-pr.md`. Target base: `feat/visitor-journeys-api`. Exact published head and CI outcomes are recorded in the card review handoff.
 
 ## Not checked
 

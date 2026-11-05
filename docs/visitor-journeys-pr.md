@@ -29,4 +29,4 @@ The pre-existing first ShareComposer test failed its one-second lazy-import wait
 - Journeys use explicitly labelled rolling 90-day detail and 30-day overview windows. The endpoint does not support legacy project/custom-date filters.
 - Location changes suggest forwarding, not proof of forwarding.
 - Parent API PR 54 must land before this stacked UI work can enter main.
-- Publication is held until automatic preview/deployment policy is explicitly resolved. Repository integrations create Vercel previews on feature PRs; do not infer that a no-deploy card authorizes them.
+- Publication approved by the main lane for Deep on 2026-11-06. Automatic Vercel PR previews are permitted. Production deployment and merge remain prohibited.
