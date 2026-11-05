@@ -563,14 +563,50 @@ function SetupInstructions({
   // The subdomain label ("beam" for beam.acme.com) -- registrar dashboards ask
   // for the host/name field without the root domain.
   const label = domain.hostname.split('.').slice(0, -2).join('.') || '@';
+  const records = domain.dns_records ?? [];
+  const txts = records.filter((r) => r.type !== 'CNAME');
+  const forIt = [
+    `DNS records for ${domain.hostname}`,
+    'Add the TXT records first; they validate the certificate while the live site keeps working.',
+    'Add the CNAME when ready to switch traffic. It must be DNS only (grey cloud), not proxied.',
+    ...(records.length ? records : [{ type: 'CNAME', name: domain.hostname, value: cname, purpose: '' }]).map(
+      (r) => `${r.type}  ${r.name}  ${r.value}`,
+    ),
+  ].join('\n');
   return (
     <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700">
-      <p className="font-medium text-slate-900 mb-2">Setup steps</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="font-medium text-slate-900">Setup steps</p>
+        <button
+          type="button"
+          className="text-xs text-slate-600 hover:text-slate-900 inline-flex items-center gap-1"
+          onClick={() => {
+            void navigator.clipboard.writeText(forIt);
+            toast.success('Copied all records');
+          }}
+        >
+          <Copy className="h-3.5 w-3.5" /> Copy all for IT
+        </button>
+      </div>
       <ol className="list-decimal list-inside space-y-2">
+        {txts.length > 0 && (
+          <li>
+            Add these TXT records first. They prove ownership and validate the certificate before you
+            switch any traffic:
+            {txts.map((r) => (
+              <div key={r.name + r.value} className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <CopyableField label="Name" value={r.name} />
+                <CopyableField label="Value" value={r.value} />
+                <p className="sm:col-span-2 text-xs text-slate-500">{r.type} · {r.purpose}</p>
+              </div>
+            ))}
+          </li>
+        )}
         <li>
           In your DNS provider, add a CNAME record from{' '}
           <code className="font-mono text-slate-900">{domain.hostname}</code> to{' '}
-          <code className="font-mono text-slate-900">{cname}</code>:
+          <code className="font-mono text-slate-900">{cname}</code>. Set it to{' '}
+          <span className="font-medium">DNS only (grey cloud)</span>:
           <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <CopyableField label="Name" value={domain.hostname} />
             <CopyableField label="Value" value={cname} />
