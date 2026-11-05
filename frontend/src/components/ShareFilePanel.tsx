@@ -484,7 +484,7 @@ function HtmlAsPageCreator({
           inputMode="numeric"
           value={accessCode}
           onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-          placeholder="4–8 digits"
+          placeholder="6 to 8 digits"
           disabled={publishing}
           className="w-full sm:w-64 h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 disabled:opacity-50"
         />

@@ -61,6 +61,8 @@ export const organizationMemberships = sqliteTable("organization_memberships", {
     .references(() => users.id, { onDelete: "cascade" }),
   role: text("role").notNull().default(ROLE_MEMBER),
   clerkMembershipId: text("clerk_membership_id"),
+  /** updated_at (ms) of the last Clerk webhook event applied; older events are ignored. */
+  clerkUpdatedAt: integer("clerk_updated_at"),
   leaderUserId: text("leader_user_id").references(() => users.id, { onDelete: "set null" }),
   /** "active" | "revoked". Revoked is a tombstone: token sync never revives it. */
   status: text("status").notNull().default("active"),

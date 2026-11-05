@@ -170,7 +170,7 @@ describe("Beam State API (test_beam_state.py)", () => {
     expect((await send("GET", `/api/pages/${slug}/state`, token)).status).toBe(200);
     const [{ user_id }] = await rows("SELECT user_id FROM file_assets WHERE id = ?", id);
     const headers = apiKeyHeaders(await createApiKey(user_id));
-    const r = await api(`/api/v1/pages/${id}`, { method: "PATCH", json: { access_code: "4821" }, headers });
+    const r = await api(`/api/v1/pages/${id}`, { method: "PATCH", json: { access_code: "482100" }, headers });
     expect(r.status, await r.clone().text()).toBe(200);
     expect((await send("GET", `/api/pages/${slug}/state`, token)).status).toBe(401);
     expect(await rows("SELECT state_token FROM file_assets WHERE id = ?", id)).toEqual([{ state_token: null }]);

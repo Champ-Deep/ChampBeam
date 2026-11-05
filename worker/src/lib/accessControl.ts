@@ -16,7 +16,7 @@
  *   ACCESS_CODE_RE, CODE_ATTEMPTS_PER_WINDOW (5), CODE_WINDOW_SECONDS (600)
  *   hashAccessCode(settings: Settings, pageId: string, code: string): Promise<string>     (HMAC-SHA256 hex)
  *   setAccessCode(settings, asset: { id; accessCodeHash }, code: string | null | undefined): Promise<string | null>
- *        (validates 4–8 digits -> 422 "Access code must be 4–8 digits."; sets asset.accessCodeHash in place and returns it;
+ *        (validates 6 to 8 digits -> 422 "Access code must be 6 to 8 digits."; sets asset.accessCodeHash in place and returns it;
  *         caller persists it)
  *   verifyAccessCode(settings, asset, code: string | null | undefined): Promise<boolean>
  *   codeCookieName(shortCode: string): string               ("cbcode_<alnum code>")
@@ -130,6 +130,8 @@ export async function captureLead(
 // attempt limiting is the real defence.
 
 export const ACCESS_CODE_RE = /^\d{4,8}$/;
+/** New codes need 6+ digits: the per-window attempt limits reset, so 10^4 is enumerable within days. Old 4-5 digit codes still verify. */
+export const NEW_ACCESS_CODE_RE = /^\d{6,8}$/;
 export const CODE_ATTEMPTS_PER_WINDOW = 5;
 export const CODE_WINDOW_SECONDS = 600;
 
@@ -159,7 +161,7 @@ export async function setAccessCode(
     return null;
   }
   const c = String(code).trim();
-  if (!ACCESS_CODE_RE.test(c)) httpError(422, "Access code must be 4–8 digits.");
+  if (!NEW_ACCESS_CODE_RE.test(c)) httpError(422, "Access code must be 6 to 8 digits.");
   asset.accessCodeHash = await hashAccessCode(settings, asset.id, c);
   return asset.accessCodeHash;
 }

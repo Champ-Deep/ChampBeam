@@ -65,9 +65,34 @@ function normalizeHostname(raw: string | null | undefined): string {
   return h;
 }
 
+// Labels under PLATFORM_SUBDOMAIN_BASE that the platform itself uses; a tenant must never own them.
+const RESERVED_LABELS = new Set(["www", "app", "api", "admin", "share", "cname", "mail", "status", "docs"]);
+
+/**
+ * Hosts this Worker serves as the product itself (app host and its www/apex twin, CNAME targets, the
+ * subdomain base, workers.dev). The /health reachability proof passes for every one of them, so they
+ * must be refused up front or a tenant can claim the control plane and turn it into a share plane.
+ */
+function isPlatformServed(settings: Settings, hostname: string): boolean {
+  const hostOf = (u: string) => {
+    try {
+      return new URL(u).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  const app = hostOf(settings.frontendUrl);
+  const base = (settings.platformSubdomainBase || "").toLowerCase().trim().replace(/^\.+/, "");
+  const own = [app, app.startsWith("www.") ? app.slice(4) : app && `www.${app}`, base, settings.cloudflareCnameTarget, settings.byodCnameTarget];
+  if (own.some((h) => h && h.toLowerCase() === hostname) || hostname.endsWith(".workers.dev")) return true;
+  return !!base && hostname.endsWith(`.${base}`) && RESERVED_LABELS.has(hostname.slice(0, -base.length - 1));
+}
+
 function validateHostname(settings: Settings, hostname: string): void {
   if (!HOSTNAME_RE.test(hostname)) httpError(400, "Invalid hostname format.");
-  if (settings.isPlatformHost(hostname)) httpError(400, "This hostname is reserved by the platform.");
+  if (settings.isPlatformHost(hostname) || isPlatformServed(settings, hostname)) {
+    httpError(400, "This hostname is reserved by the platform.");
+  }
   // Reject things like "localhost" or single-label hosts that crept through.
   if (!hostname.includes(".")) httpError(400, "Hostname must include a domain.");
 }

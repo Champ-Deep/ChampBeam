@@ -13,7 +13,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth } from "../auth/security";
-import { assertCanShare, findUsableDomain, shareOrgUuid } from "../services/domains";
+import { assertCanShare, assertDomainEditable, findUsableDomain, shareOrgUuid } from "../services/domains";
 import {
   FILE_KIND_HTML,
   FILE_STATUS_ACTIVE,
@@ -362,6 +362,7 @@ router.put("/:file_id/content", async (c) => {
     .where(and(eq(fileAssets.id, fid), eq(fileAssets.userId, user.userId)))
     .get();
   if (!asset || asset.status === FILE_STATUS_DELETED) httpError(404, "File not found.");
+  await assertDomainEditable(db, user, asset.domainId);
   if (asset.status !== FILE_STATUS_ACTIVE) {
     httpError(
       409,
@@ -497,6 +498,7 @@ router.put("/:file_id/access", async (c) => {
   const user = await requireAuth(c);
   const { data, fields } = await parseBodyWithFields(c, FileAccessRequest);
   const asset = await getOwnedFile(c, c.req.param("file_id"), user.userId);
+  await assertDomainEditable(c.var.db, user, asset.domainId);
   const now = nowIso();
   const updates: Partial<typeof fileAssets.$inferInsert> = {};
   if (fields.has("expires_in_hours")) {

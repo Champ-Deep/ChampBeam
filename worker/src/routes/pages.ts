@@ -37,7 +37,7 @@ import { StorageError, StorageNotConfigured, getObject, putBytes } from "../lib/
 import { isoUtc, nowIso } from "../lib/time";
 import { parseQuery, qInt, qStr } from "../lib/validate";
 import { resolveMemberDomain, schemeFor } from "../services/content";
-import { assertCanShare, shareOrgUuid } from "../services/domains";
+import { assertCanShare, assertDomainEditable, shareOrgUuid } from "../services/domains";
 import * as pagesService from "../services/pages";
 import { rotateStateToken } from "../services/pageState";
 import {
@@ -80,7 +80,7 @@ const PagePatch = z.object({
   slug: z.string().max(80).nullable().optional(),
   enabled: z.boolean().nullable().optional(),
   domain_id: z.string().nullable().optional(),
-  // 4–8 digit access code; null clears.
+  // 6 to 8 digit access code (older 4 to 5 digit codes still verify); null clears.
   access_code: z.string().max(8).nullable().optional(),
   // Owner opt-in/out of the CSP sandbox (legacy pages are off until the owner opts in).
   html_sandbox: z.boolean().nullable().optional(),
@@ -110,7 +110,7 @@ function randHex8(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 }
 
-async function getOwnedPage(c: Ctx, pageId: string, user: TokenData): Promise<FileAsset> {
+async function getOwnedPage(c: Ctx, pageId: string, user: TokenData, edit = false): Promise<FileAsset> {
   const pid = canonicalUuid(pageId);
   if (!pid) httpError(400, "Invalid page id.");
   const asset = await c.var.db
@@ -126,6 +126,7 @@ async function getOwnedPage(c: Ctx, pageId: string, user: TokenData): Promise<Fi
     )
     .get();
   if (!asset) httpError(404, "Page not found.");
+  if (edit) await assertDomainEditable(c.var.db, user, asset.domainId);
   return asset;
 }
 
@@ -194,7 +195,7 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
     total_dwell_ms: stats.total_dwell_ms,
     enabled: asset.revokedAt == null,
     has_access_code: !!asset.accessCodeHash,
-    html_sandbox: asset.htmlSandbox === 1,
+    html_sandbox: asset.htmlSandbox != null,
     domain_id: asset.domainId ?? null,
     created_at: isoUtc(asset.createdAt) ?? "",
     updated_at: isoUtc(latest?.at || asset.createdAt) ?? "",
@@ -419,7 +420,7 @@ router.put("/:page_id", async (c) => {
   const { data } = await parseBodyWithFields(c, PageUpdate);
   const settings = c.var.settings;
   ensureStorage(settings);
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   if (asset.status !== FILE_STATUS_ACTIVE) httpError(409, `Page is in status '${asset.status}'.`);
   if (asset.kind !== FILE_KIND_HTML) httpError(409, "Only HTML pages take inline content; replace media through /files.");
 
@@ -444,7 +445,7 @@ router.patch("/:page_id", async (c) => {
   const user = await requireAuth(c);
   const { data, fields } = await parseBodyWithFields(c, PagePatch);
   const db = c.var.db;
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const updates: Partial<typeof fileAssets.$inferInsert> = {};
 
   if (fields.has("domain_id")) {
@@ -465,7 +466,9 @@ router.patch("/:page_id", async (c) => {
     updates.revokedAt = asset.revokedAt = data.enabled ? null : nowIso();
   }
   if (fields.has("html_sandbox") && data.html_sandbox != null) {
-    updates.htmlSandbox = asset.htmlSandbox = data.html_sandbox ? 1 : 0;
+    // Opt-in only (legacy pages): the sandbox guards viewers from the page owner, so the owner cannot lift it.
+    if (!data.html_sandbox) httpError(400, "The HTML sandbox cannot be turned off for a page.");
+    updates.htmlSandbox = asset.htmlSandbox = 1;
   }
   if (fields.has("access_code")) {
     const before = asset.accessCodeHash;
@@ -526,7 +529,7 @@ router.post("/:page_id/versions/:version_no/rollback", async (c) => {
   const settings = c.var.settings;
   const db = c.var.db;
   ensureStorage(settings);
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const target = await db
     .select()
     .from(fileVersions)

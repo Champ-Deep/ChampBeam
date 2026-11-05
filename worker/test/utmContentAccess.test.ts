@@ -138,17 +138,21 @@ describe("access control", () => {
     const bare = buildSettings({ ...(env as unknown as Env), STORAGE_UPLOAD_SECRET: "", CLERK_SECRET_KEY: "" } as Env);
     expect(bare.resolvedUploadSecret).toBe("");
     const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null };
-    await expect(ac.setAccessCode(bare, asset, "4821")).rejects.toMatchObject({ status: 503 });
+    await expect(ac.setAccessCode(bare, asset, "482100")).rejects.toMatchObject({ status: 503 });
     await expect(ac.verifyAccessCode(bare, { ...asset, accessCodeHash: "a".repeat(64) }, "4821")).rejects.toMatchObject({ status: 503 });
   });
 
   it("access codes: validate, hash, verify, cookie", async () => {
     const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null, shortCode: "pg1" };
-    await expect(ac.setAccessCode(settings, asset, "12a4")).rejects.toMatchObject({ status: 422, detail: "Access code must be 4–8 digits." });
-    const h = await ac.setAccessCode(settings, asset, " 4821 ");
+    await expect(ac.setAccessCode(settings, asset, "12a4")).rejects.toMatchObject({ status: 422, detail: "Access code must be 6 to 8 digits." });
+    await expect(ac.setAccessCode(settings, asset, "4821")).rejects.toMatchObject({ status: 422 }); // new codes need 6+ digits
+    const h = await ac.setAccessCode(settings, asset, " 482100 ");
     expect(h).toMatch(/^[0-9a-f]{64}$/);
-    expect(await ac.verifyAccessCode(settings, asset, "4821")).toBe(true);
-    expect(await ac.verifyAccessCode(settings, asset, "4822")).toBe(false);
+    expect(await ac.verifyAccessCode(settings, asset, "482100")).toBe(true);
+    expect(await ac.verifyAccessCode(settings, asset, "482101")).toBe(false);
+    // A legacy 4-digit code stored before the 6-digit minimum still verifies.
+    const legacy = { ...asset, accessCodeHash: await ac.hashAccessCode(settings, asset.id, "4821") };
+    expect(await ac.verifyAccessCode(settings, legacy, "4821")).toBe(true);
 
     const app = new Hono().get("/", async (c) => c.json({ ok: await ac.hasCodeCookie(c, asset) }));
     const val = await ac.codeCookieValue(asset);

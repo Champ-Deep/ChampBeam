@@ -22,7 +22,7 @@ async function publish(headers: Record<string, string>) {
 }
 
 describe("hosted HTML sandbox (D3)", () => {
-  it("sandboxes a page created after the flag, and the owner can opt out and back in", async () => {
+  it("sandboxes a page created after the flag, and the owner cannot opt out", async () => {
     const { headers } = await authedUser();
     const page = await publish(headers);
     expect(page.html_sandbox).toBe(true);
@@ -31,9 +31,10 @@ describe("hosted HTML sandbox (D3)", () => {
     expect(await csp(url)).toContain("frame-ancestors 'none'"); // existing policy is kept
 
     const off = await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { html_sandbox: false }, headers });
-    expect((await json(off)).html_sandbox).toBe(false);
-    expect(await csp(url)).not.toContain("sandbox");
-    await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { html_sandbox: true }, headers });
+    expect(off.status).toBe(400);
+    expect(await csp(url)).toMatch(SANDBOX);
+    // A row the old opt-out already set to 0 is sandboxed anyway.
+    await env.DB.prepare("UPDATE file_assets SET html_sandbox = 0 WHERE id = ?").bind(page.page_id).run();
     expect(await csp(url)).toMatch(SANDBOX);
   });
 

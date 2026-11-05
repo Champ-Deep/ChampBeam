@@ -110,8 +110,9 @@ function commonHeaders(c: Ctx, asset: FileAsset): Record<string, string> {
   };
   if (asset.kind === FILE_KIND_HTML) {
     // D3: opaque origin for hosted HTML (no allow-same-origin), so a hostile page cannot read gate
-    // cookies or call the API as the viewer. Legacy pages (null) are untouched.
-    const sandboxed = asset.htmlSandbox === 1 && c.var.settings.htmlSandbox;
+    // cookies or call the API as the viewer. Legacy pages (null) are untouched; a stored 0 (the old
+    // per-page opt-out) no longer lifts it: the owner is the party the sandbox protects viewers from.
+    const sandboxed = asset.htmlSandbox != null && c.var.settings.htmlSandbox;
     headers["Content-Security-Policy"] = HTML_CSP + (sandboxed ? "; " + HTML_SANDBOX : "");
   }
   return headers;

@@ -94,6 +94,20 @@ async function deleteOrganization(db: Db, clerkOrgId: string | null | undefined)
   await db.delete(organizations).where(eq(organizations.clerkOrgId, clerkOrgId));
 }
 
+/** Clerk's updated_at (ms) for the event, when present. */
+const eventTime = (data: Data): number | null => (typeof data.updated_at === "number" ? data.updated_at : null);
+
+/** True when a newer Clerk event was already applied to this membership (late, retried or out of order). */
+const isStale = (at: number | null, stored: number | null | undefined) => at != null && stored != null && at <= stored;
+
+async function stampEventTime(db: Db, organizationId: string, userId: string, at: number | null): Promise<void> {
+  if (at == null) return;
+  await db
+    .update(organizationMemberships)
+    .set({ clerkUpdatedAt: at })
+    .where(and(eq(organizationMemberships.organizationId, organizationId), eq(organizationMemberships.userId, userId)));
+}
+
 async function handleMembershipUpsert(db: Db, data: Data): Promise<void> {
   const orgData: Data = data.organization || {};
   const userData: Data = data.public_user_data || {};
@@ -109,12 +123,19 @@ async function handleMembershipUpsert(db: Db, data: Data): Promise<void> {
   // A created/updated event for the very membership Clerk already deleted is a retry or out-of-order
   // delivery: ignore it. A real re-add arrives as a NEW Clerk membership id and does lift the tombstone.
   const existing = await db
-    .select({ status: organizationMemberships.status, clerkMembershipId: organizationMemberships.clerkMembershipId })
+    .select({
+      status: organizationMemberships.status,
+      clerkMembershipId: organizationMemberships.clerkMembershipId,
+      clerkUpdatedAt: organizationMemberships.clerkUpdatedAt,
+    })
     .from(organizationMemberships)
     .where(and(eq(organizationMemberships.organizationId, org.id), eq(organizationMemberships.userId, user.id)))
     .get();
   if (existing?.status === MEMBERSHIP_REVOKED && data.id && existing.clerkMembershipId === data.id) return;
+  const at = eventTime(data);
+  if (isStale(at, existing?.clerkUpdatedAt)) return;
   await orgService.upsertMembership(db, org.id, user.id, orgService.normalizeRole(data.role), data.id ?? null);
+  await stampEventTime(db, org.id, user.id, at);
 }
 
 async function handleMembershipDeleted(db: Db, data: Data): Promise<void> {
@@ -124,7 +145,7 @@ async function handleMembershipDeleted(db: Db, data: Data): Promise<void> {
   const clerkUserId = userData.user_id;
   if (!(clerkOrgId && clerkUserId)) return;
   const row = await db
-    .select({ orgId: organizations.id, userId: users.id })
+    .select({ orgId: organizations.id, userId: users.id, clerkUpdatedAt: organizationMemberships.clerkUpdatedAt })
     .from(organizationMemberships)
     .innerJoin(organizations, eq(organizationMemberships.organizationId, organizations.id))
     .innerJoin(users, eq(organizationMemberships.userId, users.id))
@@ -132,12 +153,16 @@ async function handleMembershipDeleted(db: Db, data: Data): Promise<void> {
     .get();
   // Tombstone, not delete: a still-valid session token must not re-create it. If the delete arrives
   // before any create was mirrored, write the tombstone anyway so the late create cannot revive it.
+  const at = eventTime(data);
   if (row) {
+    if (isStale(at, row.clerkUpdatedAt)) return; // a later re-add already won
     await orgService.revokeMembership(db, row.orgId, row.userId, data.id ?? null);
+    await stampEventTime(db, row.orgId, row.userId, at);
     return;
   }
   const org = await orgService.upsertOrganization(db, clerkOrgId, { name: orgData.name, slug: orgData.slug });
   const user = await userService.getOrCreateByClerkId(db, clerkUserId);
   await orgService.upsertMembership(db, org.id, user.id, orgService.normalizeRole(data.role), data.id ?? null);
   await orgService.revokeMembership(db, org.id, user.id, data.id ?? null);
+  await stampEventTime(db, org.id, user.id, at);
 }

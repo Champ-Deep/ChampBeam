@@ -30,6 +30,20 @@ export function assertCanShare(u: Pick<TokenData, "orgId" | "orgRole" | "orgUuid
   if (u.orgUuid && !can(u as TokenData, "share.create")) httpError(403, "Your role cannot create shares in this organization.");
 }
 
+/**
+ * Editing an asset that already sits on an org domain needs the same authority as publishing there,
+ * so a removed or viewer-demoted owner cannot keep rewriting content on the org's verified host.
+ */
+export async function assertDomainEditable(
+  db: Db,
+  u: Pick<TokenData, "orgId" | "orgRole" | "orgUuid">,
+  domainId: string | null | undefined,
+): Promise<void> {
+  if (!domainId) return;
+  const d = await db.select({ org: domains.organizationId }).from(domains).where(eq(domains.id, domainId)).get();
+  if (d?.org && shareOrgUuid(u) !== d.org) httpError(403, "Only a current member who can share may edit content on this organization's domain.");
+}
+
 export async function findUsableDomain(
   db: Db,
   userId: string,
