@@ -59,6 +59,26 @@ with sync_playwright() as p:
             page.screenshot(path=str(OUT / "sign-in-375-errors.png"), full_page=True)
         ctx.close()
 
+    # Tab focus refetches the session (Better Auth rate limit 5 s); a guest's typed form must survive it.
+    for path in ("/sign-in", "/sign-up"):
+        for w in (375, 1440):
+            ctx = browser.new_context(viewport={"width": w, "height": 900})
+            page = ctx.new_page(); watch(page)
+            refetch = []
+            page.on("request", lambda r: "/get-session" in r.url and refetch.append(r.url))
+            page.goto(BASE + path, wait_until="networkidle")
+            page.get_by_label("Email").fill("half-typed@example.invalid")
+            n = len(refetch)
+            page.wait_for_timeout(6000)
+            page.evaluate("""() => { for (const v of ['hidden', 'visible']) {
+              Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+              document.dispatchEvent(new Event('visibilitychange')); } }""")
+            page.wait_for_timeout(1500)
+            check(f"{w}: {path} keeps the typed email after a focus refetch",
+                  len(refetch) > n and page.get_by_label("Email").input_value() == "half-typed@example.invalid",
+                  f"refetches={len(refetch) - n} value={page.get_by_label('Email').input_value()!r}")
+            ctx.close()
+
     # Sign up, org switch and back, sign out, sign in. Desktop rail at 1440.
     ctx = browser.new_context(viewport={"width": 1440, "height": 900}, device_scale_factor=2)
     page = ctx.new_page(); watch(page)

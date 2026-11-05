@@ -19,9 +19,9 @@ export function OrgSwitcher() {
   async function select(id: string | null) {
     if (id === orgId) return;
     setSwitchError('');
-    void navigate('/');
     const { error: err } = await authClient.organization.setActive({ organizationId: id });
     if (err) setSwitchError('Could not switch workspace. Try again.');
+    else void navigate('/');
   }
 
   return <div className="cb-org-switcher" ref={(el) => setDialog(el?.closest('dialog') ?? null)}>
