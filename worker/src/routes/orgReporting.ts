@@ -19,6 +19,7 @@ import { isoUtc, nowIso } from "../lib/time";
 import { parseJson, parseQuery, qStr } from "../lib/validate";
 import { availableDomains, defaultDomainFor, platformShareHost } from "../services/domains";
 import { getActiveMembershipRow, membershipIsAdmin, membershipIsLeader } from "../services/org";
+import { adoptExisting } from "../services/orgAdoption";
 import { activeGrants, reportScope, teamOf } from "../services/reporting";
 import { isPlaceholderEmail, orgForUser, pyUuid } from "./_org";
 
@@ -179,7 +180,30 @@ router.post("/domains/:domain_id/default", async (c) => {
     c.env.DB.prepare("UPDATE domains SET is_org_default = 0 WHERE organization_id = ?1 AND is_org_default = 1").bind(org.id),
     c.env.DB.prepare("UPDATE domains SET is_org_default = 1 WHERE id = ?1").bind(d!.id),
   ]);
-  return c.json(orgDomainResponse({ ...d!, isOrgDefault: true }));
+  // Old links and pages live in the platform bucket; an org domain serves only what is on it.
+  const adoption = await adoptExisting(c.env.DB, org.id, d!.id, { dryRun: false }).catch((e) => {
+    console.error("org adoption failed", e);
+    return null;
+  });
+  return c.json({ ...orgDomainResponse({ ...d!, isOrgDefault: true }), adoption });
+});
+
+/**
+ * Move the org's existing content onto this domain. dry_run defaults to true: an admin sees the
+ * counts and collisions first, then re-sends with dry_run=false. Only NULL domain_id rows move.
+ */
+router.post("/domains/:domain_id/adopt-existing", async (c) => {
+  const user = await requirePermission(c, "org.domains.manage");
+  const org = await orgForUser(c.var.db, user);
+  const body = await parseJson(c, z.object({ dry_run: z.boolean().default(true), before: z.string().datetime().nullish() }));
+  const d = await c.var.db
+    .select()
+    .from(domains)
+    .where(and(eq(domains.id, c.req.param("domain_id")), eq(domains.organizationId, org.id)))
+    .get();
+  if (!d) httpError(404, "Domain not found.");
+  if (d!.status !== DOMAIN_STATUS_ACTIVE) httpError(400, "Only a verified, active domain can adopt content.");
+  return c.json(await adoptExisting(c.env.DB, org.id, d!.id, { dryRun: body.dry_run, before: body.before }));
 });
 
 // ============================================================================

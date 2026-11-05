@@ -26,6 +26,10 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Cloudflare for SaaS: custom hostnames (share.lakeb2b.com ...) reach the Worker through this zone route.
+  // Top level only: staging and deepify inherit no routes. Provisioned by scripts/setup_saas.mjs.
+  "routes": [{ "pattern": "*/*", "zone_name": "champbeam.com" }],
+
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",

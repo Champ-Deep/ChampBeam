@@ -48,6 +48,14 @@ export interface GenerateLinkRequest {
 
 export type DomainStatus = 'pending_cname' | 'pending_ssl' | 'active' | 'failed';
 
+export interface DnsRecord {
+  type: string;
+  name: string;
+  value: string;
+  purpose: string;
+  dns_only?: boolean;
+}
+
 export interface Domain {
   id: string;
   hostname: string;
@@ -59,6 +67,8 @@ export interface Domain {
   verified_at: string | null;
   last_checked_at: string | null;
   cname_target: string | null;
+  /** Every record IT must add: the routing CNAME (dns_only) plus the ownership and certificate TXTs. */
+  dns_records?: DnsRecord[];
   cloudflare_managed: boolean;
   // Procurement metadata (null for bring-your-own-domain rows).
   procured: boolean;

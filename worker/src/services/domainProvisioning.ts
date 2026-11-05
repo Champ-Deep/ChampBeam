@@ -48,7 +48,8 @@ import {
   domains,
 } from "../db/schema";
 import { nowIso } from "../lib/time";
-import { CloudflareError, CloudflareNotConfigured, deriveStatus, getCustomHostname, type FetchFn } from "./cloudflare";
+import { adoptIfOrgDefault } from "./orgAdoption";
+import { CloudflareError, CloudflareNotConfigured, deriveStatus, getCustomHostname, txtRecords, type FetchFn } from "./cloudflare";
 
 export const MAX_PROVISION_ATTEMPTS = 3;
 /** Stop auto-polling DNS for domains the user abandoned (they can still Refresh). */
@@ -74,12 +75,14 @@ export type DomainStatusFields = Pick<
   | "lastCheckedAt"
   | "provisionRequestedAt"
   | "cfCustomHostnameId"
->;
+> & { cfDnsRecords?: DomainRow["cfDnsRecords"] };
 
 export interface ProvisionOptions {
   fetch?: FetchFn;
   verifyReachable?: (hostname: string) => Promise<boolean>;
   dnsPointsHere?: (hostname: string) => Promise<boolean>;
+  /** Called when a refresh moves a row to active (the org-domain adoption hook). */
+  onActive?: (domain: DomainRow) => Promise<unknown>;
 }
 
 function fetcher(opts?: ProvisionOptions): FetchFn {
@@ -233,6 +236,8 @@ export async function applyCfStatus(
   domain.sslStatus = sslStatus;
   domain.verificationErrors = newStatus !== DOMAIN_STATUS_FAILED ? null : { cf: result };
   domain.lastCheckedAt = nowIso();
+  const txt = txtRecords(result);
+  if (txt.length) domain.cfDnsRecords = txt; // CF drops them once active; keep the last seen
   if (newStatus === DOMAIN_STATUS_ACTIVE && domain.verifiedAt == null) domain.verifiedAt = nowIso();
 }
 
@@ -247,6 +252,7 @@ export async function persistDomainStatus(db: Db, domain: DomainStatusFields): P
       verifiedAt: domain.verifiedAt,
       lastCheckedAt: domain.lastCheckedAt,
       provisionRequestedAt: domain.provisionRequestedAt,
+      cfDnsRecords: domain.cfDnsRecords,
     })
     .where(eq(domains.id, domain.id));
 }
@@ -274,6 +280,7 @@ export async function refreshCloudflareDomains(settings: Settings, db: Db, opts?
     await persistDomainStatus(db, domain);
     if (domain.status !== previous) {
       console.log(`domain ${domain.hostname} advanced ${previous} -> ${domain.status}`);
+      if (domain.status === DOMAIN_STATUS_ACTIVE) await opts?.onActive?.(domain).catch((e) => console.error("onActive failed", e));
     }
   }
   return rows.length;
@@ -306,13 +313,16 @@ export async function sweepLocalDomains(settings: Settings, db: Db, opts?: Provi
  * doesn't starve the other.
  */
 export async function refreshPendingDomains(
-  _env: Env,
+  env: Env,
   settings: Settings,
   db: Db,
   opts?: ProvisionOptions,
 ): Promise<void> {
   try {
-    await refreshCloudflareDomains(settings, db, opts);
+    await refreshCloudflareDomains(settings, db, {
+      onActive: (d) => adoptIfOrgDefault(env.DB, d),
+      ...opts,
+    });
   } catch (err) {
     console.error("cloudflare domain refresh failed", err);
   }
