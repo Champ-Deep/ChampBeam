@@ -117,8 +117,8 @@ export const filesApi = {
   /**
    * Upload bytes to the target returned by initUpload.
    *
-   * Always uses a bare axios instance (not our `api` client) so the Clerk
-   * Authorization header is NEVER sent to the upload target, for S3 the
+   * Always uses a bare axios instance (not our `api` client) so no app
+   * Authorization header is ever sent to the upload target, for S3 the
    * presigned URL self-authenticates; for the local backend the upload is
    * authorized by the signed token in the URL.
    */

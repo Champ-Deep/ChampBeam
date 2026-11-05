@@ -19,10 +19,9 @@ test.describe('app smoke (public)', () => {
     // an ever-changing redirect chain).
     await page.waitForTimeout(2500);
     expect(page.url()).toBe(settled);
-    // A Clerk sign-in surface is actually rendered (not a blank page).
-    await expect(
-      page.locator('input[name="identifier"], input[type="email"], form')
-    ).toBeVisible({ timeout: 10_000 });
+    // The sign-in form is actually rendered (not a blank page).
+    await expect(page.getByLabel('Email')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByLabel('Password')).toBeVisible();
   });
 
   test('LOGIN-2 landing loads with no uncaught console errors', async ({ page }) => {
@@ -35,7 +34,7 @@ test.describe('app smoke (public)', () => {
     await expect(page.locator('body')).toBeVisible();
     // Ignore benign 3rd-party noise; fail on app/runtime errors.
     const appErrors = errors.filter(
-      (e) => !/clerk|analytics|favicon|net::ERR|Failed to load resource/i.test(e)
+      (e) => !/analytics|favicon|net::ERR|Failed to load resource/i.test(e)
     );
     expect(appErrors, appErrors.join('\n')).toHaveLength(0);
   });

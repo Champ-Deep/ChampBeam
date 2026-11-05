@@ -11,12 +11,14 @@ import { useOrgContext } from '../hooks/useOrgContext';
 import { orgApi, type Profile } from '../api/org';
 import { ConfirmProvider } from './ui/ConfirmDialog';
 
-const fixture = vi.hoisted(() => ({ orgId: 'org-a', imageUrl: '/bad-avatar', openUserProfile: vi.fn(), signOut: vi.fn(), getToken: vi.fn(async () => 'fixture-token') }));
-vi.mock('@clerk/react', () => ({
-  useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: 'clerk-user', orgId: fixture.orgId, orgSlug: fixture.orgId, orgRole: 'org:admin', getToken: fixture.getToken }),
-  useUser: () => ({ isLoaded: true, user: { fullName: 'Fixture Member', imageUrl: fixture.imageUrl } }),
-  useClerk: () => ({ openUserProfile: fixture.openUserProfile, signOut: fixture.signOut }),
-  OrganizationSwitcher: () => null,
+const fixture = vi.hoisted(() => ({ orgId: 'org-a' as string | null, image: '/bad-avatar', signOut: vi.fn(), setActive: vi.fn() }));
+vi.mock('../lib/authClient', () => ({
+  useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: 'auth-user', orgId: fixture.orgId, user: { id: 'auth-user', name: 'Fixture Member', email: 'fixture@example.invalid', image: fixture.image } }),
+  authClient: {
+    signOut: fixture.signOut,
+    useListOrganizations: () => ({ data: [{ id: 'org-a', name: 'Fixture workspace' }, { id: 'org-b', name: 'Second workspace' }], isPending: false, error: null }),
+    organization: { setActive: fixture.setActive },
+  },
 }));
 vi.mock('../api/org', () => ({ orgApi: { profile: vi.fn(), reporting: vi.fn(), domains: vi.fn(), listMembers: vi.fn(), viewers: vi.fn(), attachDomain: vi.fn() } }));
 vi.mock('../api/utm', () => ({ utmApi: { listDomains: vi.fn(async () => []) } }));
@@ -28,13 +30,14 @@ function mount(ui: React.ReactNode) {
   return { ...result, client };
 }
 beforeEach(() => {
-  vi.clearAllMocks(); fixture.orgId = 'org-a'; fixture.imageUrl = '/bad-avatar';
+  vi.clearAllMocks(); fixture.orgId = 'org-a'; fixture.image = '/bad-avatar';
   vi.mocked(orgApi.profile).mockResolvedValue(profile);
   vi.mocked(orgApi.reporting).mockResolvedValue(report);
   vi.mocked(orgApi.domains).mockResolvedValue([]);
   vi.mocked(orgApi.listMembers).mockResolvedValue([]);
   vi.mocked(orgApi.viewers).mockResolvedValue([]);
-  fixture.signOut.mockResolvedValue(undefined);
+  fixture.signOut.mockResolvedValue({ data: { success: true }, error: null });
+  fixture.setActive.mockResolvedValue({ data: {}, error: null });
 });
 afterEach(cleanup);
 
@@ -44,7 +47,7 @@ describe('account and scoped reporting', () => {
     vi.mocked(orgApi.profile).mockReturnValue(new Promise((done) => { resolve = done; }));
     const { container } = mount(<AccountFooter />);
     expect(screen.getByText('Fixture Member')).toBeVisible();
-    expect(screen.getByText('org-a')).toBeVisible();
+    expect(screen.getByText('Organization workspace')).toBeVisible();
     expect(screen.getByRole('status')).toHaveTextContent('Loading workspace profile');
     const image = container.querySelector('img');
     if (!image) throw new Error('Avatar image missing');
@@ -66,17 +69,28 @@ describe('account and scoped reporting', () => {
   });
 
   it('offers account actions and shows sign-out failure', async () => {
-    fixture.signOut.mockRejectedValue(new Error('offline'));
-    const { container } = mount(<AccountFooter />);
+    fixture.signOut.mockResolvedValue({ data: null, error: { status: 500 } });
+    mount(<AccountFooter />);
     await screen.findByText('Role: viewer');
-    const summary = container.querySelector('summary');
-    if (!summary) throw new Error('Account menu missing');
-    fireEvent.click(summary);
-    fireEvent.click(screen.getByRole('button', { name: 'Manage account' }));
-    expect(fixture.openUserProfile).toHaveBeenCalledOnce();
-    expect(screen.getByRole('link', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: /Account menu for Fixture Member/ }), { key: 'Enter' });
+    expect(await screen.findByText('fixture@example.invalid')).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out' }));
+    expect(fixture.signOut).toHaveBeenCalledOnce();
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign out failed');
+  });
+
+  it('lists Personal first, checks the active workspace and switches through the session', async () => {
+    mount(<AccountFooter />);
+    await screen.findByText('Role: viewer');
+    fireEvent.keyDown(screen.getByRole('button', { name: /Switch workspace/ }), { key: 'Enter' });
+    const items = await screen.findAllByRole('menuitem');
+    expect(items.map((i) => i.textContent)).toEqual(['Personal', 'Fixture workspace', 'Second workspace']);
+    expect(items[1]).toHaveAttribute('aria-current', 'true');
+    expect(items[1]?.querySelector('[aria-label="Active"]')).not.toBeNull();
+    expect(items[0]?.querySelector('[aria-label="Active"]')).toBeNull();
+    fireEvent.click(items[0] as HTMLElement);
+    await waitFor(() => expect(fixture.setActive).toHaveBeenCalledWith({ organizationId: null }));
   });
 
   it('fails closed if a cached administrator profile fails revalidation', async () => {
@@ -89,7 +103,7 @@ describe('account and scoped reporting', () => {
     expect(await screen.findByText('denied')).toBeVisible();
   });
 
-  it('uses server scope, not admin-like Clerk role, and separates share and send counts', async () => {
+  it('uses server scope, not an admin-like session role, and separates share and send counts', async () => {
     mount(<><ReportingSummary /><OrganizationSettings /></>);
     await screen.findByText(/Email sends: not measured/);
     expect(screen.getByText('4')).toBeVisible();

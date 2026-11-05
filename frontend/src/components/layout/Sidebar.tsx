@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { UserButton, useAuth } from '@clerk/react';
+import { useAuth } from '../../lib/authClient';
 import { AccountFooter } from '../AccountFooter';
 import { AssistantLauncher } from '../AssistantDrawer';
 import { useShareLists } from '../../hooks/useShareLists';
@@ -206,7 +206,6 @@ export function Sidebar() {
           <Logo tone="dark" size={30} />
         </Link>
         <div className="flex items-center gap-2">
-          <UserButton />
           <button
             onClick={() => setMobileOpen(true)}
             className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white"
