@@ -193,6 +193,14 @@ describe("access control", () => {
     expect(out.at(-1)).toBe(true);
   });
 
+  it("codeAttemptLimited: one source hammering a page cannot lock it for everyone else", async () => {
+    await awayFromWindowEdge();
+    const page = crypto.randomUUID();
+    for (let i = 0; i < ac.CODE_PAGE_ATTEMPTS_PER_WINDOW + 10; i++) await ac.codeAttemptLimited(env.DB, "203.0.113.9", page);
+    expect(await ac.codeAttemptLimited(env.DB, "203.0.113.9", page)).toBe(true);
+    expect(await ac.codeAttemptLimited(env.DB, "198.51.100.20", page)).toBe(false); // a new visitor still gets in
+  });
+
   it("captureLead stores a trimmed email", async () => {
     const user = await createUser();
     const link = await utm.recordLink(db(), { userId: user.id, originalUrl: "https://l.com", trackedUrl: "https://l.com", utmParams: {} });

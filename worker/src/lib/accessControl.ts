@@ -206,11 +206,13 @@ export function ipBucket(ip: string | null): string {
 
 /**
  * True when this source (or the page as a whole) has exhausted its attempts (fails closed: a counter error refuses the attempt).
- * The page-wide ceiling lets an attacker lock the gate for one window: the accepted trade for a guessable code.
+ * A source already over its own limit does not spend the page-wide budget, so locking the gate for
+ * everyone takes CODE_PAGE_ATTEMPTS_PER_WINDOW / CODE_ATTEMPTS_PER_WINDOW distinct sources, not one.
  */
 export async function codeAttemptLimited(d1: D1Database, ip: string | null, pageId: string): Promise<boolean> {
   const window = windowIndex(CODE_WINDOW_SECONDS);
   const perIp = await incrWithTtl(d1, `code_rl:${pageId}:${ipBucket(ip)}:${window}`, CODE_WINDOW_SECONDS);
+  if (perIp === null || perIp > CODE_ATTEMPTS_PER_WINDOW) return true;
   const perPage = await incrWithTtl(d1, `code_rl_page:${pageId}:${window}`, CODE_WINDOW_SECONDS);
-  return perIp === null || perIp > CODE_ATTEMPTS_PER_WINDOW || perPage === null || perPage > CODE_PAGE_ATTEMPTS_PER_WINDOW;
+  return perPage === null || perPage > CODE_PAGE_ATTEMPTS_PER_WINDOW;
 }
