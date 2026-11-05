@@ -144,11 +144,17 @@ export async function resolveActiveMembership(
 }
 
 /** Tombstone a membership and end the member's reporting grants (Clerk removed them). */
-export async function revokeMembership(db: Db, organizationId: string, userId: string): Promise<void> {
+export async function revokeMembership(
+  db: Db,
+  organizationId: string,
+  userId: string,
+  clerkMembershipId?: string | null,
+): Promise<void> {
   const now = nowIso();
   await db
     .update(organizationMemberships)
-    .set({ status: MEMBERSHIP_REVOKED, revokedAt: now, updatedAt: now })
+    // Remember WHICH Clerk membership was deleted: a late or replayed event for it must not lift the tombstone.
+    .set({ status: MEMBERSHIP_REVOKED, revokedAt: now, updatedAt: now, ...(clerkMembershipId ? { clerkMembershipId } : {}) })
     .where(and(eq(organizationMemberships.organizationId, organizationId), eq(organizationMemberships.userId, userId)));
   await db
     .update(reportingGrants)

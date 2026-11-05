@@ -12,7 +12,7 @@ import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import type { AppEnv } from "../env";
 import type { Db } from "../db/client";
-import { organizationMemberships, organizations, users } from "../db/schema";
+import { MEMBERSHIP_REVOKED, organizationMemberships, organizations, users } from "../db/schema";
 import { httpError } from "../lib/errors";
 import * as clerk from "../services/clerk";
 import * as orgService from "../services/org";
@@ -106,6 +106,14 @@ async function handleMembershipUpsert(db: Db, data: Data): Promise<void> {
   const email = userData.identifier ?? null;
   const name = [userData.first_name, userData.last_name].filter((p) => p).join(" ").trim() || null;
   await userService.applyIdentity(db, user, { email, fullName: name });
+  // A created/updated event for the very membership Clerk already deleted is a retry or out-of-order
+  // delivery: ignore it. A real re-add arrives as a NEW Clerk membership id and does lift the tombstone.
+  const existing = await db
+    .select({ status: organizationMemberships.status, clerkMembershipId: organizationMemberships.clerkMembershipId })
+    .from(organizationMemberships)
+    .where(and(eq(organizationMemberships.organizationId, org.id), eq(organizationMemberships.userId, user.id)))
+    .get();
+  if (existing?.status === MEMBERSHIP_REVOKED && data.id && existing.clerkMembershipId === data.id) return;
   await orgService.upsertMembership(db, org.id, user.id, orgService.normalizeRole(data.role), data.id ?? null);
 }
 
@@ -122,6 +130,14 @@ async function handleMembershipDeleted(db: Db, data: Data): Promise<void> {
     .innerJoin(users, eq(organizationMemberships.userId, users.id))
     .where(and(eq(organizations.clerkOrgId, clerkOrgId), eq(users.clerkId, clerkUserId)))
     .get();
-  // Tombstone, not delete: a still-valid session token must not re-create it.
-  if (row) await orgService.revokeMembership(db, row.orgId, row.userId);
+  // Tombstone, not delete: a still-valid session token must not re-create it. If the delete arrives
+  // before any create was mirrored, write the tombstone anyway so the late create cannot revive it.
+  if (row) {
+    await orgService.revokeMembership(db, row.orgId, row.userId, data.id ?? null);
+    return;
+  }
+  const org = await orgService.upsertOrganization(db, clerkOrgId, { name: orgData.name, slug: orgData.slug });
+  const user = await userService.getOrCreateByClerkId(db, clerkUserId);
+  await orgService.upsertMembership(db, org.id, user.id, orgService.normalizeRole(data.role), data.id ?? null);
+  await orgService.revokeMembership(db, org.id, user.id, data.id ?? null);
 }
