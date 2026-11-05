@@ -60,6 +60,15 @@ describe("journeys", () => {
     expect(j.forwarded).toBe(false);
   });
 
+  it("a city change inside 30 minutes starts a new touch", async () => {
+    const u = await authedUser();
+    const link = await seedLink(u.user.id, code());
+    await click({ link }, { ...BLR, clicked_at: at(0) });
+    await click({ link }, { ...NYC, clicked_at: at(5) });
+    const j = (await json(await one(`?asset_type=link&asset_id=${link}`, u.headers))).journeys[0];
+    expect(j.touches.map((t: any) => t.city)).toEqual(["Bengaluru", "New York"]);
+  });
+
   it("drops scanner (bot) clicks and sums dwell onto the touch", async () => {
     const u = await authedUser();
     const file = await seedFile(u.user.id);
@@ -115,5 +124,20 @@ describe("journeys", () => {
     expect((await one(`?asset_type=link&asset_id=${l1}`, stranger.headers)).status).toBe(404);
     const viewer = await member(t.org, "viewer");
     expect((await api("/api/v1/analytics/journeys/top", { headers: viewer.headers })).status).toBe(403);
+  });
+
+  it("a leader does not see a rep's personal link, the rep still does", async () => {
+    const t = await seedTeam();
+    const org = (await env.DB.prepare("SELECT id FROM organizations WHERE clerk_org_id = ?").bind(t.org).first<{ id: string }>())!.id;
+    const inOrg = await seedLink(t.rep1.userId, code(), { organization_id: org });
+    const personal = await seedLink(t.rep1.userId, code());
+    await click({ link: inOrg }, { visitor_id: "in-org", ...BLR });
+    await click({ link: personal }, { visitor_id: "personal", ...NYC });
+    const ids = async (who: { headers: Record<string, string> }) =>
+      (await json(await api("/api/v1/analytics/journeys/top", { headers: who.headers }))).journeys.map((x: any) => x.visitor_id).sort();
+    expect(await ids(t.leader)).toEqual(["in-org"]);
+    expect((await one(`?asset_type=link&asset_id=${personal}`, t.leader.headers)).status).toBe(404);
+    expect((await one(`?asset_type=link&asset_id=${inOrg}`, t.leader.headers)).status).toBe(200);
+    expect((await one(`?asset_type=link&asset_id=${personal}`, t.rep1.headers)).status).toBe(200);
   });
 });

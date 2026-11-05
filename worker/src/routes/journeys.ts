@@ -36,7 +36,11 @@ async function assetScope(c: Ctx, user: TokenData) {
   if (scope.userIds === null) {
     return { sql: (a: string) => `(${a}.organization_id = ? OR ${a}.user_id = ?)`, params: [user.orgUuid!, user.userId] as Param[] };
   }
-  return { sql: (a: string) => `${a}.user_id IN (SELECT value FROM json_each(?))`, params: [JSON.stringify([...scope.userIds])] as Param[] };
+  // reportScope says WHO, not which assets: team members' assets count only inside the active org; the caller's own anywhere.
+  return {
+    sql: (a: string) => `(${a}.user_id = ? OR (${a}.organization_id = ? AND ${a}.user_id IN (SELECT value FROM json_each(?))))`,
+    params: [user.userId, user.orgUuid ?? null, JSON.stringify([...scope.userIds])] as Param[],
+  };
 }
 
 const FROM = `click_events ce LEFT JOIN link_clicks lc ON lc.id = ce.link_id LEFT JOIN file_assets fa ON fa.id = ce.file_id`;
@@ -78,7 +82,8 @@ async function buildJourneys(c: Ctx, scope: Awaited<ReturnType<typeof assetScope
     const id = e.link_id ?? e.file_id;
     const key = `${type}:${id}`;
     const last = j.ts.at(-1);
-    if (last && last.key === key && ms - last.lastMs <= COLLAPSE_MS) {
+    // A city change breaks the collapse so every map point is a touch.
+    if (last && last.key === key && ms - last.lastMs <= COLLAPSE_MS && last.touch.city === (e.city ?? null)) {
       last.lastMs = ms;
       (last.touch.count as number)++;
       if (e.is_vpn) last.touch.is_vpn = true;

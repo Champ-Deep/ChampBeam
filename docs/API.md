@@ -108,9 +108,9 @@ Every touch one visitor made across your links and files, oldest first, with loc
 }
 ```
 
-- Scope follows the org permission map: `report.own` sees your own assets, a leader or team grant sees the team, `report.org` sees the active org. Another user's asset returns `404`; a seat with no reporting access returns `403` on `/top`. `limit` is 1 to 100, `days` 1 to 365.
+- Scope follows the org permission map: `report.own` sees your own assets, a leader or team grant sees the team's assets in the active org, `report.org` sees the active org. Another user's asset returns `404`; a seat with no reporting access returns `403` on `/top`. `limit` is 1 to 100, `days` 1 to 365.
 - Scanner clicks (device type `bot`, the rule `company-intent` already uses) are never counted.
-- Consecutive touches on the same asset with gaps of 30 minutes or less collapse into one touch; `count` is how many. `forwarded` means two or more distinct cities. `touches` ranking in `/top` counts raw clicks.
+- Consecutive touches on the same asset with gaps of 30 minutes or less and the same city collapse into one touch; `count` is how many. `forwarded` means two or more distinct cities. `touches` ranking in `/top` counts raw clicks.
 - `dwell_ms` is the sum of page engagement time on that file, attached to the touch it followed; `null` for links and files with no engagement.
 - Clicks without a visitor id cannot form a journey and are left out; their number is `meta.unattributed`. IP address and user agent are never returned.
 
