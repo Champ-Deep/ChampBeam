@@ -14,7 +14,7 @@ import { HTTPError } from "../src/lib/errors";
 import * as content from "../src/services/content";
 import * as project from "../src/services/project";
 import * as utm from "../src/services/utm";
-import { createOrg, createUser } from "./helpers";
+import { createOrg, createUser, awayFromWindowEdge } from "./helpers";
 
 const db = () => getDb(env.DB);
 const settings = buildSettings(env as unknown as Env);
@@ -180,6 +180,7 @@ describe("access control", () => {
   });
 
   it("codeAttemptLimited: IPv6 counts per /64, and a page-wide ceiling stops address rotation", async () => {
+    await awayFromWindowEdge();
     const page = crypto.randomUUID();
     for (let i = 0; i < 5; i++) expect(await ac.codeAttemptLimited(env.DB, `2001:db8:1:2::${i + 1}`, page)).toBe(false);
     expect(await ac.codeAttemptLimited(env.DB, "2001:0db8:0001:0002:ffff::9", page)).toBe(true); // same /64

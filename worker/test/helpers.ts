@@ -16,6 +16,12 @@ import clerkKey from "./fixtures/clerk-test-key.json" with { type: "json" };
 
 export const BASE = "https://share.example.com";
 
+/** Rate-limit tests count inside one fixed window: wait out a boundary that is about to pass. */
+export async function awayFromWindowEdge(windowSeconds = 600, marginMs = 20_000): Promise<void> {
+  const toEdge = windowSeconds * 1000 - (Date.now() % (windowSeconds * 1000));
+  if (toEdge < marginMs) await new Promise((r) => setTimeout(r, toEdge + 250));
+}
+
 export async function api(path: string, init: RequestInit & { json?: unknown } = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   let body = init.body;

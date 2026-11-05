@@ -6,7 +6,7 @@
  * plus streaming/Range coverage.
  */
 import { describe, expect, it } from "vitest";
-import { api, env } from "./helpers";
+import { api, env, awayFromWindowEdge } from "./helpers";
 import { PAGE_EVENTS_PER_WINDOW } from "../src/routes/filesServe";
 import { code, eventually, form, iso, Jar, newUser, row, rows, seedDomain, seedFile, setSettings } from "./serveSeed";
 
@@ -272,6 +272,7 @@ describe("page-events beacon bounds", () => {
   it("caps reports per source per window", async () => {
     const uid = await newUser();
     const f = await seedFile(uid, { body: "x" });
+    await awayFromWindowEdge(); // the cap is per fixed 10-minute window
     for (let i = 0; i < PAGE_EVENTS_PER_WINDOW + 5; i++) await beacon(f.shortCode);
     expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW);
     await beacon(f.shortCode, "8.8.8.8");

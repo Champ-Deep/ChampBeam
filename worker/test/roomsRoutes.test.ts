@@ -6,7 +6,7 @@
  * self-ranking engagement score.
  */
 import { describe, expect, it } from "vitest";
-import { api, env, json } from "./helpers";
+import { api, env, json, awayFromWindowEdge } from "./helpers";
 import { member, newOrgId, useRouteTestHooks } from "./orgTestUtils";
 import { TRACK_EVENTS_PER_WINDOW, TRACK_PAYLOAD_MAX_CHARS } from "../src/routes/rooms";
 
@@ -192,6 +192,7 @@ describe("briefing rooms", () => {
     await post(`/api/v1/rooms/${room.id}/publish`, m.headers);
     const big = await post("/api/v1/rooms/track", {}, { slug: room.slug, type: "page_view", session_id: "s", payload: { x: "a".repeat(TRACK_PAYLOAD_MAX_CHARS) } });
     expect(big.status).toBe(413);
+    await awayFromWindowEdge();
     const ip = { "CF-Connecting-IP": "198.51.100.7" };
     const codes: number[] = [];
     for (let i = 0; i <= TRACK_EVENTS_PER_WINDOW; i++) codes.push((await post("/api/v1/rooms/track", ip, { slug: room.slug, type: "page_view", session_id: "s" })).status);
