@@ -6,6 +6,13 @@ import type { Ctx } from "../env";
 import { httpError } from "../lib/errors";
 import { requestOrigin } from "../lib/request";
 
+/**
+ * The one "real click" rule: email security scanners and link unfurlers are
+ * typed `bot` at insert time (services/ua.ts), so every attribution read drops
+ * them with this predicate (alias `ce`). Do not write a second filter.
+ */
+export const REAL_CLICK = "COALESCE(ce.device_type, '') != 'bot'";
+
 /** Canonical lowercase hyphenated UUID, or null when `v` is not a UUID (`_to_uuid`). */
 export function normUuid(v: string | null | undefined): string | null {
   if (!v) return null;
