@@ -263,3 +263,24 @@ describe("favicon", () => {
 });
 
 void env;
+
+describe("email-gate lead capture", () => {
+  it("records a lead only for a live email-gated target, at most 10 per source per window", async () => {
+    const uid = await newUser();
+    const leads = async (linkId: string) => (await rows("SELECT id FROM access_leads WHERE link_id = ?", linkId)).length;
+    const open = code();
+    const ungated = await seedLink(uid, open);
+    expect((await api(`/r/${open}/unlock`, form({ email: "spam@corp.com" }))).status).toBe(303);
+    expect(await leads(ungated)).toBe(0);
+
+    const g = code();
+    const gated = await seedLink(uid, g, { require_email: true });
+    for (let i = 0; i < 12; i++) await api(`/r/${g}/unlock`, form({ email: `v${i}@corp.com` }));
+    expect(await leads(gated)).toBe(10);
+
+    const r = code();
+    const revoked = await seedLink(uid, r, { require_email: true, revoked_at: iso() });
+    await api(`/r/${r}/unlock`, form({ email: "x@corp.com" }));
+    expect(await leads(revoked)).toBe(0);
+  });
+});

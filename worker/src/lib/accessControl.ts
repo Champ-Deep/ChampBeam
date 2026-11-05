@@ -87,6 +87,24 @@ export async function isVpnIp(deps: GeoDeps, ip: string | null, opts: { cf?: CfG
   }
 }
 
+export const LEADS_PER_WINDOW = 10;
+
+/**
+ * Whether an email-gate submit may record a lead: only for a live target that actually gates on email,
+ * and at most LEADS_PER_WINDOW per target and source per window (fails open on a counter error).
+ */
+export async function leadCaptureAllowed(
+  d1: D1Database,
+  target: { id: string; requireEmail: boolean | null; revokedAt: string | null; expiresAt: string | null },
+  ip: string | null,
+): Promise<boolean> {
+  if (!target.requireEmail || target.revokedAt) return false;
+  const exp = target.expiresAt ? Date.parse(target.expiresAt) : NaN;
+  if (!Number.isNaN(exp) && exp < Date.now()) return false;
+  const n = await incrWithTtl(d1, `lead_rl:${target.id}:${ipBucket(ip)}:${windowIndex(CODE_WINDOW_SECONDS)}`, CODE_WINDOW_SECONDS);
+  return n === null || n <= LEADS_PER_WINDOW;
+}
+
 /** Store an email captured at the gate. */
 export async function captureLead(
   db: Db,

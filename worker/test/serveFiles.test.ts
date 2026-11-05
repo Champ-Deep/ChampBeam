@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { api, env } from "./helpers";
+import { PAGE_EVENTS_PER_WINDOW } from "../src/routes/filesServe";
 import { code, eventually, form, iso, Jar, newUser, row, rows, seedDomain, seedFile, setSettings } from "./serveSeed";
 
 const json = (body: unknown, headers: Record<string, string> = {}) => ({
@@ -250,5 +251,30 @@ describe("page engagement ingest (test_page_engagement.py)", () => {
     const events = Array.from({ length: 1000 }, (_, i) => ({ page: i, dwell_ms: 10 }));
     expect((await api(`/f/${f.shortCode}/page-events`, json({ session_id: "big", events }))).status).toBe(204);
     expect((await row("SELECT COUNT(*) AS n FROM page_engagements WHERE session_id = 'big'"))!.n).toBe(1000);
+  });
+});
+
+describe("page-events beacon bounds", () => {
+  const beacon = (sc: string, ip = "7.7.7.7") =>
+    api(`/f/${sc}/page-events`, { method: "POST", json: { session_id: "s1", events: [{ page: 1, dwell_ms: 10 }] }, headers: { "CF-Connecting-IP": ip } });
+  const count = async (id: string) => (await rows("SELECT id FROM page_engagements WHERE file_id = ?", id)).length;
+
+  it("writes nothing for a revoked or expired asset", async () => {
+    const uid = await newUser();
+    const rev = await seedFile(uid, { body: "x", revoked_at: iso() });
+    const exp = await seedFile(uid, { body: "x", expires_at: new Date(Date.now() - 60_000).toISOString() });
+    expect((await beacon(rev.shortCode)).status).toBe(204);
+    expect((await beacon(exp.shortCode)).status).toBe(204);
+    expect(await count(rev.id)).toBe(0);
+    expect(await count(exp.id)).toBe(0);
+  });
+
+  it("caps reports per source per window", async () => {
+    const uid = await newUser();
+    const f = await seedFile(uid, { body: "x" });
+    for (let i = 0; i < PAGE_EVENTS_PER_WINDOW + 5; i++) await beacon(f.shortCode);
+    expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW);
+    await beacon(f.shortCode, "8.8.8.8");
+    expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW + 1);
   });
 });

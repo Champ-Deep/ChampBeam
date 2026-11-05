@@ -23,6 +23,8 @@ import {
 } from "../db/schema";
 import {
   captureLead,
+  ipBucket,
+  leadCaptureAllowed,
   clientIp,
   codeAttemptLimited,
   codeCookieName,
@@ -41,6 +43,7 @@ import { cfGeo, getCookie, requestHost } from "../lib/request";
 import { schemeFor } from "../services/content";
 import { StorageError, StorageNotConfigured, backendIsS3, generatePresignedGet, getObject } from "../lib/storage";
 import { diffSeconds, nowIso, parseIso } from "../lib/time";
+import { incrWithTtl, windowIndex } from "../lib/ratelimit";
 import { parseJson } from "../lib/validate";
 import { type Domain, type FileAsset, lookupAsset, resolveHost } from "../services/assetLookup";
 import { expireAsset } from "../services/fileExpiry";
@@ -380,6 +383,10 @@ router.get("/:slug", (c, next) => serveRootSlug(c, next, c.req.param("slug").tri
 // 15 s, so anything larger is a stalled tab or a forged payload.
 const MAX_DWELL_PER_REPORT_MS = 60_000;
 
+// shortcut: a fixed per-source cap; a viewer reports on page turns and unload, far below this.
+export const PAGE_EVENTS_PER_WINDOW = 60;
+const PAGE_EVENTS_WINDOW_S = 600;
+
 const PageEventsRequest = z.object({
   session_id: z.string().min(1).max(64),
   visitor_id: z.string().max(32).nullish(),
@@ -409,6 +416,11 @@ router.post("/f/:short_code/page-events", async (c) => {
   const ip = clientIp(c);
   // Public, unauthenticated, up to 1000 rows a call: cap per visitor IP so it cannot flood D1.
   await enforceLimit(c.env.DB, `pev:${asset.id}:${ip || "-"}`, 60, 60, "Too many page events.");
+  // Only a servable asset collects dwell, and one source may report a bounded number of times per window.
+  const exp = parseIso(asset.expiresAt);
+  if (asset.revokedAt || (exp && exp.getTime() < Date.now())) return new Response(null, { status: 204 });
+  const reports = await incrWithTtl(c.env.DB, `pe_rl:${asset.id}:${ipBucket(ip)}:${windowIndex(PAGE_EVENTS_WINDOW_S)}`, PAGE_EVENTS_WINDOW_S);
+  if (reports !== null && reports > PAGE_EVENTS_PER_WINDOW) return new Response(null, { status: 204 });
   const sid = data.session_id.slice(0, 64);
   // Trust the cookie over the body; fall back to the body for beacons sent
   // without credentials.
@@ -449,7 +461,7 @@ router.post("/f/:short_code/unlock", async (c) => {
     return emailGatePage({ action: `/f/${shortCode}/unlock`, brand, error: true });
   }
 
-  await captureLead(db, email, { ip: clientIp(c), fileId: asset.id });
+  if (await leadCaptureAllowed(c.env.DB, asset, clientIp(c))) await captureLead(db, email, { ip: clientIp(c), fileId: asset.id });
 
   const resp = redirectResponse(`/f/${shortCode}`, 303);
   resp.headers.append(

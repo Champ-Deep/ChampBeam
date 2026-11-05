@@ -33,8 +33,10 @@ router.put("/profile", async (c) => {
   const dbUser = await userService.getById(db, user.userId);
   if (!dbUser) httpError(404, "User not found");
   const patch: Partial<userService.User> = { updatedAt: nowIso() };
+  // Email comes from Clerk (verified), never from the caller: users.email is an identity key (the
+  // X-Service-Key principal is looked up by it), so a self-asserted value could claim another identity.
+  if (body.email != null && body.email !== dbUser!.email) httpError(400, "Email is managed by your sign-in provider.");
   if (body.full_name != null) patch.fullName = body.full_name;
-  if (body.email != null) patch.email = body.email;
   await db.update(users).set(patch).where(eq(users.id, dbUser!.id));
   return c.json(userResponse({ ...dbUser!, ...patch }));
 });

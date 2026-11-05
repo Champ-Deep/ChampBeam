@@ -78,6 +78,16 @@ describe("auth", () => {
     expect((await api("/api/v1/auth/me", { headers: bearer(token) })).status).toBe(401);
   });
 
+  it("PUT /auth/profile cannot self-assert an email (e.g. claim the service+<name> identity); name still updates", async () => {
+    const { user, headers } = await authedUser();
+    const bad = await api("/api/v1/auth/profile", { method: "PUT", json: { email: "service+composer@championsmail.com" }, headers });
+    expect(bad.status).toBe(400);
+    const ok = await api("/api/v1/auth/profile", { method: "PUT", json: { full_name: "Ada", email: user.email }, headers });
+    expect(ok.status).toBe(200);
+    const row = await env.DB.prepare("SELECT email, full_name FROM users WHERE id = ?").bind(user.id).first();
+    expect(row).toEqual({ email: user.email, full_name: "Ada" });
+  });
+
   it("a tampered or expired JWT is a 401", async () => {
     const token = await clerkToken({ sub: "user_jwt2" });
     const tampered = token.slice(0, -4) + (token.endsWith("AAAA") ? "BBBB" : "AAAA");

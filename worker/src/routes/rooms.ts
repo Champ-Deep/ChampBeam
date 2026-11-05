@@ -16,7 +16,8 @@ import type { AppEnv } from "../env";
 import { requireOrgMember, requirePermission } from "../auth/security";
 import type { Db } from "../db/client";
 import { ROOM_ARCHIVED, ROOM_PUBLISHED, roomEvents, roomLinks, roomRecipients, rooms } from "../db/schema";
-import { clientIp } from "../lib/accessControl";
+import { clientIp, ipBucket } from "../lib/accessControl";
+import { enforceLimit } from "../lib/ratelimit";
 import { httpError } from "../lib/errors";
 import { cfGeo } from "../lib/request";
 import { isoUtc, nowIso } from "../lib/time";
@@ -67,6 +68,9 @@ const RecipientCreate = z.object({
   email: z.string().max(320).nullish(),
   bucket: z.string().max(80).nullish(),
 });
+
+export const TRACK_PAYLOAD_MAX_CHARS = 4096;
+export const TRACK_EVENTS_PER_WINDOW = 120; // per room and source per 10 minutes
 
 const TrackRequest = z.object({
   slug: z.string(),
@@ -189,6 +193,10 @@ router.post("/track", async (c) => {
   }
   const db = c.var.db;
   const room = await getPublicRoom(db, data.slug);
+  // Same visibility rule as GET /public/:slug: a draft room has no audience to track.
+  if (room.state !== ROOM_PUBLISHED && room.state !== ROOM_ARCHIVED) httpError(404, "Room not found.");
+  if (JSON.stringify(data.payload).length > TRACK_PAYLOAD_MAX_CHARS) httpError(413, "Event payload too large.");
+  await enforceLimit(c.env.DB, `room_track:${room.id}:${ipBucket(clientIp(c))}`, TRACK_EVENTS_PER_WINDOW, 600, "Too many events.");
 
   let link: RoomLink | null = null;
   if (data.token) {

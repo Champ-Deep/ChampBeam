@@ -300,5 +300,7 @@ describe("CSV helpers", () => {
   it("toCsvRow quotes minimally", () => {
     expect(utm.toCsvRow(["a", "b,c", 'd"e', null])).toBe('a,"b,c","d""e",\r\n');
     expect(utm.toCsvRow([""])).toBe('""\r\n');
+    // formula injection: a cell that would start a formula is neutralized with a leading quote
+    expect(utm.toCsvRow(["=HYPERLINK(\"http://x\")", "+1", "-2", "@SUM(A1)", "ok"])).toBe(`"'=HYPERLINK(""http://x"")",'+1,'-2,'@SUM(A1),ok\r\n`);
   });
 });
