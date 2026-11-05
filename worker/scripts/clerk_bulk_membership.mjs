@@ -1,8 +1,12 @@
 // Adds every Clerk user created before BEFORE to one Clerk organization as org:member, and
 // turns off their ability to create other organizations (create_organization_enabled=false),
 // so nobody spins up a stray org from the switcher. Dry run unless --apply. Re-runnable:
-// existing members and already-locked users are skipped.
-//   CLERK_SECRET_KEY=... ORG_ID=org_... [BEFORE=2026-10-26T00:00:00Z] node scripts/clerk_bulk_membership.mjs [--apply]
+// existing members and already-locked users are skipped. Clerk cannot tell "removed by an admin" from
+// "never added", so a re-run needs EXCLUDE: the Clerk user ids of the org's revoked D1 tombstones, e.g.
+//   wrangler d1 execute champbeam --remote --json --command "SELECT u.clerk_id FROM organization_memberships m
+//     JOIN users u ON u.id = m.user_id JOIN organizations o ON o.id = m.organization_id
+//     WHERE o.clerk_org_id = '<ORG_ID>' AND m.status = 'revoked'"
+//   CLERK_SECRET_KEY=... ORG_ID=org_... EXCLUDE=user_a,user_b [BEFORE=2026-10-26T00:00:00Z] node scripts/clerk_bulk_membership.mjs [--apply]
 // Clerk webhooks (worker/src/routes/webhooks.ts) write the D1 membership rows afterwards.
 const API = "https://api.clerk.com/v1";
 const PAGE = 500;
@@ -33,13 +37,15 @@ export async function run({ env, apply, fetch: f = fetch, log = console.log, sle
   };
 
   const users = await pages("/users?order_by=%2Bcreated_at", (u) => ({ id: u.id, created_at: u.created_at, canCreate: u.create_organization_enabled !== false }));
+  const excluded = new Set((env.EXCLUDE || "").split(",").map((s) => s.trim()).filter(Boolean));
   const old = users.filter((u) => u.created_at < before);
   const eligible = old.map((u) => u.id);
   const members = new Set(await pages(`/organizations/${org}/memberships`, (m) => m.public_user_data?.user_id));
-  const counts = { eligible: eligible.length, already_member: 0, added: 0, would_add: 0, failed: 0, creation_locked: 0, would_lock: 0 };
+  const counts = { eligible: eligible.length, already_member: 0, excluded: 0, added: 0, would_add: 0, failed: 0, creation_locked: 0, would_lock: 0 };
 
   for (const id of eligible) {
     if (members.has(id)) { counts.already_member++; continue; }
+    if (excluded.has(id)) { counts.excluded++; continue; } // an admin removed them: never re-add
     if (!apply) { counts.would_add++; continue; }
     const res = await call(`/organizations/${org}/memberships`, { method: "POST", body: JSON.stringify({ user_id: id, role: "org:member" }) });
     if (res.ok) counts.added++;

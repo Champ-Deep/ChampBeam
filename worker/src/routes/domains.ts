@@ -8,7 +8,8 @@ import { Hono } from "hono";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx, Settings } from "../env";
-import { requireAuth } from "../auth/security";
+import { can, requireAuth, requirePermission, type TokenData } from "../auth/security";
+import { enforceLimit } from "../lib/ratelimit";
 import { isUniqueViolation } from "../db/client";
 import {
   DOMAIN_STATUS_ACTIVE,
@@ -64,9 +65,34 @@ function normalizeHostname(raw: string | null | undefined): string {
   return h;
 }
 
+// Labels under PLATFORM_SUBDOMAIN_BASE that the platform itself uses; a tenant must never own them.
+const RESERVED_LABELS = new Set(["www", "app", "api", "admin", "share", "cname", "mail", "status", "docs"]);
+
+/**
+ * Hosts this Worker serves as the product itself (app host and its www/apex twin, CNAME targets, the
+ * subdomain base, workers.dev). The /health reachability proof passes for every one of them, so they
+ * must be refused up front or a tenant can claim the control plane and turn it into a share plane.
+ */
+function isPlatformServed(settings: Settings, hostname: string): boolean {
+  const hostOf = (u: string) => {
+    try {
+      return new URL(u).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  const app = hostOf(settings.frontendUrl);
+  const base = (settings.platformSubdomainBase || "").toLowerCase().trim().replace(/^\.+/, "");
+  const own = [app, app.startsWith("www.") ? app.slice(4) : app && `www.${app}`, base, settings.cloudflareCnameTarget, settings.byodCnameTarget];
+  if (own.some((h) => h && h.toLowerCase() === hostname) || hostname.endsWith(".workers.dev")) return true;
+  return !!base && hostname.endsWith(`.${base}`) && RESERVED_LABELS.has(hostname.slice(0, -base.length - 1));
+}
+
 function validateHostname(settings: Settings, hostname: string): void {
   if (!HOSTNAME_RE.test(hostname)) httpError(400, "Invalid hostname format.");
-  if (settings.isPlatformHost(hostname)) httpError(400, "This hostname is reserved by the platform.");
+  if (settings.isPlatformHost(hostname) || isPlatformServed(settings, hostname)) {
+    httpError(400, "This hostname is reserved by the platform.");
+  }
   // Reject things like "localhost" or single-label hosts that crept through.
   if (!hostname.includes(".")) httpError(400, "Hostname must include a domain.");
 }
@@ -109,15 +135,16 @@ function canonicalUuid(v: string): string | null {
   return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
 }
 
-async function getOwnedDomain(c: Ctx, userId: string): Promise<DomainRow> {
+async function getOwnedDomain(c: Ctx, user: TokenData): Promise<DomainRow> {
   const id = canonicalUuid(c.req.param("domain_id") ?? "");
   if (!id) httpError(400, "Invalid domain ID.");
-  const d = await c.var.db
-    .select()
-    .from(domains)
-    .where(and(eq(domains.id, id), eq(domains.userId, userId)))
-    .get();
-  if (!d) httpError(404, "Domain not found.");
+  const d = await c.var.db.select().from(domains).where(eq(domains.id, id)).get();
+  if (!d || (d.userId !== user.userId && !d.organizationId)) httpError(404, "Domain not found.");
+  // Once attached to an org the domain is the org's: any active admin seat in that org manages it (so it is
+  // not orphaned when the attaching admin leaves), and having been the member who attached it is not enough.
+  if (d.organizationId && !(user.orgUuid === d.organizationId && can(user, "org.domains.manage"))) {
+    httpError(d.userId === user.userId ? 403 : 404, d.userId === user.userId ? "This domain belongs to an organization; an admin of that organization must manage it." : "Domain not found.");
+  }
   return d;
 }
 
@@ -349,8 +376,12 @@ router.post("/check", async (c) => {
  * Each wiring step degrades gracefully to a pending status with instructions
  * rather than failing the purchase.
  */
+// Registration spends the operator's Cloudflare account money, so it is an org-admin action with a daily cap.
+// shortcut: one fixed cap per org; move to a per-plan entitlement if purchases become a paid feature.
+export const DOMAIN_PURCHASES_PER_DAY = 3;
+
 router.post("/purchase", async (c) => {
-  const user = await requireAuth(c);
+  const user = await requirePermission(c, "org.domains.manage");
   const data = await parseJson(c, DomainPurchaseRequest);
   const settings = c.var.settings;
 
@@ -363,6 +394,8 @@ router.post("/purchase", async (c) => {
   }
 
   if (await hostnameTaken(c, hostname)) httpError(409, "This hostname is already registered.");
+  await enforceLimit(c.env.DB, `domain_purchase:${user.orgId}`, DOMAIN_PURCHASES_PER_DAY, 86_400,
+    `Domain purchase limit reached (${DOMAIN_PURCHASES_PER_DAY} per day for this organization)`);
 
   // 1) Register the domain (real money — only fires when configured).
   const contacts = settings.cloudflareRegistrantEmail
@@ -431,7 +464,7 @@ router.post("/purchase", async (c) => {
 router.post("/:domain_id/refresh", async (c) => {
   const user = await requireAuth(c);
   const settings = c.var.settings;
-  const domain = await getOwnedDomain(c, user.userId);
+  const domain = await getOwnedDomain(c, user);
   if (domain.cfCustomHostnameId) await applyCfStatus(domain, settings);
   else await applyLocalStatus(domain, settings);
   await persistDomainStatus(c.var.db, domain);
@@ -441,7 +474,8 @@ router.post("/:domain_id/refresh", async (c) => {
 /** Mark this domain as the user's primary (used as default for new links). */
 router.post("/:domain_id/set-primary", async (c) => {
   const user = await requireAuth(c);
-  const domain = await getOwnedDomain(c, user.userId);
+  const domain = await getOwnedDomain(c, user);
+  if (domain.userId !== user.userId) httpError(404, "Domain not found."); // is_primary is a per-user default
   if (domain.status !== DOMAIN_STATUS_ACTIVE) httpError(400, "Only active domains can be set as primary.");
   const db = c.var.db;
   await db.batch([
@@ -458,7 +492,7 @@ router.delete("/:domain_id", async (c) => {
   const { force } = parseQuery(c, z.object({ force: qBool(false) }));
   const settings = c.var.settings;
   const db = c.var.db;
-  const domain = await getOwnedDomain(c, user.userId);
+  const domain = await getOwnedDomain(c, user);
 
   if (!force) {
     const row = await db.select({ n: count() }).from(linkClicks).where(eq(linkClicks.domainId, domain.id)).get();
@@ -466,6 +500,23 @@ router.delete("/:domain_id", async (c) => {
     if (n > 0) {
       httpError(409, `${n} link(s) still use this domain. Pass force=true to delete anyway.`);
     }
+  }
+
+  // Deleting sets domain_id NULL on its links/files (FK SET NULL), moving their codes into the platform
+  // namespace. Refuse up front on a collision there, before the Cloudflare hostname is destroyed.
+  const clash = await c.env.DB.prepare(
+    `SELECT 1 FROM file_assets d JOIN file_assets g ON g.domain_id IS NULL AND (g.short_code = d.short_code OR (d.slug IS NOT NULL AND g.slug = d.slug))
+       WHERE d.domain_id = ?1
+     UNION ALL
+     SELECT 1 FROM file_assets d JOIN slug_aliases a ON a.domain_id IS NULL AND a.slug = d.slug AND a.file_id <> d.id
+       WHERE d.domain_id = ?1 AND d.slug IS NOT NULL
+     UNION ALL
+     SELECT 1 FROM link_clicks d JOIN link_clicks g ON g.domain_id IS NULL AND g.short_code = d.short_code
+       WHERE d.domain_id = ?1 AND d.short_code IS NOT NULL
+     LIMIT 1`,
+  ).bind(domain.id).first();
+  if (clash) {
+    httpError(409, "A link or page code on this domain is already used on the main domain. Rename or delete it, then delete the domain.");
   }
 
   if (domain.cfCustomHostnameId) {

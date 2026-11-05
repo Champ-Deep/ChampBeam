@@ -180,6 +180,19 @@ describe("link management", () => {
     expect(left!.n).toBe(0);
   });
 
+  it("a link cannot be bound to another user's project (generate or patch)", async () => {
+    const victim = await authedUser();
+    const { user, headers } = await authedUser();
+    const theirs = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO projects (id, user_id, name, created_at) VALUES (?,?,?,?)").bind(theirs, victim.user.id, "Theirs", iso()).run();
+    const linkId = await seedLink(user.id);
+    expect((await api(`${U}/links/${linkId}`, { method: "PATCH", headers, json: { project_id: theirs } })).status).toBe(404);
+    const gen = await api(`${U}/generate`, { method: "POST", headers, json: { base_url: "https://example.com/x", utm_source: "s", utm_medium: "m", utm_campaign: "c", project_id: theirs } });
+    expect(gen.status).toBe(404);
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM link_clicks WHERE project_id = ?").bind(theirs).first<{ n: number }>();
+    expect(n!.n).toBe(0);
+  });
+
   it("patch reassigns / clears the project", async () => {
     const { user, headers } = await authedUser();
     const projectId = crypto.randomUUID();
@@ -277,9 +290,10 @@ describe("presets", () => {
     });
     expect(p.created_at).toMatch(/Z$/);
 
+    // Another tenant's shared preset is not listed (shared means shared with your org, see auditRun2.test.ts).
     await api(`${U}/presets`, { method: "POST", headers: other.headers, json: { name: "Shared", is_shared: true } });
     const list = await json<any[]>(await api(`${U}/presets`, { headers }));
-    expect(list.map((x) => x.name).sort()).toEqual(["Mine", "Shared"]);
+    expect(list.map((x) => x.name).sort()).toEqual(["Mine"]);
 
     const upd = await json(
       await api(`${U}/presets/${p.id}`, { method: "PUT", headers, json: { utm_medium: "cpc", custom_params: { a: 1 } } }),

@@ -6,7 +6,7 @@
  * registered on this same router.
  */
 import { Hono } from "hono";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth, type TokenData } from "../auth/security";
@@ -18,6 +18,8 @@ import {
   linkClicks,
   linkTagAssociations,
   linkTags,
+  MEMBERSHIP_ACTIVE,
+  organizationMemberships,
   projects,
   utmPresets,
 } from "../db/schema";
@@ -25,7 +27,7 @@ import { httpError, HTTPError } from "../lib/errors";
 import { requestOrigin } from "../lib/request";
 import { isoUtc, nowIso, parseIso } from "../lib/time";
 import { parseJson, parseQuery, qStr } from "../lib/validate";
-import { assertCanShare, defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
+import { assertCanShare, assertDomainEditable, defaultDomainFor, findUsableDomain, shareOrgUuid } from "../services/domains";
 import { generateUtmUrl, processBulkCsv, recordLink, UTM_KEYS, type LinkClick, type UtmParams } from "../services/utm";
 import { buildRedirectUrl, getUserLink, normUuid } from "./_utmHelpers";
 import { registerAnalytics } from "./_utmAnalytics";
@@ -187,6 +189,7 @@ function linkIdOr400(c: Ctx, detail: string): string {
 // Link generation (public endpoint, auth optional)
 // ============================================================================
 
+
 router.post("/generate", async (c) => {
   const user = await getCurrentUser(c);
   const data = await parseJson(c, GenerateLinkRequest);
@@ -342,10 +345,19 @@ router.get("/bulk/template", (c) => {
 
 router.get("/presets", async (c) => {
   const user = await requireAuth(c);
-  const rows = await c.var.db
+  const db = c.var.db;
+  const mine = eq(utmPresets.userId, user.userId);
+  // "Shared" means shared with the caller's active org, never with every tenant on the platform.
+  const orgMates = user.orgUuid
+    ? db
+        .select({ id: organizationMemberships.userId })
+        .from(organizationMemberships)
+        .where(and(eq(organizationMemberships.organizationId, user.orgUuid), eq(organizationMemberships.status, MEMBERSHIP_ACTIVE)))
+    : null;
+  const rows = await db
     .select()
     .from(utmPresets)
-    .where(or(eq(utmPresets.userId, user.userId), eq(utmPresets.isShared, true)))
+    .where(orgMates ? or(mine, and(eq(utmPresets.isShared, true), inArray(utmPresets.userId, orgMates))) : mine)
     .orderBy(desc(utmPresets.createdAt))
     .all();
   return c.json(rows.map(presetToResponse));
@@ -477,6 +489,7 @@ router.put("/links/:link_id/access", async (c) => {
   const user = await requireAuth(c);
   const data = await parseJson(c, LinkAccessRequest);
   const link = await getOwnedLink(c, user.userId);
+  await assertDomainEditable(c.var.db, user, link.domainId);
   const sent = (k: string) => k in data;
   const now = nowIso();
   const set: Partial<LinkClick> = {};

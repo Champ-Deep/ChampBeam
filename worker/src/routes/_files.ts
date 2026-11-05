@@ -37,7 +37,7 @@ import type { Ctx, Settings } from "../env";
 import type { TokenData } from "../auth/security";
 import { bytesToHex, sha256Hex, timingSafeEqual } from "../lib/crypto";
 import { httpError } from "../lib/errors";
-import { StorageError, deleteObject, headObject } from "../lib/storage";
+import { StorageError, blobStillReferenced, deleteObject, headObject } from "../lib/storage";
 import { isoUtc, parseIso } from "../lib/time";
 import { allocateFileShortCode, safeSlug, schemeFor } from "../services/content";
 import type { FileAsset } from "../services/assetLookup";
@@ -256,9 +256,10 @@ export async function getOwnedFile(c: Ctx, fileId: string, userId: string): Prom
   return asset;
 }
 
-/** Best-effort blob cleanup (background). */
-export async function deleteBlobQuiet(bucket: R2Bucket, key: string): Promise<void> {
+/** Best-effort blob cleanup (background). Never deletes bytes another live row still uses. */
+export async function deleteBlobQuiet(bucket: R2Bucket, key: string, d1: D1Database): Promise<void> {
   try {
+    if (await blobStillReferenced(d1, key)) return;
     await deleteObject(bucket, key);
   } catch (err) {
     console.error(`failed deleting blob ${key}`, err);

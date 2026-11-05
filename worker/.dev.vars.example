@@ -4,7 +4,10 @@ DEBUG=true
 FRONTEND_URL=http://localhost:5173
 REDIRECT_BASE_URL=http://127.0.0.1:8799
 PLATFORM_REDIRECT_HOST=127.0.0.1,localhost
-# Clerk dev instance keys (from the Clerk dashboard):
-# CLERK_SECRET_KEY=sk_test_...
-# CLERK_PUBLISHABLE_KEY=pk_test_...
+# Better Auth (required; the Worker refuses requests without these three):
+BETTER_AUTH_SECRET=replace-with-32-plus-random-bytes
+BETTER_AUTH_URL=http://127.0.0.1:8799
 STORAGE_UPLOAD_SECRET=dev-upload-secret
+# Google sign-in, optional locally (redirect URI <BETTER_AUTH_URL>/api/auth/callback/google):
+# GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+# GOOGLE_CLIENT_SECRET=your-client-secret

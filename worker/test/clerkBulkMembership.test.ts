@@ -37,7 +37,7 @@ describe("clerk_bulk_membership", () => {
   it("adds old non-members as org:member, skips existing members and users after BEFORE", async () => {
     const { f, posts, patches } = fakeClerk();
     const counts = await run({ env, apply: true, fetch: f, log: () => {} });
-    expect(counts).toEqual({ eligible: 2, already_member: 1, added: 1, would_add: 0, failed: 0, creation_locked: 1, would_lock: 0 });
+    expect(counts).toEqual({ eligible: 2, already_member: 1, excluded: 0, added: 1, would_add: 0, failed: 0, creation_locked: 1, would_lock: 0 });
     expect(posts).toEqual([{ path: "/v1/organizations/org_1/memberships", body: { user_id: "u1", role: "org:member" } }]);
     // u2 is already locked and u3 joined after the cutoff: only u1 loses org creation.
     expect(patches).toEqual([{ path: "/v1/users/u1", body: { create_organization_enabled: false } }]);
@@ -48,6 +48,13 @@ describe("clerk_bulk_membership", () => {
     const g = async (url: string, init: RequestInit = {}) => (init.method === "POST" ? new Response("{}", { status: 409 }) : f(url, init));
     const counts = await run({ env, apply: true, fetch: g, log: () => {} });
     expect(counts).toMatchObject({ already_member: 2, added: 0, failed: 0 });
+  });
+
+  it("never re-adds a user listed in EXCLUDE (an admin removed them; D1 holds the tombstone)", async () => {
+    const { f, posts } = fakeClerk();
+    const counts = await run({ env: { ...env, EXCLUDE: " u9, u1 " }, apply: true, fetch: f, log: () => {} });
+    expect(counts).toMatchObject({ excluded: 1, added: 0, failed: 0 });
+    expect(posts).toEqual([]);
   });
 
   it("dry run writes nothing", async () => {

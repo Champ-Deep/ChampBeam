@@ -284,9 +284,11 @@ describe("list / get / delete / kill switch (test_list_get_delete_and_kill_switc
     const t = await json(await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { title: "New Name" }, headers }));
     expect(t.title).toBe("new name");
     expect(t.slug).toBe("pallab-north-star");
-    const code = await json(await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { access_code: "1234" }, headers }));
+    const code = await json(await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { access_code: "123456" }, headers }));
     expect(code.has_access_code).toBe(true);
     expect((await row(page.page_id)).access_code_hash).toMatch(/^[0-9a-f]{64}$/);
+    const short = await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { access_code: "1234" }, headers });
+    expect(short.status).toBe(422); // new codes need 6+ digits (audit run-2: fixed windows make 10^4 enumerable)
     const bad = await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { access_code: "12ab" }, headers });
     expect(bad.status).toBe(422);
     const cleared = await json(await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { access_code: null }, headers }));

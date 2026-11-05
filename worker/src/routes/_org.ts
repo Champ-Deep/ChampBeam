@@ -27,7 +27,7 @@ export async function orgForUser(db: Db, user: TokenData): Promise<Organization>
   const org = await db
     .select()
     .from(organizations)
-    .where(eq(organizations.clerkOrgId, user.orgId ?? ""))
+    .where(eq(organizations.id, user.orgId ?? ""))
     .get();
   if (!org) httpError(409, NOT_PROVISIONED);
   return org;

@@ -37,15 +37,19 @@ export async function upsertOrganization(
   opts: { name?: string | null; slug?: string | null } = {},
 ): Promise<Organization> {
   const existing = await db.select().from(organizations).where(eq(organizations.clerkOrgId, clerkOrgId)).get();
+  // organizations.slug is unique since Better Auth (0007): a Clerk slug another org holds is not mirrored.
+  const slugFree = async (slug: string) =>
+    !(await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).get());
   if (!existing) {
     const now = nowIso();
+    const id = crypto.randomUUID();
     await db
       .insert(organizations)
       .values({
-        id: crypto.randomUUID(),
+        id,
         clerkOrgId,
         name: opts.name ?? null,
-        slug: opts.slug ?? null,
+        slug: opts.slug ? ((await slugFree(opts.slug)) ? opts.slug : `${opts.slug}-${id.slice(0, 8)}`) : null,
         createdAt: now,
         updatedAt: now,
       })
@@ -54,7 +58,7 @@ export async function upsertOrganization(
   }
   const patch: Partial<Organization> = {};
   if (opts.name != null) patch.name = opts.name;
-  if (opts.slug != null) patch.slug = opts.slug;
+  if (opts.slug != null && opts.slug !== existing.slug && (await slugFree(opts.slug))) patch.slug = opts.slug;
   if (Object.keys(patch).length) {
     patch.updatedAt = nowIso();
     await db.update(organizations).set(patch).where(eq(organizations.id, existing.id));
@@ -144,11 +148,17 @@ export async function resolveActiveMembership(
 }
 
 /** Tombstone a membership and end the member's reporting grants (Clerk removed them). */
-export async function revokeMembership(db: Db, organizationId: string, userId: string): Promise<void> {
+export async function revokeMembership(
+  db: Db,
+  organizationId: string,
+  userId: string,
+  clerkMembershipId?: string | null,
+): Promise<void> {
   const now = nowIso();
   await db
     .update(organizationMemberships)
-    .set({ status: MEMBERSHIP_REVOKED, revokedAt: now, updatedAt: now })
+    // Remember WHICH Clerk membership was deleted: a late or replayed event for it must not lift the tombstone.
+    .set({ status: MEMBERSHIP_REVOKED, revokedAt: now, updatedAt: now, ...(clerkMembershipId ? { clerkMembershipId } : {}) })
     .where(and(eq(organizationMemberships.organizationId, organizationId), eq(organizationMemberships.userId, userId)));
   await db
     .update(reportingGrants)

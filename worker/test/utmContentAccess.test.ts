@@ -14,7 +14,7 @@ import { HTTPError } from "../src/lib/errors";
 import * as content from "../src/services/content";
 import * as project from "../src/services/project";
 import * as utm from "../src/services/utm";
-import { createOrg, createUser } from "./helpers";
+import { createOrg, createUser, awayFromWindowEdge } from "./helpers";
 
 const db = () => getDb(env.DB);
 const settings = buildSettings(env as unknown as Env);
@@ -134,13 +134,26 @@ describe("access control", () => {
     expect(ac.codeCookieName("x.y")).toBe("cbcode_xy");
   });
 
+  it("access codes fail closed without a server secret (no public fallback key)", async () => {
+    // The Worker no longer boots without STORAGE_UPLOAD_SECRET (betterAuth.test.ts); keep the 503 as defence.
+    expect(() => buildSettings({ ...(env as unknown as Env), STORAGE_UPLOAD_SECRET: "" } as Env)).toThrow(/STORAGE_UPLOAD_SECRET/);
+    const bare = { ...settings, resolvedUploadSecret: "" };
+    const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null };
+    await expect(ac.setAccessCode(bare, asset, "482100")).rejects.toMatchObject({ status: 503 });
+    await expect(ac.verifyAccessCode(bare, { ...asset, accessCodeHash: "a".repeat(64) }, "4821")).rejects.toMatchObject({ status: 503 });
+  });
+
   it("access codes: validate, hash, verify, cookie", async () => {
     const asset = { id: crypto.randomUUID(), accessCodeHash: null as string | null, shortCode: "pg1" };
-    await expect(ac.setAccessCode(settings, asset, "12a4")).rejects.toMatchObject({ status: 422, detail: "Access code must be 4–8 digits." });
-    const h = await ac.setAccessCode(settings, asset, " 4821 ");
+    await expect(ac.setAccessCode(settings, asset, "12a4")).rejects.toMatchObject({ status: 422, detail: "Access code must be 6 to 8 digits." });
+    await expect(ac.setAccessCode(settings, asset, "4821")).rejects.toMatchObject({ status: 422 }); // new codes need 6+ digits
+    const h = await ac.setAccessCode(settings, asset, " 482100 ");
     expect(h).toMatch(/^[0-9a-f]{64}$/);
-    expect(await ac.verifyAccessCode(settings, asset, "4821")).toBe(true);
-    expect(await ac.verifyAccessCode(settings, asset, "4822")).toBe(false);
+    expect(await ac.verifyAccessCode(settings, asset, "482100")).toBe(true);
+    expect(await ac.verifyAccessCode(settings, asset, "482101")).toBe(false);
+    // A legacy 4-digit code stored before the 6-digit minimum still verifies.
+    const legacy = { ...asset, accessCodeHash: await ac.hashAccessCode(settings, asset.id, "4821") };
+    expect(await ac.verifyAccessCode(settings, legacy, "4821")).toBe(true);
 
     const app = new Hono().get("/", async (c) => c.json({ ok: await ac.hasCodeCookie(c, asset) }));
     const val = await ac.codeCookieValue(asset);
@@ -166,6 +179,28 @@ describe("access control", () => {
     const broken = { prepare: () => { throw new Error("D1_ERROR: down"); } } as unknown as D1Database;
     expect(await ac.codeAttemptLimited(broken, "1.2.3.4", crypto.randomUUID())).toBe(true);
   });
+
+  it("codeAttemptLimited: IPv6 counts per /64, and a page-wide ceiling stops address rotation", async () => {
+    await awayFromWindowEdge();
+    const page = crypto.randomUUID();
+    for (let i = 0; i < 5; i++) expect(await ac.codeAttemptLimited(env.DB, `2001:db8:1:2::${i + 1}`, page)).toBe(false);
+    expect(await ac.codeAttemptLimited(env.DB, "2001:0db8:0001:0002:ffff::9", page)).toBe(true); // same /64
+    expect(ac.ipBucket("2001:db8:1:2::1")).toBe(ac.ipBucket("2001:0db8:0001:0002:abcd:0:0:1"));
+
+    const p2 = crypto.randomUUID();
+    const out: boolean[] = [];
+    for (let i = 0; i < ac.CODE_PAGE_ATTEMPTS_PER_WINDOW + 1; i++) out.push(await ac.codeAttemptLimited(env.DB, `10.0.${i >> 8}.${i & 255}`, p2));
+    expect(out.slice(0, -1).every((x) => !x)).toBe(true);
+    expect(out.at(-1)).toBe(true);
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
+
+  it("codeAttemptLimited: one source hammering a page cannot lock it for everyone else", async () => {
+    await awayFromWindowEdge();
+    const page = crypto.randomUUID();
+    for (let i = 0; i < ac.CODE_PAGE_ATTEMPTS_PER_WINDOW + 10; i++) await ac.codeAttemptLimited(env.DB, "203.0.113.9", page);
+    expect(await ac.codeAttemptLimited(env.DB, "203.0.113.9", page)).toBe(true);
+    expect(await ac.codeAttemptLimited(env.DB, "198.51.100.20", page)).toBe(false); // a new visitor still gets in
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 
   it("captureLead stores a trimmed email", async () => {
     const user = await createUser();

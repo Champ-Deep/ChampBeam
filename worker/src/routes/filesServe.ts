@@ -23,6 +23,8 @@ import {
 } from "../db/schema";
 import {
   captureLead,
+  ipBucket,
+  leadCaptureAllowed,
   clientIp,
   codeAttemptLimited,
   codeCookieName,
@@ -41,6 +43,7 @@ import { cfGeo, getCookie, requestHost } from "../lib/request";
 import { schemeFor } from "../services/content";
 import { StorageError, StorageNotConfigured, backendIsS3, generatePresignedGet, getObject } from "../lib/storage";
 import { diffSeconds, nowIso, parseIso } from "../lib/time";
+import { incrWithTtl, windowIndex } from "../lib/ratelimit";
 import { parseJson } from "../lib/validate";
 import { type Domain, type FileAsset, lookupAsset, resolveHost } from "../services/assetLookup";
 import { expireAsset } from "../services/fileExpiry";
@@ -99,7 +102,8 @@ export function wantsDownload(asset: Pick<FileAsset, "kind" | "shareIntent">, dl
 function commonHeaders(c: Ctx, asset: FileAsset): Record<string, string> {
   const disposition = wantsDownload(asset, c.req.query("dl")) ? "attachment" : "inline";
   const headers: Record<string, string> = {
-    "Content-Type": asset.mimeType,
+    // A comma makes browsers take the LAST type ("image/png;,text/html" renders as HTML), so serve only the first.
+    "Content-Type": asset.mimeType.includes(",") ? asset.mimeType.split(/[;,]/, 1)[0].trim() || "application/octet-stream" : asset.mimeType,
     "Content-Disposition": `${disposition}; filename="${safeFilename(asset.filename)}"`,
     "Cache-Control": "private, max-age=300",
     "X-Content-Type-Options": "nosniff",
@@ -107,8 +111,9 @@ function commonHeaders(c: Ctx, asset: FileAsset): Record<string, string> {
   };
   if (asset.kind === FILE_KIND_HTML) {
     // D3: opaque origin for hosted HTML (no allow-same-origin), so a hostile page cannot read gate
-    // cookies or call the API as the viewer. Legacy pages (null) are untouched.
-    const sandboxed = asset.htmlSandbox === 1 && c.var.settings.htmlSandbox;
+    // cookies or call the API as the viewer. Legacy pages (null) are untouched; a stored 0 (the old
+    // per-page opt-out) no longer lifts it: the owner is the party the sandbox protects viewers from.
+    const sandboxed = asset.htmlSandbox != null && c.var.settings.htmlSandbox;
     headers["Content-Security-Policy"] = HTML_CSP + (sandboxed ? "; " + HTML_SANDBOX : "");
   }
   return headers;
@@ -244,15 +249,15 @@ async function serveAsset(c: Ctx, asset: FileAsset, domain: Domain | null): Prom
 
   // A video player's follow-up Range requests (seeks, resumes) belong to the
   // view already counted by its first request; don't count each one.
+  // The skip is bound to a view this visitor already has on record, so a bare seek-shaped Range header
+  // from a fresh client cannot read the bytes without counting toward max_views.
   const rangeHeader = c.req.header("range");
-  const countView = !isContinuationRange(rangeHeader);
+  const last = isNewVisitor ? null : await lastFileViewAt(db, asset.id, visitorId);
+  const countView = !(isContinuationRange(rangeHeader) && last !== null);
 
   if (countView) {
     let isRevisit = false;
-    if (!isNewVisitor) {
-      const last = await lastFileViewAt(db, asset.id, visitorId);
-      if (last !== null) isRevisit = diffSeconds(last, nowIso()) >= settings.pagesRevisitWindowS;
-    }
+    if (last !== null) isRevisit = diffSeconds(last, nowIso()) >= settings.pagesRevisitWindowS;
 
     // Beam State: hosted pages get a page-scoped public token (minted lazily,
     // persisted) that the injected helper uses.
@@ -380,6 +385,10 @@ router.get("/:slug", (c, next) => serveRootSlug(c, next, c.req.param("slug").tri
 // 15 s, so anything larger is a stalled tab or a forged payload.
 const MAX_DWELL_PER_REPORT_MS = 60_000;
 
+// shortcut: a fixed per-source cap; a viewer reports on page turns and unload, far below this.
+export const PAGE_EVENTS_PER_WINDOW = 60;
+const PAGE_EVENTS_WINDOW_S = 600;
+
 const PageEventsRequest = z.object({
   session_id: z.string().min(1).max(64),
   visitor_id: z.string().max(32).nullish(),
@@ -409,6 +418,11 @@ router.post("/f/:short_code/page-events", async (c) => {
   const ip = clientIp(c);
   // Public, unauthenticated, up to 1000 rows a call: cap per visitor IP so it cannot flood D1.
   await enforceLimit(c.env.DB, `pev:${asset.id}:${ip || "-"}`, 60, 60, "Too many page events.");
+  // Only a servable asset collects dwell, and one source may report a bounded number of times per window.
+  const exp = parseIso(asset.expiresAt);
+  if (asset.revokedAt || (exp && exp.getTime() < Date.now())) return new Response(null, { status: 204 });
+  const reports = await incrWithTtl(c.env.DB, `pe_rl:${asset.id}:${ipBucket(ip)}:${windowIndex(PAGE_EVENTS_WINDOW_S)}`, PAGE_EVENTS_WINDOW_S);
+  if (reports !== null && reports > PAGE_EVENTS_PER_WINDOW) return new Response(null, { status: 204 });
   const sid = data.session_id.slice(0, 64);
   // Trust the cookie over the body; fall back to the body for beacons sent
   // without credentials.
@@ -449,7 +463,7 @@ router.post("/f/:short_code/unlock", async (c) => {
     return emailGatePage({ action: `/f/${shortCode}/unlock`, brand, error: true });
   }
 
-  await captureLead(db, email, { ip: clientIp(c), fileId: asset.id });
+  if (await leadCaptureAllowed(c.env.DB, asset, clientIp(c))) await captureLead(db, email, { ip: clientIp(c), fileId: asset.id });
 
   const resp = redirectResponse(`/f/${shortCode}`, 303);
   resp.headers.append(

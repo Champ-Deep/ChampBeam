@@ -593,7 +593,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
               inputMode="numeric"
               value={accessCode}
               onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-              placeholder={page.has_access_code ? 'Replace with a new 4 to 8 digit code' : '4 to 8 digits (optional)'}
+              placeholder={page.has_access_code ? 'Replace with a new 6 to 8 digit code' : '6 to 8 digits (optional)'}
               helperText="Visitors must enter this before the page renders."
             />
           )}

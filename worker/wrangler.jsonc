@@ -14,8 +14,11 @@
 // First-time setup (see ../CLOUDFLARE_DEPLOY.md):
 //   npx wrangler d1 create champbeam            -> paste database_id below
 //   npx wrangler r2 bucket create champbeam-files
-//   npx wrangler d1 migrations apply champbeam --remote
-//   npx wrangler secret put CLERK_SECRET_KEY    (and the other secrets)
+//   npx wrangler d1 migrations apply champbeam --remote   (0007 adds the Better Auth tables)
+//   npx wrangler secret put BETTER_AUTH_SECRET  (32+ random bytes; the Worker refuses requests without it)
+//   npx wrangler secret put STORAGE_UPLOAD_SECRET (required: upload signing and access codes)
+//   npx wrangler secret put GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (Google sign-in; off when unset)
+//   (and the other secrets below)
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "champbeam",
@@ -58,14 +61,17 @@
 
   "observability": { "enabled": true },
 
-  // Non-secret configuration. Secrets (CLERK_SECRET_KEY, CLERK_WEBHOOK_SECRET,
-  // STORAGE_UPLOAD_SECRET, R2_SECRET_ACCESS_KEY, CLOUDFLARE_API_TOKEN,
+  // Non-secret configuration. BETTER_AUTH_URL is the app origin Better Auth serves /api/auth from (the
+  // Google redirect URI is <BETTER_AUTH_URL>/api/auth/callback/google). Secrets (BETTER_AUTH_SECRET,
+  // STORAGE_UPLOAD_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, R2_SECRET_ACCESS_KEY, CLOUDFLARE_API_TOKEN,
   // CHAMPVAULT_API_KEY, SERVICE_API_KEYS, MAXMIND_LICENSE_KEY, IPINFO_API_TOKEN, COMPANY_INTEL_API_KEY,
-  // PROVISIONER_TOKEN) go in `wrangler secret put` or .dev.vars locally.
+  // PROVISIONER_TOKEN) go in `wrangler secret put` or .dev.vars locally. CLERK_* settings are inert since
+  // Better Auth and are removed after the rollback window (docs/BETTER-AUTH-PRD.md section 7 step 9).
   "vars": {
     "ENVIRONMENT": "production",
     "DEBUG": "false",
     "FRONTEND_URL": "https://www.champbeam.com",
+    "BETTER_AUTH_URL": "https://champbeam.com",
     "REDIRECT_BASE_URL": "",
     "PLATFORM_REDIRECT_HOST": "",
     "CLERK_PUBLISHABLE_KEY": "",
@@ -89,10 +95,10 @@
                   "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
-      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "BETTER_AUTH_URL": "TODO_deepify_origin", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
                 "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify" }
     },
-    // Real Cloudflare staging: managed D1/R2, real cron, Clerk callbacks with NON-production identities.
+    // Real Cloudflare staging: managed D1/R2, real cron, sign-in with NON-production identities.
     "staging": {
       "name": "champbeam-staging",
       "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
@@ -101,7 +107,7 @@
       "services": [{ "binding": "OPEN_WEBHOOK", "service": "champvoice-edge" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
-      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://champbeam-staging.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-staging.deep-ae0.workers.dev", "PLATFORM_REDIRECT_HOST": "champbeam-staging.deep-ae0.workers.dev",
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://champbeam-staging.deep-ae0.workers.dev", "BETTER_AUTH_URL": "https://champbeam-staging.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-staging.deep-ae0.workers.dev", "PLATFORM_REDIRECT_HOST": "champbeam-staging.deep-ae0.workers.dev",
                 "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
     }
   }

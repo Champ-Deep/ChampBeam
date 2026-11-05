@@ -88,6 +88,9 @@ async function aliasTarget(db: Db, slug: string, domainId: string | null): Promi
       and(
         eq(slugAliases.slug, slug),
         domainId === null ? isNull(slugAliases.domainId) : eq(slugAliases.domainId, domainId),
+        // Only while the page still lives in this namespace: once moved away, the old host must not
+        // keep serving it (that host's edit authority no longer applies to the page).
+        domainId === null ? isNull(fileAssets.domainId) : eq(fileAssets.domainId, domainId),
         eq(fileAssets.status, FILE_STATUS_ACTIVE),
       ),
     )

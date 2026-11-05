@@ -13,6 +13,19 @@ const assign = (headers: Record<string, string>, body: Record<string, unknown>) 
   api("/api/v1/org/assignments", { method: "POST", headers, json: body });
 
 describe("org assignments", () => {
+  it("a leader cannot rewrite an assignment someone else made (re-assign upsert)", async () => {
+    const t = await seedTeam();
+    const body = { champvault_asset_id: "deck_z", asset_title: "Admin pick", assigned_to_user_id: t.rep1.userId, note: "from admin" };
+    expect((await assign(t.admin.headers, body)).status).toBe(201);
+    const r = await assign(t.leader.headers, { ...body, asset_title: "Hijacked", note: "from leader" });
+    expect(r.status).toBe(403);
+    const rows = await json(await api("/api/v1/org/assignments", { headers: t.admin.headers }));
+    const a = rows.find((x: any) => x.champvault_asset_id === "deck_z");
+    expect([a.asset_title, a.note, a.assigned_by_user_id]).toEqual(["Admin pick", "from admin", t.admin.userId]);
+    // the admin may still refresh its own (and anyone's) assignment
+    expect((await assign(t.admin.headers, { ...body, note: "updated" })).status).toBeLessThan(300);
+  });
+
   it("leader assigns and scope is enforced", async () => {
     const t = await seedTeam();
 

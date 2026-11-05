@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { api, authedUser, env, json } from "./helpers";
 import { getSettings, type Env } from "../src/env";
-import { newUser, seedPage } from "./serveSeed";
+import { newUser, row, seedFile, seedPage } from "./serveSeed";
 
 const HTML = "<!doctype html><html><head><title>T</title></head><body>hi</body></html>";
 const SANDBOX = /(^|; )sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox$/;
@@ -22,7 +22,7 @@ async function publish(headers: Record<string, string>) {
 }
 
 describe("hosted HTML sandbox (D3)", () => {
-  it("sandboxes a page created after the flag, and the owner can opt out and back in", async () => {
+  it("sandboxes a page created after the flag, and the owner cannot opt out", async () => {
     const { headers } = await authedUser();
     const page = await publish(headers);
     expect(page.html_sandbox).toBe(true);
@@ -31,10 +31,20 @@ describe("hosted HTML sandbox (D3)", () => {
     expect(await csp(url)).toContain("frame-ancestors 'none'"); // existing policy is kept
 
     const off = await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { html_sandbox: false }, headers });
-    expect((await json(off)).html_sandbox).toBe(false);
-    expect(await csp(url)).not.toContain("sandbox");
-    await api(`/api/v1/pages/${page.page_id}`, { method: "PATCH", json: { html_sandbox: true }, headers });
+    expect(off.status).toBe(400);
     expect(await csp(url)).toMatch(SANDBOX);
+    // A row the old opt-out already set to 0 is sandboxed anyway.
+    await env.DB.prepare("UPDATE file_assets SET html_sandbox = 0 WHERE id = ?").bind(page.page_id).run();
+    expect(await csp(url)).toMatch(SANDBOX);
+  });
+
+  it("PUT /files/{id}/content that turns a non-HTML file into HTML marks it sandboxed", async () => {
+    const { user, headers } = await authedUser();
+    const f = await seedFile(user.id, { kind: "pdf", mime: "application/pdf", filename: "a.pdf", body: "PDF" });
+    const r = await api(`/api/v1/files/${f.id}/content?filename=a.html`, { method: "PUT", body: new TextEncoder().encode(HTML), headers: { ...headers, "Content-Type": "text/html" } });
+    expect(r.status, await r.clone().text()).toBe(200);
+    expect((await row<{ kind: string; html_sandbox: number | null }>("SELECT kind, html_sandbox FROM file_assets WHERE id = ?", f.id))).toEqual({ kind: "html", html_sandbox: 1 });
+    expect(await csp(`/f/${f.shortCode}`)).toMatch(SANDBOX);
   });
 
   it("leaves legacy pages alone until the owner opts in", async () => {

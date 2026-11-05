@@ -37,7 +37,7 @@ import { StorageError, StorageNotConfigured, getObject, putBytes } from "../lib/
 import { isoUtc, nowIso } from "../lib/time";
 import { parseQuery, qInt, qStr } from "../lib/validate";
 import { resolveMemberDomain, schemeFor } from "../services/content";
-import { assertCanShare, shareOrgUuid } from "../services/domains";
+import { assertCanShare, assertDomainEditable, shareOrgUuid } from "../services/domains";
 import * as pagesService from "../services/pages";
 import { rotateStateToken } from "../services/pageState";
 import {
@@ -68,6 +68,8 @@ const PagePublish = z.object({
   title: z.string().max(200).default("Untitled page"),
   domain_id: z.string().nullable().optional(),
   slug: z.string().max(80).nullable().optional(),
+  // Set at publish time so a rejected code fails the publish instead of leaving the page live and ungated.
+  access_code: z.string().max(8).nullable().optional(),
 });
 
 const PageUpdate = z.object({
@@ -80,7 +82,7 @@ const PagePatch = z.object({
   slug: z.string().max(80).nullable().optional(),
   enabled: z.boolean().nullable().optional(),
   domain_id: z.string().nullable().optional(),
-  // 4–8 digit access code; null clears.
+  // 6 to 8 digit access code (older 4 to 5 digit codes still verify); null clears.
   access_code: z.string().max(8).nullable().optional(),
   // Owner opt-in/out of the CSP sandbox (legacy pages are off until the owner opts in).
   html_sandbox: z.boolean().nullable().optional(),
@@ -110,7 +112,7 @@ function randHex8(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 }
 
-async function getOwnedPage(c: Ctx, pageId: string, user: TokenData): Promise<FileAsset> {
+async function getOwnedPage(c: Ctx, pageId: string, user: TokenData, edit = false): Promise<FileAsset> {
   const pid = canonicalUuid(pageId);
   if (!pid) httpError(400, "Invalid page id.");
   const asset = await c.var.db
@@ -126,6 +128,7 @@ async function getOwnedPage(c: Ctx, pageId: string, user: TokenData): Promise<Fi
     )
     .get();
   if (!asset) httpError(404, "Page not found.");
+  if (edit) await assertDomainEditable(c.var.db, user, asset.domainId);
   return asset;
 }
 
@@ -194,7 +197,7 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
     total_dwell_ms: stats.total_dwell_ms,
     enabled: asset.revokedAt == null,
     has_access_code: !!asset.accessCodeHash,
-    html_sandbox: asset.htmlSandbox === 1,
+    html_sandbox: asset.htmlSandbox != null,
     domain_id: asset.domainId ?? null,
     created_at: isoUtc(asset.createdAt) ?? "",
     updated_at: isoUtc(latest?.at || asset.createdAt) ?? "",
@@ -212,6 +215,7 @@ async function publish(
     slug: string | null | undefined;
     filename: string | null;
     contentType: string | null;
+    accessCode?: string | null;
   },
 ): Promise<FileAsset> {
   const settings = c.var.settings;
@@ -229,13 +233,14 @@ async function publish(
   let slug: string;
   if (opts.slug) {
     slug = pagesService.validateSlug(opts.slug);
-    if (await pagesService.slugTaken(db, slug, domainId)) httpError(409, "That slug is already taken.");
+    if (await pagesService.slugTaken(db, slug, domainId, { ownerId: opts.user.userId })) httpError(409, "That slug is already taken.");
   } else {
-    slug = await pagesService.uniqueSlug(db, opts.title, domainId);
+    slug = await pagesService.uniqueSlug(db, opts.title, domainId, opts.user.userId);
   }
 
-  const shortCode = await allocateUniqueShortCode(db, domainId);
   const fileId = crypto.randomUUID();
+  const accessCodeHash = await setAccessCode(settings, { id: fileId, accessCodeHash: null }, opts.accessCode);
+  const shortCode = await allocateUniqueShortCode(db, domainId);
   const storedName = filenameFor(opts.title);
   const key = storageKey(opts.user.userId, fileId, storedName);
   await writeBlob(c, key, opts.payload);
@@ -253,6 +258,7 @@ async function publish(
           organizationId: shareOrgUuid(opts.user),
           shareIntent: "host",
           htmlSandbox: settings.htmlSandbox ? 1 : null,
+          accessCodeHash,
           shortCode,
           slug,
           filename: storedName,
@@ -277,7 +283,7 @@ async function publish(
     inserted = rows;
   } catch (err) {
     if (isUniqueViolation(err)) {
-      background(c, () => deleteBlobQuiet(c.env.FILES, key));
+      background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB));
       httpError(409, "That slug is already taken.");
     }
     throw err;
@@ -304,6 +310,7 @@ router.post("/", async (c) => {
     slug: data.slug,
     filename: null,
     contentType: HTML_MIME,
+    accessCode: data.access_code,
   });
   return c.json(await pageResponse(c, asset), 201);
 });
@@ -352,7 +359,7 @@ router.get("/slug-suggestion", async (c) => {
   const q = parseQuery(c, z.object({ filename: qStr(""), domain_id: qStr("") }));
   const domainId = await resolveDomainId(c, user, q.domain_id || null);
   const base = pagesService.slugFromFilename(q.filename);
-  const slug = await pagesService.suggestSlug(c.var.db, base, domainId);
+  const slug = await pagesService.suggestSlug(c.var.db, base, domainId, user.userId);
   const host = await serveHost(c.var.db, c.var.settings, user.userId, domainId);
   return c.json({ slug, base, collided: slug !== base, host, public_url: `${schemeFor(host)}://${host}/${slug}` });
 });
@@ -401,7 +408,7 @@ router.delete("/:page_id", async (c) => {
     db.delete(fileVersions).where(eq(fileVersions.fileId, asset.id)),
     db.update(fileAssets).set({ status: FILE_STATUS_DELETED }).where(eq(fileAssets.id, asset.id)),
   ]);
-  for (const key of keys) background(c, () => deleteBlobQuiet(c.env.FILES, key), "delete page blob");
+  for (const key of keys) background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB), "delete page blob");
   return c.body(null, 204);
 });
 
@@ -419,7 +426,7 @@ router.put("/:page_id", async (c) => {
   const { data } = await parseBodyWithFields(c, PageUpdate);
   const settings = c.var.settings;
   ensureStorage(settings);
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   if (asset.status !== FILE_STATUS_ACTIVE) httpError(409, `Page is in status '${asset.status}'.`);
   if (asset.kind !== FILE_KIND_HTML) httpError(409, "Only HTML pages take inline content; replace media through /files.");
 
@@ -435,7 +442,7 @@ router.put("/:page_id", async (c) => {
     { storageKey: newKey, sizeBytes: payload.length, sha256: await sha256Hex(payload), filename },
     { keep: settings.pagesVersionsKeep, snapshot: true },
   );
-  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key), "prune version blob");
+  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB), "prune version blob");
   return c.json(await pageResponse(c, asset));
 });
 
@@ -444,19 +451,32 @@ router.patch("/:page_id", async (c) => {
   const user = await requireAuth(c);
   const { data, fields } = await parseBodyWithFields(c, PagePatch);
   const db = c.var.db;
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const updates: Partial<typeof fileAssets.$inferInsert> = {};
+  const fromDomainId = asset.domainId ?? null;
+  const fromSlug = asset.slug;
 
   if (fields.has("domain_id")) {
     updates.domainId = asset.domainId = await resolveDomainId(c, user, data.domain_id);
+    // A move into another namespace must not take a slug retired there by another page (the unique
+    // indexes do not see slug_aliases); a slug change in the same request is checked below instead.
+    const keepsSlug = !(fields.has("slug") && data.slug != null);
+    if (keepsSlug && asset.slug && (asset.domainId ?? null) !== fromDomainId &&
+        (await pagesService.slugTaken(db, asset.slug, asset.domainId ?? null, { excludeId: asset.id, ownerId: asset.userId }))) {
+      httpError(409, "That slug is already taken.");
+    }
   }
   if (fields.has("slug") && data.slug != null) {
     const slug = pagesService.validateSlug(data.slug);
-    if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id })) {
+    if (await pagesService.slugTaken(db, slug, asset.domainId ?? null, { excludeId: asset.id, ownerId: asset.userId })) {
       httpError(409, "That slug is already taken.");
     }
-    if (slug !== asset.slug) await pagesService.retireSlug(db, asset);
     updates.slug = asset.slug = slug;
+  }
+  // Retire the old address where it actually lived whenever the slug OR the namespace changes,
+  // so a keep-slug domain move cannot free the published URL for another tenant.
+  if (fromSlug && (asset.slug !== fromSlug || (asset.domainId ?? null) !== fromDomainId)) {
+    await pagesService.retireSlug(db, { id: asset.id, slug: fromSlug, domainId: fromDomainId });
   }
   if (fields.has("title") && data.title) {
     updates.filename = asset.filename = filenameFor(data.title);
@@ -465,10 +485,15 @@ router.patch("/:page_id", async (c) => {
     updates.revokedAt = asset.revokedAt = data.enabled ? null : nowIso();
   }
   if (fields.has("html_sandbox") && data.html_sandbox != null) {
-    updates.htmlSandbox = asset.htmlSandbox = data.html_sandbox ? 1 : 0;
+    // Opt-in only (legacy pages): the sandbox guards viewers from the page owner, so the owner cannot lift it.
+    if (!data.html_sandbox) httpError(400, "The HTML sandbox cannot be turned off for a page.");
+    updates.htmlSandbox = asset.htmlSandbox = 1;
   }
   if (fields.has("access_code")) {
+    const before = asset.accessCodeHash;
     updates.accessCodeHash = await setAccessCode(c.var.settings, asset, data.access_code);
+    // A new or changed code must also end Beam State access for anyone who read the token before it.
+    if (updates.accessCodeHash && updates.accessCodeHash !== before) updates.stateToken = asset.stateToken = null;
   }
 
   if (Object.keys(updates).length) {
@@ -523,7 +548,7 @@ router.post("/:page_id/versions/:version_no/rollback", async (c) => {
   const settings = c.var.settings;
   const db = c.var.db;
   ensureStorage(settings);
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const target = await db
     .select()
     .from(fileVersions)
@@ -554,7 +579,7 @@ router.post("/:page_id/versions/:version_no/rollback", async (c) => {
     },
     { keep: settings.pagesVersionsKeep },
   );
-  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key), "prune version blob");
+  for (const key of doomed) background(c, () => deleteBlobQuiet(c.env.FILES, key, c.env.DB), "prune version blob");
   return c.json(await pageResponse(c, asset));
 });
 

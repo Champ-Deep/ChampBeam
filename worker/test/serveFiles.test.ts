@@ -6,7 +6,8 @@
  * plus streaming/Range coverage.
  */
 import { describe, expect, it } from "vitest";
-import { api, env } from "./helpers";
+import { api, env, awayFromWindowEdge } from "./helpers";
+import { PAGE_EVENTS_PER_WINDOW } from "../src/routes/filesServe";
 import { code, eventually, form, iso, Jar, newUser, row, rows, seedDomain, seedFile, setSettings } from "./serveSeed";
 
 const json = (body: unknown, headers: Record<string, string> = {}) => ({
@@ -117,32 +118,48 @@ describe("serving", () => {
 
     const full = await api(`/f/${f.shortCode}`);
     expect(full.status).toBe(200);
+    // A browser's player sends its visitor cookie back on the follow-up Range requests.
+    const Cookie = (full.headers.get("set-cookie") ?? "").split(";")[0];
+    expect(Cookie).toMatch(/^cb_vid=/);
     expect(full.headers.get("accept-ranges")).toBe("bytes");
     expect(full.headers.get("content-length")).toBe("1000");
     expect(new Uint8Array(await full.arrayBuffer())).toEqual(bytes);
 
-    const first = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=0-99" } });
+    const first = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=0-99", Cookie } });
     expect(first.status).toBe(206);
     expect(first.headers.get("content-range")).toBe("bytes 0-99/1000");
     expect(first.headers.get("content-length")).toBe("100");
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(bytes.slice(0, 100));
 
-    const seek = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=900-" } });
+    const seek = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=900-", Cookie } });
     expect(seek.status).toBe(206);
     expect(seek.headers.get("content-range")).toBe("bytes 900-999/1000");
     expect(new Uint8Array(await seek.arrayBuffer())).toEqual(bytes.slice(900));
 
-    const suffix = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=-10" } });
+    const suffix = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=-10", Cookie } });
     expect(suffix.status).toBe(206);
     expect(suffix.headers.get("content-range")).toBe("bytes 990-999/1000");
 
-    const bad = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=5000-" } });
+    const bad = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=5000-", Cookie } });
     expect(bad.status).toBe(416);
     expect(bad.headers.get("content-range")).toBe("bytes */1000");
     await bad.arrayBuffer();
 
     // Seeks don't count as new views: full + bytes=0-99 counted, the rest not.
     expect((await row("SELECT view_count FROM file_assets WHERE id = ?", f.id))!.view_count).toBe(2);
+  });
+
+  it("a seek-shaped Range from a client with no counted view still counts toward max_views", async () => {
+    const uid = await newUser();
+    const bytes = new Uint8Array(1000).map((_, i) => i % 256);
+    const f = await seedFile(uid, { kind: "video", mime: "video/mp4", filename: "once.mp4", body: bytes, max_views: 1 });
+    const first = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=1-" } });
+    expect(first.status).toBe(206);
+    expect((await row("SELECT view_count FROM file_assets WHERE id = ?", f.id))!.view_count).toBe(1);
+    // the cap is reached: another fresh client gets the blocked page, not the bytes
+    const second = await api(`/f/${f.shortCode}`, { headers: { Range: "bytes=1-" } });
+    expect(second.status).not.toBe(206);
+    expect(await second.text()).not.toContain(String.fromCharCode(1, 2, 3));
   });
 
   it("missing blob -> 502", async () => {
@@ -235,4 +252,30 @@ describe("page engagement ingest (test_page_engagement.py)", () => {
     expect((await api(`/f/${f.shortCode}/page-events`, json({ session_id: "big", events }))).status).toBe(204);
     expect((await row("SELECT COUNT(*) AS n FROM page_engagements WHERE session_id = 'big'"))!.n).toBe(1000);
   });
+});
+
+describe("page-events beacon bounds", () => {
+  const beacon = (sc: string, ip = "7.7.7.7") =>
+    api(`/f/${sc}/page-events`, { method: "POST", json: { session_id: "s1", events: [{ page: 1, dwell_ms: 10 }] }, headers: { "CF-Connecting-IP": ip } });
+  const count = async (id: string) => (await rows("SELECT id FROM page_engagements WHERE file_id = ?", id)).length;
+
+  it("writes nothing for a revoked or expired asset", async () => {
+    const uid = await newUser();
+    const rev = await seedFile(uid, { body: "x", revoked_at: iso() });
+    const exp = await seedFile(uid, { body: "x", expires_at: new Date(Date.now() - 60_000).toISOString() });
+    expect((await beacon(rev.shortCode)).status).toBe(204);
+    expect((await beacon(exp.shortCode)).status).toBe(204);
+    expect(await count(rev.id)).toBe(0);
+    expect(await count(exp.id)).toBe(0);
+  });
+
+  it("caps reports per source per window", async () => {
+    const uid = await newUser();
+    const f = await seedFile(uid, { body: "x" });
+    await awayFromWindowEdge(); // the cap is per fixed 10-minute window
+    for (let i = 0; i < PAGE_EVENTS_PER_WINDOW + 5; i++) await beacon(f.shortCode);
+    expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW);
+    await beacon(f.shortCode, "8.8.8.8");
+    expect(await count(f.id)).toBe(PAGE_EVENTS_PER_WINDOW + 1);
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 });

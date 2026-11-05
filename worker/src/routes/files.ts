@@ -13,7 +13,7 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { getCurrentUser, requireAuth } from "../auth/security";
-import { assertCanShare, findUsableDomain, shareOrgUuid } from "../services/domains";
+import { assertCanShare, assertDomainEditable, findUsableDomain, shareOrgUuid } from "../services/domains";
 import {
   FILE_KIND_HTML,
   FILE_STATUS_ACTIVE,
@@ -184,9 +184,9 @@ router.post("/", async (c) => {
   if (user && data.intent === "host") {
     if (data.slug) {
       slug = pagesService.validateSlug(data.slug);
-      if (await pagesService.slugTaken(db, slug, domainId)) httpError(409, "That slug is already taken.");
+      if (await pagesService.slugTaken(db, slug, domainId, { ownerId: user.userId })) httpError(409, "That slug is already taken.");
     } else {
-      slug = await pagesService.suggestSlug(db, pagesService.slugFromFilename(data.filename), domainId);
+      slug = await pagesService.suggestSlug(db, pagesService.slugFromFilename(data.filename), domainId, user.userId);
     }
   }
 
@@ -275,6 +275,8 @@ router.post("/:file_id/finalize", async (c) => {
 
   const asset = await getFileRow(db, fid);
   if (!asset || !(await authorizeAsset(asset, user, body?.data.owner_token))) httpError(404, "File not found.");
+  // Going live on an org domain needs current share authority there, like PUT /content and /access.
+  if (user) await assertDomainEditable(db, user, asset.domainId);
 
   if (asset.status === FILE_STATUS_ACTIVE) return c.json(await fileResponse(db, settings, asset));
   if (asset.status !== FILE_STATUS_PENDING_UPLOAD && asset.status !== FILE_STATUS_FAILED) {
@@ -362,6 +364,7 @@ router.put("/:file_id/content", async (c) => {
     .where(and(eq(fileAssets.id, fid), eq(fileAssets.userId, user.userId)))
     .get();
   if (!asset || asset.status === FILE_STATUS_DELETED) httpError(404, "File not found.");
+  await assertDomainEditable(db, user, asset.domainId);
   if (asset.status !== FILE_STATUS_ACTIVE) {
     httpError(
       409,
@@ -400,7 +403,7 @@ router.put("/:file_id/content", async (c) => {
     httpError(502, `Storage error: ${(err as Error).message}`);
   }
   if (written <= 0) {
-    background(c, () => deleteBlobQuiet(c.env.FILES, newKey));
+    background(c, () => deleteBlobQuiet(c.env.FILES, newKey, c.env.DB));
     httpError(400, "Empty request body.");
   }
 
@@ -413,11 +416,13 @@ router.put("/:file_id/content", async (c) => {
     sizeBytes: written,
     sha256: null,
     serveMode: serveModeFor(c, kind),
+    // Content that only now becomes HTML is new HTML: it gets the sandbox like any create path (F2).
+    ...(kind === FILE_KIND_HTML && asset.kind !== FILE_KIND_HTML && settings.htmlSandbox ? { htmlSandbox: 1 } : {}),
   };
   await db.update(fileAssets).set(updates).where(eq(fileAssets.id, asset.id));
   Object.assign(asset, updates);
 
-  if (oldKey !== newKey) background(c, () => deleteBlobQuiet(c.env.FILES, oldKey), "replace_content cleanup");
+  if (oldKey !== newKey) background(c, () => deleteBlobQuiet(c.env.FILES, oldKey, c.env.DB), "replace_content cleanup");
   background(c, () => computeSha256Async(c.env.FILES, db, asset.id, newKey), "sha256");
   return c.json(await fileResponse(db, settings, asset));
 });
@@ -495,6 +500,7 @@ router.put("/:file_id/access", async (c) => {
   const user = await requireAuth(c);
   const { data, fields } = await parseBodyWithFields(c, FileAccessRequest);
   const asset = await getOwnedFile(c, c.req.param("file_id"), user.userId);
+  await assertDomainEditable(c.var.db, user, asset.domainId);
   const now = nowIso();
   const updates: Partial<typeof fileAssets.$inferInsert> = {};
   if (fields.has("expires_in_hours")) {
@@ -693,6 +699,6 @@ router.delete("/:file_id", async (c) => {
     .get();
   if (!asset) httpError(404, "File not found.");
   await c.var.db.update(fileAssets).set({ status: FILE_STATUS_DELETED }).where(eq(fileAssets.id, asset.id));
-  background(c, () => deleteBlobQuiet(c.env.FILES, asset.storageKey), "delete_object");
+  background(c, () => deleteBlobQuiet(c.env.FILES, asset.storageKey, c.env.DB), "delete_object");
   return c.body(null, 204);
 });

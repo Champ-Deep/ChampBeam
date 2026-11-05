@@ -18,7 +18,7 @@ import { Badge, Button, Card, CardHeader, CardTitle, QrCode, QrButton, QrDownloa
 import { FileUploadZone } from './ui/FileUploadZone';
 import { UPLOAD_ACCEPT, UPLOAD_HINT_COMPACT, UPLOAD_HINT_GUEST, UPLOAD_LABEL } from '../config/uploadLimits';
 import { filesApi } from '../api/files';
-import { pagesApi } from '../api/pages';
+import { ensureGated, pagesApi } from '../api/pages';
 import type { BeamPage } from '../api/pages';
 import { apiErrorDetail } from '../api/_shared';
 
@@ -417,21 +417,27 @@ function HtmlAsPageCreator({
       toast.error('Slug must be lowercase letters, numbers and hyphens.');
       return;
     }
+    const code = accessCode.trim();
+    if (code && !/^\d{6,8}$/.test(code)) {
+      toast.error('Access code must be 6 to 8 digits.');
+      return;
+    }
     setPublishing(true);
     try {
       const html = await file.text();
       const slugifiedTitle = title.trim() === '' ? file.name.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ') : title.trim();
+      // The code travels with the publish: a rejected code fails the publish, never a live ungated page.
       const created = await pagesApi.create({
         html,
         title: slugifiedTitle,
         slug: slug.trim() || undefined,
+        access_code: code || undefined,
       });
-      if (accessCode.trim()) {
-        try {
-          await pagesApi.patch(created.page_id, { access_code: accessCode.trim() });
-        } catch {
-          toast.warning('Page published, but the access code could not be set.');
-        }
+      // shortcut: the Railway backend (live until cutover) ignores access_code on create; gate it with a patch, or take the page offline. Remove after cutover.
+      if (!(await ensureGated(created, code, (id, data) => pagesApi.patch(id, data)))) {
+        toast.error('The access code could not be set, so the page was taken offline. Set a code and enable it from Pages.');
+        onPublished(created);
+        return;
       }
       toast.success('Page published. Your page is live.');
       onPublished(created);
@@ -484,7 +490,7 @@ function HtmlAsPageCreator({
           inputMode="numeric"
           value={accessCode}
           onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-          placeholder="4–8 digits"
+          placeholder="6 to 8 digits"
           disabled={publishing}
           className="w-full sm:w-64 h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm outline-none transition-colors focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 disabled:opacity-50"
         />

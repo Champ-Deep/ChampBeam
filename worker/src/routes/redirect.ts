@@ -10,7 +10,7 @@ import { Hono } from "hono";
 import type { AppEnv, Ctx, Settings } from "../env";
 import type { Db } from "../db/client";
 import { linkClicks } from "../db/schema";
-import { captureLead, clientIp, gateCookieName, hasGateCookie, isVpnIp, validEmail } from "../lib/accessControl";
+import { captureLead, clientIp, gateCookieName, hasGateCookie, isVpnIp, leadCaptureAllowed, validEmail } from "../lib/accessControl";
 import { blockedPage, emailGatePage } from "../lib/accessPages";
 import { cfGeo } from "../lib/request";
 import { isPast } from "../lib/time";
@@ -157,7 +157,7 @@ router.post("/r/:short_code/unlock", async (c) => {
     return emailGatePage({ action: `/r/${shortCode}/unlock`, brand, error: true });
   }
 
-  await captureLead(db, email, { ip: clientIp(c), linkId: link.id });
+  if (await leadCaptureAllowed(c.env.DB, link, clientIp(c))) await captureLead(db, email, { ip: clientIp(c), linkId: link.id });
 
   const resp = redirectResponse(`/r/${shortCode}`, 303);
   resp.headers.append(

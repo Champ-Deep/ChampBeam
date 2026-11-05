@@ -21,6 +21,11 @@ export default defineConfig(async () => {
             // Pinned empty so a developer .dev.vars (live QA sets it) cannot turn the app host into a share plane.
             SHARE_ORIGIN_HOSTS: "",
             STORAGE_UPLOAD_SECRET: "test-upload-secret",
+            BETTER_AUTH_SECRET: "test-better-auth-secret-0123456789abcdef",
+            BETTER_AUTH_URL: "https://share.example.com",
+            // Pinned empty so a developer .dev.vars cannot switch Google sign-in on in tests.
+            GOOGLE_CLIENT_ID: "",
+            GOOGLE_CLIENT_SECRET: "",
             CLERK_SECRET_KEY: "sk_test_dummy",
             // Pinned so a developer's .dev.vars can't change test auth behaviour.
             CLERK_PUBLISHABLE_KEY: "",

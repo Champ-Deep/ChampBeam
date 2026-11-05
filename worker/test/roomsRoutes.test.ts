@@ -6,8 +6,9 @@
  * self-ranking engagement score.
  */
 import { describe, expect, it } from "vitest";
-import { api, env, json } from "./helpers";
+import { api, env, json, awayFromWindowEdge } from "./helpers";
 import { member, newOrgId, useRouteTestHooks } from "./orgTestUtils";
+import { TRACK_EVENTS_PER_WINDOW, TRACK_PAYLOAD_MAX_CHARS } from "../src/routes/rooms";
 
 useRouteTestHooks();
 
@@ -104,11 +105,14 @@ describe("briefing rooms", () => {
 
     await post(`/api/v1/rooms/${room.id}/publish`, m.headers);
     expect((await api(`/api/v1/rooms/public/${room.slug}`)).status).toBe(200);
+    const recip = await json(await post(`/api/v1/rooms/${room.id}/recipients`, m.headers, { name: "Ana García", company: "Ferrovial" }));
 
     await post(`/api/v1/rooms/${room.id}/archive`, m.headers);
-    const ended = await json(await api(`/api/v1/rooms/public/${room.slug}`));
+    const ended = await json(await api(`/api/v1/rooms/public/${room.slug}?t=${recip.token}`));
     expect(ended.state).toBe("archived");
     expect(ended.ended).toBe(true);
+    // Archiving revokes: no content and no recipient resolution, even with a valid token.
+    expect(ended).toMatchObject({ asset_ids: [], personalization: {}, identified: false });
 
     // Archived rooms cannot be re-published.
     expect((await post(`/api/v1/rooms/${room.id}/publish`, m.headers)).status).toBe(409);
@@ -182,6 +186,22 @@ describe("briefing rooms", () => {
     const badSlug = await post("/api/v1/rooms/track", {}, { slug: "no-such-room", type: "page_view", session_id: "s" });
     expect(badSlug.status).toBe(404);
   });
+
+  it("track refuses draft rooms and oversized payloads, and is capped per source", async () => {
+    const m = await seedOrg();
+    const draft = await makeRoom(m.headers);
+    expect((await post("/api/v1/rooms/track", {}, { slug: draft.slug, type: "page_view", session_id: "s" })).status).toBe(404);
+    const room = await makeRoom(m.headers);
+    await post(`/api/v1/rooms/${room.id}/publish`, m.headers);
+    const big = await post("/api/v1/rooms/track", {}, { slug: room.slug, type: "page_view", session_id: "s", payload: { x: "a".repeat(TRACK_PAYLOAD_MAX_CHARS) } });
+    expect(big.status).toBe(413);
+    await awayFromWindowEdge();
+    const ip = { "CF-Connecting-IP": "198.51.100.7" };
+    const codes: number[] = [];
+    for (let i = 0; i <= TRACK_EVENTS_PER_WINDOW; i++) codes.push((await post("/api/v1/rooms/track", ip, { slug: room.slug, type: "page_view", session_id: "s" })).status);
+    expect(codes.filter((x) => x === 204)).toHaveLength(TRACK_EVENTS_PER_WINDOW);
+    expect(codes.at(-1)).toBe(429);
+  }, 30_000); // may wait out a rate-limit window edge (awayFromWindowEdge)
 
   it("lists, updates and scopes rooms to the org", async () => {
     const m = await seedOrg();

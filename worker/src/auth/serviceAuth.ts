@@ -90,7 +90,6 @@ export async function resolveServiceIdentity(c: Ctx, rawKey: string): Promise<To
   const row = await db
     .select({
       role: organizationMemberships.role,
-      clerkOrgId: organizations.clerkOrgId,
       slug: organizations.slug,
       orgUuid: organizations.id,
     })
@@ -102,7 +101,7 @@ export async function resolveServiceIdentity(c: Ctx, rawKey: string): Promise<To
   return {
     userId: user.id,
     email: user.email ?? "",
-    orgId: row?.clerkOrgId ?? null,
+    orgId: row?.orgUuid ?? null,
     orgRole: row?.role ?? null,
     orgSlug: row?.slug ?? null,
     orgUuid: row?.orgUuid ?? null,

@@ -669,6 +669,8 @@ export function parseCsv(text: string): string[][] {
 }
 
 function quoteField(v: string): string {
+  // Spreadsheet formula injection: visitor-supplied cells (referrer, UA) must never start a formula.
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 

@@ -11,6 +11,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Settings } from "../env";
 import { requireOrgAdmin, requireOrgMember } from "../auth/security";
+import { assertCanShare } from "../services/domains";
 import type { Db } from "../db/client";
 import {
   CONTENT_KIND_FILE,
@@ -300,6 +301,7 @@ router.delete("/:content_id", async (c) => {
  */
 router.post("/:content_id/share", async (c) => {
   const user = await requireOrgMember(c);
+  assertCanShare(user); // a viewer seat is a member without share rights
   const db = c.var.db;
   const orgUuid = await orgUuidForUser(db, user);
   const content = await getOrgContent(db, c.req.param("content_id"), orgUuid);

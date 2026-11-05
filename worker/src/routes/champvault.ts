@@ -16,6 +16,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import { type TokenData, requireAuth } from "../auth/security";
+import { assertCanShare } from "../services/domains";
 import { chunk, type Db } from "../db/client";
 import { champvaultFavorites, linkClicks } from "../db/schema";
 import { HTTPError, httpError } from "../lib/errors";
@@ -38,8 +39,6 @@ import {
   assetToDict,
   deliveryTarget,
 } from "./_champvault";
-import { NOT_PROVISIONED } from "./_org";
-import { resolveOrgUuid } from "../services/org";
 
 export const router = new Hono<AppEnv>({ strict: false });
 
@@ -204,6 +203,7 @@ router.get("/assets/:asset_id", async (c) => {
  */
 router.post("/assets/:asset_id/beam", async (c) => {
   const user = await requireAuth(c);
+  assertCanShare(user);
   const data = await parseJson(c, BeamRequest);
   const assetId = c.req.param("asset_id");
   const db = c.var.db;
@@ -271,8 +271,7 @@ async function beamForOrg(
   domainId: string | null,
 ) {
   const db = c.var.db;
-  const orgUuid = await resolveOrgUuid(db, user.orgId!);
-  if (!orgUuid) httpError(409, NOT_PROVISIONED);
+  const orgUuid = user.orgId!;
 
   let content = await getChampvaultContent(db, orgUuid, assetId);
   if (!content) {

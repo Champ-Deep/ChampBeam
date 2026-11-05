@@ -129,6 +129,59 @@ describe("clerk webhook", () => {
     expect(await env.DB.prepare("SELECT id FROM organizations WHERE clerk_org_id = ?").bind(orgId).first()).toBeNull();
   });
 
+  it("a replayed or late created/updated event for a deleted membership does not revive it; a real re-add does", async () => {
+    configure(SECRET);
+    const orgId = `org_${crypto.randomUUID().slice(0, 10)}`;
+    const clerkUser = `user_${crypto.randomUUID().slice(0, 10)}`;
+    const m = (id: string, role = "org:admin") => ({ id, role, organization: { id: orgId, name: "Acme", slug: "acme" }, public_user_data: { user_id: clerkUser } });
+    const status = async () =>
+      (await env.DB.prepare("SELECT m.status, m.role FROM organization_memberships m JOIN organizations o ON o.id = m.organization_id JOIN users u ON u.id = m.user_id WHERE o.clerk_org_id = ? AND u.clerk_id = ?").bind(orgId, clerkUser).first<any>());
+
+    await send({ type: "organizationMembership.created", data: m("orgmem_a") });
+    await send({ type: "organizationMembership.deleted", data: m("orgmem_a") });
+    await send({ type: "organizationMembership.created", data: m("orgmem_a") }); // svix retry / reorder
+    await send({ type: "organizationMembership.updated", data: m("orgmem_a") });
+    expect((await status()).status).toBe("revoked");
+
+    await send({ type: "organizationMembership.created", data: m("orgmem_b", "org:member") }); // genuine re-add
+    expect(await status()).toMatchObject({ status: "active", role: "member" });
+  });
+
+  it("an older Clerk event delivered late cannot rewind a newer demotion or a newer removal", async () => {
+    configure(SECRET);
+    const orgId = `org_${crypto.randomUUID().slice(0, 10)}`;
+    const clerkUser = `user_${crypto.randomUUID().slice(0, 10)}`;
+    const m = (role: string, updated_at: number, id = "orgmem_o") => ({ id, role, updated_at, organization: { id: orgId, name: "Acme", slug: "acme" }, public_user_data: { user_id: clerkUser } });
+    const status = async () =>
+      (await env.DB.prepare("SELECT m.status, m.role FROM organization_memberships m JOIN organizations o ON o.id = m.organization_id JOIN users u ON u.id = m.user_id WHERE o.clerk_org_id = ? AND u.clerk_id = ?").bind(orgId, clerkUser).first<any>());
+
+    await send({ type: "organizationMembership.created", data: m("org:admin", 1000) });
+    await send({ type: "organizationMembership.updated", data: m("org:member", 3000) }); // demotion
+    await send({ type: "organizationMembership.updated", data: m("org:admin", 2000) }); // late older event
+    expect(await status()).toMatchObject({ status: "active", role: "member" });
+    await send({ type: "organizationMembership.updated", data: m("org:member", 3000) }); // exact retry
+    expect(await status()).toMatchObject({ status: "active", role: "member" });
+
+    // A delete carrying the same updated_at as the last update (Clerk need not bump it on deletion) still removes.
+    await send({ type: "organizationMembership.deleted", data: m("org:member", 3000) });
+    expect((await status()).status).toBe("revoked");
+    await send({ type: "organizationMembership.created", data: m("org:admin", 2500, "orgmem_p") }); // older add, new id
+    expect((await status()).status).toBe("revoked");
+    await send({ type: "organizationMembership.created", data: m("org:member", 6000, "orgmem_q") }); // real re-add
+    expect(await status()).toMatchObject({ status: "active", role: "member" });
+  });
+
+  it("a delete that arrives before its create leaves a tombstone the late create cannot lift", async () => {
+    configure(SECRET);
+    const orgId = `org_${crypto.randomUUID().slice(0, 10)}`;
+    const clerkUser = `user_${crypto.randomUUID().slice(0, 10)}`;
+    const data = { id: "orgmem_x", role: "org:admin", organization: { id: orgId, name: "Acme", slug: "acme" }, public_user_data: { user_id: clerkUser } };
+    await send({ type: "organizationMembership.deleted", data });
+    await send({ type: "organizationMembership.created", data });
+    const row = await env.DB.prepare("SELECT m.status FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.clerk_id = ?").bind(clerkUser).first<any>();
+    expect(row.status).toBe("revoked");
+  });
+
   it("organization.deleted cascades memberships", async () => {
     configure(SECRET);
     const org = await createOrg();

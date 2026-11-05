@@ -6,7 +6,7 @@
  * under test is key resolution in auth/security.ts, not those routers.
  */
 import { describe, expect, it } from "vitest";
-import { api, bearer, clerkToken, createApiKey, createUser, env, json, sha256Hex } from "./helpers";
+import { api, bearer, createApiKey, createUser, env, json, sessionHeaders, sha256Hex } from "./helpers";
 import { windowIndex } from "../src/lib/ratelimit";
 
 const PREFIX = "cb_live_";
@@ -68,9 +68,8 @@ describe("API key auth (test_api_keys.py)", () => {
     expect((await api("/api/v1/api-keys")).status).toBe(401);
   });
 
-  it("key management with a Clerk session", async () => {
-    const sub = `user_${crypto.randomUUID().slice(0, 12)}`;
-    const headers = bearer(await clerkToken({ sub, email: `${sub}@example.com` }));
+  it("key management with a session cookie", async () => {
+    const headers = await sessionHeaders((await createUser()).id);
 
     const created = await api("/api/v1/api-keys", { method: "POST", json: { name: " ci key " }, headers });
     expect(created.status).toBe(201);
@@ -107,8 +106,7 @@ describe("API key auth (test_api_keys.py)", () => {
   });
 
   it("unknown, malformed and foreign key ids are 404", async () => {
-    const sub = `user_${crypto.randomUUID().slice(0, 12)}`;
-    const headers = bearer(await clerkToken({ sub }));
+    const headers = await sessionHeaders((await createUser()).id);
     const { keyId: foreign } = await mintKey();
     for (const id of ["not-a-uuid", crypto.randomUUID(), foreign]) {
       const res = await api(`/api/v1/api-keys/${id}/revoke`, { method: "POST", headers });
@@ -118,8 +116,7 @@ describe("API key auth (test_api_keys.py)", () => {
   });
 
   it("caps active keys at 10", async () => {
-    const sub = `user_${crypto.randomUUID().slice(0, 12)}`;
-    const headers = bearer(await clerkToken({ sub }));
+    const headers = await sessionHeaders((await createUser()).id);
     for (let i = 0; i < 10; i++) {
       expect((await api("/api/v1/api-keys", { method: "POST", json: { name: `k${i}` }, headers })).status).toBe(201);
     }

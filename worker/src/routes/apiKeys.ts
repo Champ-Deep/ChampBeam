@@ -10,7 +10,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
 import type { TokenData } from "../auth/security";
-import { requireClerkAuth } from "../auth/security";
+import { requireSessionAuth } from "../auth/security";
 import { API_KEY_PREFIX, apiKeys } from "../db/schema";
 import { httpError } from "../lib/errors";
 import { parseJson } from "../lib/validate";
@@ -59,7 +59,7 @@ async function getOwnedKey(c: Ctx, keyId: string, user: TokenData): Promise<ApiK
 
 /** Create a new API key. The full key is returned once; store it safely. */
 router.post("/", async (c) => {
-  const user = await requireClerkAuth(c);
+  const user = await requireSessionAuth(c);
   const data = await parseJson(c, ApiKeyCreate);
   const db = c.var.db;
 
@@ -90,7 +90,7 @@ router.post("/", async (c) => {
 
 /** List the caller's API keys (prefix only — full keys are never shown again). */
 router.get("/", async (c) => {
-  const user = await requireClerkAuth(c);
+  const user = await requireSessionAuth(c);
   const rows = await c.var.db
     .select()
     .from(apiKeys)
@@ -102,7 +102,7 @@ router.get("/", async (c) => {
 
 /** Revoke a key immediately. Revoked keys are kept for the audit trail. */
 async function revoke(c: Ctx) {
-  const user = await requireClerkAuth(c);
+  const user = await requireSessionAuth(c);
   const row = await getOwnedKey(c, c.req.param("key_id") ?? "", user);
   if (row.revokedAt == null) {
     row.revokedAt = nowIso();
