@@ -17,7 +17,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1 import files as files_v1
@@ -35,9 +35,16 @@ from app.models.file_asset import (
     FileAsset,
 )
 from app.models.intranet import (
+    ACTOR_AGENT,
     ACTOR_HUMAN,
-    AGENT_OFF,
+    ACTOR_SYSTEM,
+    AGENT_JEV,
     EVENT_CHECK_FAILED,
+    EVENT_SCANNED,
+    SCAN_NOT_SCANNED,
+    SCAN_PENDING,
+    STATE_SCANNING,
+    AgentBenchmark,
     EVENT_INVITE_REVOKED,
     EVENT_INVITED,
     EVENT_MEMBER_DEACTIVATED,
@@ -59,7 +66,7 @@ from app.models.intranet import (
 )
 from app.models.org import ROLE_ADMIN, ROLE_MEMBER, Organization, OrganizationMembership
 from app.models.user import User
-from app.services import clerk_client, decision_log, storage, transfer_service
+from app.services import agent_benchmark, clerk_client, decision_log, review_agent, storage, transfer_service
 from app.services.transfer_service import TransferError
 
 logger = logging.getLogger(__name__)
@@ -73,6 +80,7 @@ blob_router.add_api_route(
 INTRANET_RATE_LIMIT = "60/minute"
 _HEARTBEAT_SECONDS = 30
 _TICKET_TTL_SECONDS = 60
+_BENCHMARK_STALE_HOURS = 2
 
 
 @dataclass
@@ -187,6 +195,14 @@ class TransferOut(BaseModel):
     expired_at: Optional[str]
     revoked_at: Optional[str]
     age_seconds: int
+    scan_status: Optional[str] = None
+    scan_detail: Optional[str] = None
+    reminded_at: Optional[str] = None
+    escalated_at: Optional[str] = None
+    escalation_reason: Optional[str] = None
+    decided_by_id: Optional[str] = None
+    agent_result: Optional[dict] = None
+    withdrawn_at: Optional[str] = None
 
 
 class UploadInit(BaseModel):
@@ -306,6 +322,8 @@ def _person(user: Optional[User], user_id: UUID) -> PersonOut:
 
 
 def _receipt(t: Transfer) -> str:
+    if t.state == STATE_SCANNING:
+        return "scanning"
     if t.state in PENDING_STATES:
         return "pending"
     if t.state == STATE_REJECTED:
@@ -371,6 +389,14 @@ async def _serialize(session: AsyncSession, transfers: list[Transfer]) -> list[T
                 expired_at=iso_utc(t.expired_at),
                 revoked_at=iso_utc(t.revoked_at),
                 age_seconds=max(0, int((now - t.submitted_at).total_seconds())) if t.submitted_at else 0,
+                scan_status=t.scan_status,
+                scan_detail=t.scan_detail,
+                reminded_at=iso_utc(t.reminded_at),
+                escalated_at=iso_utc(t.escalated_at),
+                escalation_reason=t.escalation_reason,
+                decided_by_id=t.decided_by_id if t.decided_by_type == ACTOR_AGENT else None,
+                agent_result=t.agent_result,
+                withdrawn_at=iso_utc(t.withdrawn_at),
             )
         )
     return out
@@ -494,8 +520,23 @@ async def me(actor: Actor = Depends(require_active_member), session: AsyncSessio
             "max_expiry_days": settings.intranet_max_expiry_days,
             "blocked_extensions": sorted(settings.intranet_blocked_extension_set),
         },
-        "malware_scan": False,
+        "malware_scan": settings.clamd_configured,
+        "malware_scan_max_bytes": settings.clamd_max_stream_bytes if settings.clamd_configured else None,
+        "agent": {
+            "modes": review_agent.available_modes(),
+            "clef_configured": settings.clef_configured,
+            "benchmark_providers": _benchmark_providers(),
+        },
     }
+
+
+def _benchmark_providers() -> list[str]:
+    providers = []
+    if settings.clef_configured:
+        providers.append(review_agent.PROVIDER_CLEF)
+    if settings.review_agent_allow_mock:
+        providers.append(review_agent.PROVIDER_MOCK)
+    return providers
 
 
 @router.get("/badges")
@@ -512,17 +553,23 @@ async def badges(actor: Actor = Depends(require_active_member), session: AsyncSe
         )
     ).scalar_one()
     queue = 0
+    overdue = 0
     if actor.is_reviewer:
-        queue = (
+        pending = (
+            Transfer.organization_id == org_id,
+            Transfer.state.in_(PENDING_STATES),
+            Transfer.submitter_user_id != actor.user.id,
+        )
+        queue = (await session.execute(select(func.count(Transfer.id)).where(*pending))).scalar_one()
+        overdue = (
             await session.execute(
                 select(func.count(Transfer.id)).where(
-                    Transfer.organization_id == org_id,
-                    Transfer.state.in_(PENDING_STATES),
-                    Transfer.submitter_user_id != actor.user.id,
+                    *pending,
+                    or_(Transfer.reminded_at.is_not(None), Transfer.escalated_at.is_not(None)),
                 )
             )
         ).scalar_one()
-    return {"inbox_unopened": inbox, "review_queue": queue}
+    return {"inbox_unopened": inbox, "review_queue": queue, "review_overdue": overdue}
 
 
 @router.get("/members", response_model=List[MemberOut])
@@ -761,8 +808,10 @@ async def get_review_settings(actor: Actor = Depends(require_active_member), ses
 async def put_review_settings(
     data: ReviewSettingsPatch, actor: Actor = Depends(require_admin), session: AsyncSession = Depends(get_db_session)
 ):
-    if data.agent_mode is not None and data.agent_mode != AGENT_OFF:
-        raise HTTPException(status_code=422, detail="The review agent is not available in this release.")
+    if data.agent_mode == AGENT_JEV:
+        raise HTTPException(status_code=422, detail="The Jev provider needs IT's written sign-off and is not available yet.")
+    if data.agent_mode is not None and data.agent_mode not in review_agent.available_modes():
+        raise HTTPException(status_code=422, detail="The local scorer (Clef) is not configured on this deployment.")
     if data.default_expiry_days is not None and data.default_expiry_days > settings.intranet_max_expiry_days:
         raise HTTPException(
             status_code=422, detail=f"Default expiry cannot exceed {settings.intranet_max_expiry_days} days."
@@ -913,11 +962,17 @@ async def create_transfer(
         submitter_user_id=actor.user.id,
         recipient_user_id=rid,
         purpose=data.purpose.strip(),
-        state=STATE_SUBMITTED,
+        state=STATE_SCANNING if settings.clamd_configured else STATE_SUBMITTED,
         requested_expires_in_days=data.requested_expires_in_days,
         requested_one_time=data.requested_one_time,
         one_time=data.requested_one_time,
-        check_results={"size": "ok", "type": "ok", "malware_scan": "not_configured"},
+        scan_status=SCAN_PENDING if settings.clamd_configured else SCAN_NOT_SCANNED,
+        scan_detail=None if settings.clamd_configured else "Malware scanning is not configured.",
+        check_results={
+            "size": "ok",
+            "type": "ok",
+            "malware_scan": SCAN_PENDING if settings.clamd_configured else SCAN_NOT_SCANNED,
+        },
         submitted_at=now,
         agent_window_ends_at=now + timedelta(hours=review.agent_window_hours),
         hard_expires_at=now + timedelta(days=review.hard_expiry_days),
@@ -937,8 +992,20 @@ async def create_transfer(
             "requested_one_time": data.requested_one_time,
         },
     )
+    if not settings.clamd_configured:
+        await decision_log.append(
+            session,
+            organization_id=actor.organization.id,
+            transfer_id=transfer.id,
+            event=EVENT_SCANNED,
+            actor_type=ACTOR_SYSTEM,
+            actor_id="scanner",
+            detail={"status": SCAN_NOT_SCANNED},
+        )
     await session.commit()
     background_tasks.add_task(_compute_sha256, asset.id, asset.storage_key)
+    if settings.clamd_configured:
+        background_tasks.add_task(transfer_service.scan_transfer, transfer.id)
     return (await _serialize(session, [transfer]))[0]
 
 
@@ -995,6 +1062,24 @@ async def revoke_transfer(
         raise HTTPException(status_code=403, detail="Only the submitter or a Reviewer can revoke.")
     try:
         key = await transfer_service.revoke(session, transfer, actor.user_id, body.reason if body else None)
+    except TransferError as exc:
+        _raise(exc)
+    await session.commit()
+    background_tasks.add_task(transfer_service.delete_blob, key)
+    return (await _serialize(session, [transfer]))[0]
+
+
+@router.post("/transfers/{transfer_id}/withdraw", response_model=TransferOut)
+async def withdraw_transfer(
+    transfer_id: str,
+    background_tasks: BackgroundTasks,
+    body: Optional[RevokeBody] = None,
+    actor: Actor = Depends(require_active_member),
+    session: AsyncSession = Depends(get_db_session),
+):
+    transfer = await _get_transfer(session, actor, transfer_id)
+    try:
+        key = await transfer_service.withdraw(session, transfer, actor.user_id, body.reason if body else None)
     except TransferError as exc:
         _raise(exc)
     await session.commit()
@@ -1157,6 +1242,107 @@ async def download_with_ticket(
     if kind == "review":
         return await _serve_review(session, actor, transfer)
     return await _serve_transfer(session, actor, transfer)
+
+
+@router.get("/review/agent-approved", response_model=List[TransferOut])
+async def agent_approved(actor: Actor = Depends(require_reviewer), session: AsyncSession = Depends(get_db_session)):
+    rows = (
+        await session.execute(
+            select(Transfer)
+            .where(
+                Transfer.organization_id == actor.organization.id,
+                Transfer.state == STATE_RELEASED,
+                Transfer.decided_by_type == ACTOR_AGENT,
+                Transfer.first_opened_at.is_(None),
+            )
+            .order_by(Transfer.released_at.desc())
+            .limit(200)
+        )
+    ).scalars().all()
+    return await _serialize(session, list(rows))
+
+
+@router.post("/review/{transfer_id}/overturn", response_model=TransferOut)
+async def overturn_transfer(
+    transfer_id: str,
+    body: RejectBody,
+    background_tasks: BackgroundTasks,
+    actor: Actor = Depends(require_reviewer),
+    session: AsyncSession = Depends(get_db_session),
+):
+    transfer = await _get_transfer(session, actor, transfer_id)
+    try:
+        key = await transfer_service.overturn(session, transfer, actor.user_id, body.reason)
+    except TransferError as exc:
+        _raise(exc)
+    await session.commit()
+    background_tasks.add_task(transfer_service.delete_blob, key)
+    return (await _serialize(session, [transfer]))[0]
+
+
+class BenchmarkCreate(BaseModel):
+    provider: Literal["clef", "mock"] = "clef"
+
+
+def _benchmark_out(row: AgentBenchmark) -> dict:
+    return {
+        "id": str(row.id),
+        "provider": row.provider,
+        "status": row.status,
+        "created_at": iso_utc(row.created_at),
+        "finished_at": iso_utc(row.finished_at),
+        "report": row.report,
+        "markdown": agent_benchmark.to_markdown(row.report) if row.report else None,
+        "error": row.error,
+    }
+
+
+@router.post("/agent/benchmarks", status_code=202)
+async def start_benchmark(
+    background_tasks: BackgroundTasks,
+    body: Optional[BenchmarkCreate] = None,
+    actor: Actor = Depends(require_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    provider = (body or BenchmarkCreate()).provider
+    if provider not in _benchmark_providers():
+        raise HTTPException(status_code=422, detail=f"Provider '{provider}' is not configured on this deployment.")
+    running = (
+        await session.execute(
+            select(AgentBenchmark.id).where(
+                AgentBenchmark.organization_id == actor.organization.id,
+                AgentBenchmark.status == "running",
+                AgentBenchmark.created_at > datetime.utcnow() - timedelta(hours=_BENCHMARK_STALE_HOURS),
+            )
+        )
+    ).first()
+    if running is not None:
+        raise HTTPException(status_code=409, detail="A benchmark is already running.")
+    row = AgentBenchmark(
+        id=uuid4(),
+        organization_id=actor.organization.id,
+        provider=provider,
+        status="running",
+        created_at=datetime.utcnow(),
+        created_by_id=actor.user_id,
+    )
+    session.add(row)
+    await session.commit()
+    background_tasks.add_task(agent_benchmark.run_job, row.id)
+    return _benchmark_out(row)
+
+
+@router.get("/agent/benchmarks")
+async def list_benchmarks(actor: Actor = Depends(require_admin), session: AsyncSession = Depends(get_db_session)):
+    rows = (
+        await session.execute(
+            select(AgentBenchmark)
+            .where(AgentBenchmark.organization_id == actor.organization.id)
+            .order_by(AgentBenchmark.created_at.desc())
+            .limit(10)
+        )
+    ).scalars().all()
+    return [_benchmark_out(r) for r in rows]
 
 
 @router.post("/review/{transfer_id}/approve", response_model=TransferOut)

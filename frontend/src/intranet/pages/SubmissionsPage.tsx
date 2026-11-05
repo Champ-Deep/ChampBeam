@@ -7,7 +7,8 @@ import { intranetApi } from '../api';
 import { PageHeader, QueryState } from '../components';
 import { TRANSFER_KEYS, errorText, fileLine, limitsLine, personName, receiptLabel, stateTone } from '../shared';
 
-const REVOCABLE = new Set(['submitted', 'in_review', 'released']);
+const WITHDRAWABLE = new Set(['scanning', 'submitted', 'in_review']);
+const DOWNLOADABLE = new Set(['submitted', 'in_review', 'released']);
 
 export function SubmissionsPage() {
   const client = useQueryClient();
@@ -31,6 +32,11 @@ export function SubmissionsPage() {
   async function revoke(id: string) {
     if (!(await confirm({ message: 'Revoke this file? The recipient loses access at once and the file is deleted.', confirmLabel: 'Revoke' }))) return;
     await act(() => intranetApi.revoke(id), 'File revoked.');
+  }
+
+  async function withdraw(id: string) {
+    if (!(await confirm({ message: 'Withdraw this submission? It leaves the review queue and the file is deleted.', confirmLabel: 'Withdraw' }))) return;
+    await act(() => intranetApi.withdraw(id), 'Submission withdrawn.');
   }
 
   return (
@@ -57,15 +63,20 @@ export function SubmissionsPage() {
                   <td style={{ color: stateTone(t) }}>
                     {receiptLabel(t)}
                     {t.reject_reason && <small>Reason: {t.reject_reason}</small>}
+                    {t.state === 'check_failed' && t.scan_status === 'infected' && <small>Malware was detected. The file was deleted.</small>}
+                    {t.decided_by_type === 'agent' && <small>Approved by the review agent</small>}
                   </td>
                   <td>{limitsLine(t)}</td>
                   <td>
                     <div className="cb-actions">
-                      {REVOCABLE.has(t.state) && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => void act(() => intranetApi.download(t.id), 'Download started.')}>Download</Button>
-                          <Button size="sm" variant="danger" onClick={() => void revoke(t.id)}>Revoke</Button>
-                        </>
+                      {DOWNLOADABLE.has(t.state) && (
+                        <Button size="sm" variant="outline" onClick={() => void act(() => intranetApi.download(t.id), 'Download started.')}>Download</Button>
+                      )}
+                      {WITHDRAWABLE.has(t.state) && (
+                        <Button size="sm" variant="outline" onClick={() => void withdraw(t.id)}>Withdraw</Button>
+                      )}
+                      {t.state === 'released' && (
+                        <Button size="sm" variant="danger" onClick={() => void revoke(t.id)}>Revoke</Button>
                       )}
                     </div>
                   </td>

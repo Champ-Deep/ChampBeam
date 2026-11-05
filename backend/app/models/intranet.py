@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from app.db.postgres import Base
 
 
+STATE_SCANNING = "scanning"
 STATE_SUBMITTED = "submitted"
 STATE_IN_REVIEW = "in_review"
 STATE_RELEASED = "released"
@@ -32,7 +33,13 @@ STATE_WITHDRAWN = "withdrawn"
 STATE_CHECK_FAILED = "check_failed"
 
 PENDING_STATES = (STATE_SUBMITTED, STATE_IN_REVIEW)
-REVOCABLE_STATES = (STATE_SUBMITTED, STATE_IN_REVIEW, STATE_RELEASED)
+REVOCABLE_STATES = (STATE_SCANNING, STATE_SUBMITTED, STATE_IN_REVIEW, STATE_RELEASED)
+WITHDRAWABLE_STATES = (STATE_SCANNING, STATE_SUBMITTED, STATE_IN_REVIEW)
+
+SCAN_PENDING = "pending"
+SCAN_CLEAN = "clean"
+SCAN_INFECTED = "infected"
+SCAN_NOT_SCANNED = "not_scanned"
 
 EVENT_SUBMITTED = "submitted"
 EVENT_CHECK_FAILED = "check_failed"
@@ -54,13 +61,20 @@ EVENT_MEMBER_UPDATED = "member_updated"
 EVENT_MEMBER_DEACTIVATED = "member_deactivated"
 EVENT_MEMBER_REACTIVATED = "member_reactivated"
 EVENT_SETTINGS_CHANGED = "settings_changed"
+EVENT_SCANNED = "scanned"
+EVENT_REMINDER_SENT = "reminder_sent"
+EVENT_OVERTURNED = "overturned"
+EVENT_BENCHMARK_RUN = "benchmark_run"
 
 ACTOR_HUMAN = "human"
 ACTOR_AGENT = "agent"
 ACTOR_SYSTEM = "system"
 
 AGENT_OFF = "off"
+AGENT_LOCAL = "local"
+AGENT_JEV = "jev"
 INPUT_METADATA_ONLY = "metadata_only"
+INPUT_CONTENT_EXCERPT = "content_excerpt"
 
 _JSON = JSON().with_variant(JSONB(), "postgresql")
 
@@ -108,6 +122,14 @@ class Transfer(Base):
     revoked_at = Column(DateTime, nullable=True)
     revoked_by_id = Column(String(255), nullable=True)
     withdrawn_at = Column(DateTime, nullable=True)
+    scan_status = Column(String(20), nullable=True)
+    scan_detail = Column(Text, nullable=True)
+    scanned_at = Column(DateTime, nullable=True)
+    reminded_at = Column(DateTime, nullable=True)
+    escalated_at = Column(DateTime, nullable=True)
+    escalation_reason = Column(Text, nullable=True)
+    agent_evaluated_at = Column(DateTime, nullable=True)
+    agent_result = Column(_JSON, nullable=True)
 
 
 class DecisionLogEntry(Base):
@@ -163,3 +185,19 @@ class OrgInvite(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime, nullable=True)
+
+
+class AgentBenchmark(Base):
+    __tablename__ = "agent_benchmarks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_id = Column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider = Column(String(40), nullable=False)
+    status = Column(String(16), nullable=False, default="running")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    created_by_id = Column(String(255), nullable=True)
+    report = Column(_JSON, nullable=True)
+    error = Column(Text, nullable=True)

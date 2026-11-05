@@ -25,6 +25,9 @@ export function personName(p: Person | null | undefined): string {
 }
 
 const RECEIPT_LABELS: Record<string, string> = {
+  scanning: 'Scanning for malware',
+  withdrawn: 'Withdrawn',
+  check_failed: 'Refused at intake',
   pending: 'Waiting for review',
   not_opened: 'Not opened',
   opened: 'Opened',
@@ -40,8 +43,15 @@ export function receiptLabel(t: Transfer): string {
   return base;
 }
 
+export function scanLabel(t: Transfer): string {
+  if (t.scan_status === 'clean') return 'Scanned clean';
+  if (t.scan_status === 'infected') return 'Malware found';
+  if (t.scan_status === 'pending') return 'Scanning…';
+  return `Not scanned${t.scan_detail ? `: ${t.scan_detail}` : ''}`;
+}
+
 export function stateTone(t: Transfer): string {
-  if (t.receipt === 'rejected' || t.receipt === 'revoked') return '#991b1b';
+  if (t.receipt === 'rejected' || t.receipt === 'revoked' || t.receipt === 'check_failed') return '#991b1b';
   if (t.receipt === 'opened') return '#166534';
   if (t.receipt === 'expired') return '#475569';
   return 'var(--cb-ink)';

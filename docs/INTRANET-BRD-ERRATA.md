@@ -36,9 +36,24 @@ Line numbers below are for `main` @ `e0538ad`.
 | 9 NFR-1 | No unauthenticated route returns a blob | Browser downloads use a 60-second HMAC ticket (`POST …/download-ticket`, then `GET /intranet/download/{ticket}`), so multi-GB files stream to disk instead of into memory. The ticket is bound to the user, org, transfer and kind (recipient or review), and the membership is re-checked when it is used. |
 | 9 NFR-4 | No file names in logs where avoidable | `check_failed` rows carry the reason and size, not the filename. Invite rows store a SHA-256 of the email. |
 
+## P1 decisions that refine the BRD
+
+- **Clef (OQ-6):** the BRD names the clef MCP server. The backend calls a plain HTTP contract
+  instead (see `INTRANET.md`), so Clef can live behind IT's logged gateway without the app being
+  an MCP client.
+- **Scan without a verdict:** files the scanner can't judge (too large, scanner down) are queued
+  for a human, flagged "Not scanned", and the agent can't approve them (AGT-3). Infected files are
+  refused at intake.
+- **Reminders (REV-6):** in-platform only (`reminder_sent` row, Overdue flag, red badge, toast), in
+  line with BRD §8.
+- **Lifecycle:** P1 adds a `scanning` state before `submitted`, and `withdrawn` (SUB-6).
+- **Escalations** re-notify Reviewers the same way as reminders. An escalated item is not
+  re-scored.
+
 ## Not in this build (still open)
 
-- Malware scanning (SUB-5 P1, OQ-5): the UI says scanning is off, as the BRD's "if nobody answers" column says.
-- Review agent, reminders, withdraw, benchmark (P1); Jev, access code, Resend (P2).
+- Jev provider, access code on release, Resend one-time links (P2).
+- Production home for Clef (OQ-6) and IT's choice of scanner (OQ-5). The code works with any
+  clamd it can reach.
 - Reactivating a member only clears `deactivated_at`. Deactivation also removes the Clerk org
   membership, so the person needs a new invite to sign in again.

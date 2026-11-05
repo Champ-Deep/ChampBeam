@@ -70,12 +70,23 @@ async def sweep_expired(limit: int = 200) -> int:
 
 
 async def sweep_transfers() -> int:
-    from app.services import transfer_service
+    from app.services import review_agent, transfer_service
 
     async with postgres.async_session_maker() as session:
         keys = await transfer_service.sweep(session)
     for key in keys:
         await _delete_blob(key)
+    try:
+        await transfer_service.retry_stuck_scans()
+    except Exception:
+        logger.exception("intranet sweeper: scan retry failed")
+    try:
+        async with postgres.async_session_maker() as session:
+            stats = await review_agent.run_pass(session)
+        if stats.approved or stats.escalated:
+            logger.info("review agent: %d approved, %d escalated", stats.approved, stats.escalated)
+    except Exception:
+        logger.exception("intranet sweeper: review agent pass failed")
     return len(keys)
 
 

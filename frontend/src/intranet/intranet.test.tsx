@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmProvider } from '../components/ui';
 import { intranetApi, type Me, type Member, type Transfer } from './api';
+import { AdminPage } from './pages/AdminPage';
 import { ReviewQueuePage } from './pages/ReviewQueuePage';
 import { SubmissionsPage } from './pages/SubmissionsPage';
 import { SubmitPage } from './pages/SubmitPage';
@@ -19,7 +20,15 @@ vi.mock('./api', () => ({
     approve: vi.fn(),
     reject: vi.fn(),
     revoke: vi.fn(),
+    withdraw: vi.fn(),
     download: vi.fn(),
+    agentApproved: vi.fn(),
+    overturn: vi.fn(),
+    invites: vi.fn(),
+    reviewSettings: vi.fn(),
+    saveReviewSettings: vi.fn(),
+    benchmarks: vi.fn(),
+    startBenchmark: vi.fn(),
   },
 }));
 
@@ -39,6 +48,8 @@ const me: Me = {
   },
   limits: { max_file_bytes: 1024, max_bytes_per_user: 4096, max_expiry_days: 90, blocked_extensions: ['exe', 'bat'] },
   malware_scan: false,
+  malware_scan_max_bytes: null,
+  agent: { modes: ['off', 'local'], clef_configured: true, benchmark_providers: ['clef'] },
 };
 
 const members: Member[] = [
@@ -75,6 +86,14 @@ function transfer(overrides: Partial<Transfer> = {}): Transfer {
     expired_at: null,
     revoked_at: null,
     age_seconds: 3600,
+    scan_status: 'clean',
+    scan_detail: null,
+    reminded_at: null,
+    escalated_at: null,
+    escalation_reason: null,
+    decided_by_id: null,
+    agent_result: null,
+    withdrawn_at: null,
     ...overrides,
   };
 }
@@ -94,6 +113,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(intranetApi.me).mockResolvedValue(me);
   vi.mocked(intranetApi.members).mockResolvedValue(members);
+  vi.mocked(intranetApi.agentApproved).mockResolvedValue([]);
 });
 afterEach(cleanup);
 
@@ -181,5 +201,70 @@ describe('my submissions', () => {
     expect(screen.getByText(/^Opened less than a minute ago/)).toBeInTheDocument();
     expect(screen.getByText('Reason: Wrong recipient')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument();
+  });
+
+  it('offers withdraw while unreleased and explains malware refusals', async () => {
+    vi.mocked(intranetApi.mine).mockResolvedValue([
+      transfer({ id: 'p', state: 'scanning', receipt: 'scanning', scan_status: 'pending', filename: 'pending.csv' }),
+      transfer({ id: 'x', state: 'check_failed', receipt: 'check_failed', scan_status: 'infected', filename: 'bad.csv' }),
+    ]);
+    vi.mocked(intranetApi.withdraw).mockResolvedValue(transfer({ id: 'p', state: 'withdrawn', receipt: 'withdrawn' }));
+    mount(<SubmissionsPage />);
+    expect(await screen.findByText('Scanning for malware')).toBeInTheDocument();
+    expect(screen.getByText(/Malware was detected/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Withdraw' }));
+    await waitFor(() => expect(intranetApi.withdraw).toHaveBeenCalledWith('p'));
+  });
+});
+
+describe('review queue P1 flags', () => {
+  it('flags unscanned, overdue and escalated items and lists agent approvals for overturn', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({ ...me, settings: { ...me.settings, agent_mode: 'local' } });
+    vi.mocked(intranetApi.queue).mockResolvedValue([
+      transfer({ id: 'n', scan_status: 'not_scanned', scan_detail: 'File is larger than the 25 MB scan limit.', reminded_at: new Date().toISOString(), filename: 'huge.csv' }),
+      transfer({ id: 'e', escalated_at: new Date().toISOString(), escalation_reason: 'Confidence 0.40 is below the 0.95 threshold.', filename: 'odd.csv' }),
+    ]);
+    vi.mocked(intranetApi.agentApproved).mockResolvedValue([
+      transfer({ id: 'a', state: 'released', receipt: 'not_opened', decided_by_type: 'agent', decided_by_id: 'agent:clef', agent_result: { p_approve: 0.97, reasons: [], provider: 'clef', model: 'm' }, filename: 'auto.csv' }),
+    ]);
+    vi.mocked(intranetApi.overturn).mockResolvedValue(transfer({ id: 'a', state: 'rejected' }));
+    mount(<ReviewQueuePage />);
+    expect(await screen.findByText('Overdue')).toBeInTheDocument();
+    expect(screen.getAllByText(/Not scanned: File is larger/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Escalated')).toBeInTheDocument();
+    expect(screen.getByText(/Agent escalated:/)).toBeInTheDocument();
+    expect(await screen.findByText(/clef · confidence 0.97/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Overturn…' }));
+    fireEvent.change(screen.getByLabelText('Reason for overturning'), { target: { value: 'Wrong person' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Overturn' }));
+    await waitFor(() => expect(intranetApi.overturn).toHaveBeenCalledWith('a', 'Wrong person'));
+  });
+});
+
+describe('admin review settings', () => {
+  it('sends only changed fields and shows the latest benchmark', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({ ...me, is_admin: true });
+    vi.mocked(intranetApi.invites).mockResolvedValue([]);
+    vi.mocked(intranetApi.reviewSettings).mockResolvedValue(me.settings);
+    vi.mocked(intranetApi.saveReviewSettings).mockResolvedValue({ ...me.settings, agent_mode: 'local' });
+    vi.mocked(intranetApi.benchmarks).mockResolvedValue([
+      {
+        id: 'b1', provider: 'clef', status: 'done', created_at: null, finished_at: new Date().toISOString(), error: null, markdown: '# r',
+        report: {
+          cases: 4, scored: 4, errors: 0, human_approved: 2, human_rejected: 2, current_threshold: 0.95, models: ['m@1'], note: '',
+          sweep: [{ threshold: 0.95, agreement: 0.75, auto_approved: 3, coverage: 0.75, false_releases: 1, false_release_rate: 0.5, missed_approvals: 0 }],
+        },
+      },
+    ]);
+    mount(<AdminPage />);
+    fireEvent.change(await screen.findByLabelText('Agent'), { target: { value: 'local' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(intranetApi.saveReviewSettings).toHaveBeenCalledWith({ agent_mode: 'local' }));
+    expect(await screen.findByText('75.0%')).toBeInTheDocument();
+    expect(screen.getByText('0.95 (current)')).toBeInTheDocument();
   });
 });

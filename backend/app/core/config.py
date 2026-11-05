@@ -188,6 +188,27 @@ class Settings(BaseSettings):
     intranet_invite_redirect_url: str = ""
     intranet_org_ids: str = ""
 
+    clamd_host: str = ""
+    clamd_port: int = 3310
+    clamd_timeout_s: float = 120.0
+    clamd_max_stream_bytes: int = 25 * 1024 * 1024
+    intranet_scan_retry_seconds: int = 900
+
+    clef_url: str = ""
+    clef_token: str = ""
+    clef_timeout_s: float = 20.0
+    review_agent_allow_mock: bool = False
+    review_agent_excerpt_bytes: int = 4096
+    review_agent_benchmark_max_rows: int = 500
+
+    @property
+    def clamd_configured(self) -> bool:
+        return bool(self.clamd_host)
+
+    @property
+    def clef_configured(self) -> bool:
+        return bool(self.clef_url)
+
     @property
     def intranet_org_id_set(self) -> set[str]:
         return {o.strip() for o in self.intranet_org_ids.split(",") if o.strip()}

@@ -3,6 +3,7 @@ import api from '../api/client';
 import { asArray } from '../api/_shared';
 
 export type TransferState =
+  | 'scanning'
   | 'submitted'
   | 'in_review'
   | 'released'
@@ -13,7 +14,7 @@ export type TransferState =
   | 'withdrawn'
   | 'check_failed';
 
-export type Receipt = 'pending' | 'not_opened' | 'opened' | 'expired' | 'revoked' | 'rejected' | 'consumed' | 'withdrawn' | 'check_failed';
+export type Receipt = 'scanning' | 'pending' | 'not_opened' | 'opened' | 'expired' | 'revoked' | 'rejected' | 'consumed' | 'withdrawn' | 'check_failed';
 
 export interface Person {
   user_id: string;
@@ -48,6 +49,14 @@ export interface Transfer {
   expired_at: string | null;
   revoked_at: string | null;
   age_seconds: number;
+  scan_status: 'pending' | 'clean' | 'infected' | 'not_scanned' | null;
+  scan_detail: string | null;
+  reminded_at: string | null;
+  escalated_at: string | null;
+  escalation_reason: string | null;
+  decided_by_id: string | null;
+  agent_result: { p_approve: number; reasons: string[]; provider: string; model: string } | null;
+  withdrawn_at: string | null;
 }
 
 export interface ReviewSettings {
@@ -73,6 +82,8 @@ export interface Me {
     blocked_extensions: string[];
   };
   malware_scan: boolean;
+  malware_scan_max_bytes: number | null;
+  agent: { modes: string[]; clef_configured: boolean; benchmark_providers: string[] };
 }
 
 export interface Member {
@@ -106,6 +117,43 @@ export interface LogEntry {
   detail: Record<string, unknown> | null;
   prev_hash: string | null;
   row_hash: string;
+}
+
+export interface BenchmarkRow {
+  threshold: number;
+  agreement: number | null;
+  auto_approved: number;
+  coverage: number | null;
+  false_releases: number;
+  false_release_rate: number | null;
+  missed_approvals: number;
+}
+
+export interface Benchmark {
+  id: string;
+  provider: string;
+  status: 'running' | 'done' | 'failed';
+  created_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  markdown: string | null;
+  report: {
+    cases: number;
+    scored: number;
+    errors: number;
+    human_approved: number;
+    human_rejected: number;
+    current_threshold: number;
+    models: string[];
+    sweep: BenchmarkRow[];
+    note: string;
+  } | null;
+}
+
+export interface Badges {
+  inbox_unopened: number;
+  review_queue: number;
+  review_overdue: number;
 }
 
 export interface LogFilters {
@@ -147,8 +195,8 @@ export const intranetApi = {
   async me(): Promise<Me> {
     return (await api.get<Me>('/intranet/me')).data;
   },
-  async badges(): Promise<{ inbox_unopened: number; review_queue: number }> {
-    return (await api.get<{ inbox_unopened: number; review_queue: number }>('/intranet/badges')).data;
+  async badges(): Promise<Badges> {
+    return (await api.get<Badges>('/intranet/badges')).data;
   },
   async members(): Promise<Member[]> {
     return asArray<Member>((await api.get('/intranet/members')).data);
@@ -216,6 +264,21 @@ export const intranetApi = {
   },
   async revoke(id: string, reason?: string): Promise<Transfer> {
     return (await api.post<Transfer>(`/intranet/transfers/${id}/revoke`, { reason: reason || null })).data;
+  },
+  async withdraw(id: string, reason?: string): Promise<Transfer> {
+    return (await api.post<Transfer>(`/intranet/transfers/${id}/withdraw`, { reason: reason || null })).data;
+  },
+  async agentApproved(): Promise<Transfer[]> {
+    return asArray<Transfer>((await api.get('/intranet/review/agent-approved')).data);
+  },
+  async overturn(id: string, reason: string): Promise<Transfer> {
+    return (await api.post<Transfer>(`/intranet/review/${id}/overturn`, { reason })).data;
+  },
+  async benchmarks(): Promise<Benchmark[]> {
+    return asArray<Benchmark>((await api.get('/intranet/agent/benchmarks')).data);
+  },
+  async startBenchmark(provider: string): Promise<Benchmark> {
+    return (await api.post<Benchmark>('/intranet/agent/benchmarks', { provider })).data;
   },
   async download(id: string, kind: 'transfer' | 'review' = 'transfer'): Promise<void> {
     const ticket = (await api.post<{ url: string }>(`/intranet/transfers/${id}/download-ticket`, { kind })).data;

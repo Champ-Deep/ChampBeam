@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Show, SignIn, useAuth, useClerk, useOrganizationList, useUser } from '@clerk/react';
 import { ClipboardCheck, FileClock, Inbox, Menu, ScrollText, Send, ShieldCheck, X } from 'lucide-react';
 import { clsx } from 'clsx';
+import { toast } from 'sonner';
 import { apiErrorStatus } from '../api/_shared';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { Button } from '../components/ui';
@@ -86,6 +87,7 @@ interface NavItem {
   label: string;
   icon: typeof Inbox;
   count?: number;
+  urgent?: boolean;
 }
 
 function Rail({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
@@ -117,7 +119,10 @@ function Rail({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void
               <Icon className="h-[18px] w-[18px] flex-shrink-0" />
               <span className="flex-1">{item.label}</span>
               {typeof item.count === 'number' && item.count > 0 && (
-                <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10.5px] font-bold text-white" aria-label={`${item.count} new`}>
+                <span
+                  className={clsx('rounded-md px-1.5 py-0.5 text-[10.5px] font-bold text-white', item.urgent ? 'bg-red-700' : 'bg-white/10')}
+                  aria-label={item.urgent ? `${item.count} waiting, some overdue` : `${item.count} new`}
+                >
                   {item.count}
                 </span>
               )}
@@ -144,13 +149,23 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { if (open) dialog.current?.showModal(); }, [open]);
+  const overdue = badges.data?.review_overdue ?? 0;
+  const isReviewer = Boolean(me.data?.is_reviewer);
+  const lastOverdue = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isReviewer || !badges.data) return;
+    if (overdue > (lastOverdue.current ?? 0)) {
+      toast.warning(`${overdue} submission${overdue === 1 ? ' is' : 's are'} waiting too long for review`);
+    }
+    lastOverdue.current = overdue;
+  }, [overdue, isReviewer, badges.data]);
 
   const items: NavItem[] = [
     { to: '/inbox', label: 'Inbox', icon: Inbox, count: badges.data?.inbox_unopened },
     { to: '/submit', label: 'Submit a file', icon: Send },
     { to: '/submissions', label: 'My submissions', icon: FileClock },
   ];
-  if (me.data?.is_reviewer) items.push({ to: '/review', label: 'Review queue', icon: ClipboardCheck, count: badges.data?.review_queue });
+  if (isReviewer) items.push({ to: '/review', label: 'Review queue', icon: ClipboardCheck, count: badges.data?.review_queue, urgent: overdue > 0 });
   if (me.data?.is_reviewer || me.data?.is_admin) items.push({ to: '/log', label: 'Decision log', icon: ScrollText });
   if (me.data?.is_admin) items.push({ to: '/admin', label: 'Administration', icon: ShieldCheck });
 

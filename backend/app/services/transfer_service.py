@@ -19,9 +19,20 @@ from app.models.file_asset import (
     FileAsset,
 )
 from app.models.intranet import (
+    ACTOR_AGENT,
     ACTOR_HUMAN,
     ACTOR_SYSTEM,
     EVENT_APPROVED,
+    EVENT_CHECK_FAILED,
+    EVENT_OVERTURNED,
+    EVENT_REMINDER_SENT,
+    EVENT_SCANNED,
+    EVENT_WITHDRAWN,
+    SCAN_INFECTED,
+    STATE_CHECK_FAILED,
+    STATE_SCANNING,
+    STATE_WITHDRAWN,
+    WITHDRAWABLE_STATES,
     EVENT_CONSUMED,
     EVENT_EXPIRED,
     EVENT_INVITE_EXPIRED,
@@ -151,6 +162,8 @@ async def approve(
     expires_in_days: Optional[int],
     one_time: Optional[bool],
     reason: Optional[str],
+    actor_type: str = ACTOR_HUMAN,
+    agent: Optional[dict] = None,
 ) -> None:
     if str(transfer.submitter_user_id) == reviewer_id:
         raise TransferError("You cannot decide your own submission.", 403)
@@ -171,7 +184,7 @@ async def approve(
         {
             "state": STATE_RELEASED,
             "decided_at": now,
-            "decided_by_type": ACTOR_HUMAN,
+            "decided_by_type": actor_type,
             "decided_by_id": reviewer_id,
             "released_at": now,
             "expires_at": now + timedelta(days=days),
@@ -184,17 +197,18 @@ async def approve(
         organization_id=transfer.organization_id,
         transfer_id=transfer.id,
         event=EVENT_APPROVED,
-        actor_type=ACTOR_HUMAN,
+        actor_type=actor_type,
         actor_id=reviewer_id,
         reason=reason,
         detail=limits,
+        agent=agent,
     )
     await decision_log.append(
         session,
         organization_id=transfer.organization_id,
         transfer_id=transfer.id,
         event=EVENT_RELEASED,
-        actor_type=ACTOR_HUMAN,
+        actor_type=actor_type,
         actor_id=reviewer_id,
         detail=limits,
     )
@@ -249,6 +263,110 @@ async def revoke(session: AsyncSession, transfer: Transfer, actor_id: str, reaso
         reason=reason,
     )
     return await _delete_blob_for(session, transfer.file_id)
+
+
+async def withdraw(session: AsyncSession, transfer: Transfer, actor_id: str, reason: Optional[str]) -> Optional[str]:
+    if str(transfer.submitter_user_id) != actor_id:
+        raise TransferError("Only the submitter can withdraw a submission.", 403)
+    now = datetime.utcnow()
+    await _transition(
+        session,
+        transfer,
+        WITHDRAWABLE_STATES,
+        {"state": STATE_WITHDRAWN, "withdrawn_at": now},
+    )
+    await decision_log.append(
+        session,
+        organization_id=transfer.organization_id,
+        transfer_id=transfer.id,
+        event=EVENT_WITHDRAWN,
+        actor_type=ACTOR_HUMAN,
+        actor_id=actor_id,
+        reason=reason,
+    )
+    return await _delete_blob_for(session, transfer.file_id)
+
+
+async def overturn(session: AsyncSession, transfer: Transfer, reviewer_id: str, reason: str) -> Optional[str]:
+    reason = (reason or "").strip()
+    if not reason:
+        raise TransferError("A reason is required to overturn.", 422)
+    if transfer.decided_by_type != ACTOR_AGENT:
+        raise TransferError("Only agent approvals can be overturned.", 409)
+    if str(transfer.submitter_user_id) == reviewer_id:
+        raise TransferError("You cannot decide your own submission.", 403)
+    now = datetime.utcnow()
+    result = await session.execute(
+        update(Transfer)
+        .where(
+            Transfer.id == transfer.id,
+            Transfer.state == STATE_RELEASED,
+            Transfer.decided_by_type == ACTOR_AGENT,
+            Transfer.first_opened_at.is_(None),
+            Transfer.download_claim_token.is_(None),
+        )
+        .values(
+            state=STATE_REJECTED,
+            decided_at=now,
+            decided_by_type=ACTOR_HUMAN,
+            decided_by_id=reviewer_id,
+            reject_reason=reason,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        await session.refresh(transfer)
+        raise TransferError("The recipient has already opened this file, so it cannot be overturned.", 409)
+    await session.refresh(transfer)
+    await decision_log.append(
+        session,
+        organization_id=transfer.organization_id,
+        transfer_id=transfer.id,
+        event=EVENT_OVERTURNED,
+        actor_type=ACTOR_HUMAN,
+        actor_id=reviewer_id,
+        reason=reason,
+    )
+    return await _delete_blob_for(session, transfer.file_id)
+
+
+async def apply_scan_result(session: AsyncSession, transfer_id: UUID, status: str, detail: Optional[str]) -> Optional[str]:
+    transfer = await session.get(Transfer, transfer_id, populate_existing=True)
+    if transfer is None or transfer.state != STATE_SCANNING:
+        return None
+    now = datetime.utcnow()
+    transfer.scan_status = status
+    transfer.scan_detail = detail
+    transfer.scanned_at = now
+    checks = dict(transfer.check_results or {})
+    checks["malware_scan"] = status
+    transfer.check_results = checks
+    await decision_log.append(
+        session,
+        organization_id=transfer.organization_id,
+        transfer_id=transfer.id,
+        event=EVENT_SCANNED,
+        actor_type=ACTOR_SYSTEM,
+        actor_id="scanner",
+        detail={"status": status},
+    )
+    if status == SCAN_INFECTED:
+        transfer.state = STATE_CHECK_FAILED
+        await decision_log.append(
+            session,
+            organization_id=transfer.organization_id,
+            transfer_id=transfer.id,
+            event=EVENT_CHECK_FAILED,
+            actor_type=ACTOR_SYSTEM,
+            actor_id="scanner",
+            reason=f"Malware detected ({detail or 'unknown signature'}).",
+        )
+        key = await _delete_blob_for(session, transfer.file_id)
+        await session.commit()
+        return key
+    transfer.state = STATE_SUBMITTED
+    await session.commit()
+    return None
 
 
 def _live_release_clause(now: datetime):
@@ -404,7 +522,7 @@ async def sweep(session: AsyncSession, limit: int = 200) -> list[str]:
         await session.execute(
             select(Transfer)
             .where(
-                Transfer.state.in_(PENDING_STATES),
+                Transfer.state.in_((STATE_SCANNING, *PENDING_STATES)),
                 Transfer.hard_expires_at.is_not(None),
                 Transfer.hard_expires_at <= now,
             )
@@ -469,6 +587,33 @@ async def sweep(session: AsyncSession, limit: int = 200) -> list[str]:
         )
         if invite.clerk_invitation_id:
             expired_invites.append((clerk_org_id, invite.clerk_invitation_id))
+    reminder_rows = (
+        await session.execute(
+            select(Transfer, OrgReviewSettings.reminder_hours)
+            .join(OrgReviewSettings, OrgReviewSettings.organization_id == Transfer.organization_id)
+            .where(
+                Transfer.state.in_(PENDING_STATES),
+                Transfer.reminded_at.is_(None),
+                OrgReviewSettings.reminder_hours.is_not(None),
+            )
+            .order_by(Transfer.submitted_at.asc())
+            .limit(limit)
+        )
+    ).all()
+    for transfer, hours in reminder_rows:
+        if transfer.submitted_at > now - timedelta(hours=hours):
+            continue
+        transfer.reminded_at = now
+        await decision_log.append(
+            session,
+            organization_id=transfer.organization_id,
+            transfer_id=transfer.id,
+            event=EVENT_REMINDER_SENT,
+            actor_type=ACTOR_SYSTEM,
+            actor_id=SWEEPER_ACTOR,
+            reason=f"Waiting for review longer than {hours} hours.",
+        )
+
     abandoned_before = now - timedelta(seconds=ABANDONED_UPLOAD_SECONDS)
     abandoned = (
         await session.execute(
@@ -497,3 +642,38 @@ async def sweep(session: AsyncSession, limit: int = 200) -> list[str]:
             except clerk_client.ClerkAdminError:
                 logger.warning("intranet: Clerk invite revoke failed for %s", invitation_id)
     return keys
+
+
+async def scan_transfer(transfer_id: UUID) -> None:
+    from app.db import postgres
+    from app.services import malware_scan
+
+    async with postgres.async_session_maker() as session:
+        transfer = await session.get(Transfer, transfer_id)
+        if transfer is None or transfer.state != STATE_SCANNING:
+            return
+        asset = await session.get(FileAsset, transfer.file_id)
+        if asset is None:
+            return
+        key, size = asset.storage_key, asset.size_bytes
+    result = await malware_scan.scan_object(key, size)
+    async with postgres.async_session_maker() as session:
+        blob = await apply_scan_result(session, transfer_id, result.status, result.detail)
+    await delete_blob(blob)
+
+
+async def retry_stuck_scans(limit: int = 20) -> int:
+    from app.db import postgres
+
+    cutoff = datetime.utcnow() - timedelta(seconds=settings.intranet_scan_retry_seconds)
+    async with postgres.async_session_maker() as session:
+        ids = (
+            await session.execute(
+                select(Transfer.id)
+                .where(Transfer.state == STATE_SCANNING, Transfer.submitted_at < cutoff)
+                .limit(limit)
+            )
+        ).scalars().all()
+    for tid in ids:
+        await scan_transfer(tid)
+    return len(ids)

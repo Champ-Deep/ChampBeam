@@ -82,6 +82,12 @@ export function SubmitPage() {
       {me.data && !me.data.malware_scan && (
         <p role="note" className="cb-panel">Malware scanning is not enabled on this deployment yet. Reviewers check files by hand before release.</p>
       )}
+      {me.data?.malware_scan && (
+        <p role="note" className="cb-panel">
+          Every file is scanned for malware before it reaches the review queue. Infected files are refused and deleted.
+          {me.data.malware_scan_max_bytes ? ` Files over ${formatBytes(me.data.malware_scan_max_bytes)} cannot be scanned; reviewers see them flagged as not scanned.` : ''}
+        </p>
+      )}
       {limits && (
         <form className="cb-panel" onSubmit={(e) => void submit(e)}>
           <fieldset disabled={busy}>
@@ -158,7 +164,7 @@ export function SubmitPage() {
                 <strong>{r.name}</strong>:{' '}
                 {r.status === 'uploading' && `uploading ${r.progress}%`}
                 {r.status === 'waiting' && 'waiting'}
-                {r.status === 'done' && 'submitted, waiting for review'}
+                {r.status === 'done' && (r.transfer?.state === 'scanning' ? 'submitted, scanning for malware' : 'submitted, waiting for review')}
                 {r.status === 'failed' && <span role="alert">{r.message}</span>}
               </li>
             ))}

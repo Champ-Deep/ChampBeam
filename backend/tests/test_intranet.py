@@ -230,7 +230,7 @@ async def test_full_flow_logs_every_step_and_receipt_changes(ctx: Ctx):
     assert mine[0]["receipt"] == "opened" and mine[0]["first_opened_at"]
 
     assert await _events(ctx, t["id"]) == [
-        "submitted", "opened_for_review", "approved", "released", "opened_by_recipient",
+        "submitted", "scanned", "opened_for_review", "approved", "released", "opened_by_recipient",
     ]
     verify = (await ctx.client.get(f"{I}/log/verify", headers=ctx.h("admin"))).json()
     assert verify["ok"] is True and verify["rows"] >= 5
@@ -429,10 +429,10 @@ async def test_log_is_append_only_and_tamper_evident(ctx: Ctx):
     await _approve(ctx, t["id"])
     assert (await ctx.client.get(f"{I}/log", headers=ctx.h("carol"))).status_code == 403
     page = (await ctx.client.get(f"{I}/log", headers=ctx.h("admin"))).json()
-    assert page["total"] == 3
+    assert page["total"] == 4
     csv_body = (await ctx.client.get(f"{I}/log.csv", headers=ctx.h("rita"))).text
     assert csv_body.splitlines()[0].startswith("id,at,transfer_id,event")
-    assert len(csv_body.strip().splitlines()) == 4
+    assert len(csv_body.strip().splitlines()) == 5
     filtered = (await ctx.client.get(f"{I}/log", params={"event": "approved"}, headers=ctx.h("admin"))).json()
     assert [e["event"] for e in filtered["items"]] == ["approved"]
 
