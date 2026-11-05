@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 from app.core.config import settings
 from app.db.postgres import init_db, close_db
 from app.db.redis import redis_client
+from app.middleware.cf_redirect import cf_redirect
 from app.middleware.rate_limit import setup_rate_limiting
 from app.core.service_auth import service_key_gate
 
@@ -148,6 +149,9 @@ setup_rate_limiting(app)
 # route allowlist (403 off-list), and applies the per-key rate limit — all
 # before routing, so scope lives in exactly one place (app/core/service_auth.py).
 app.middleware("http")(service_key_gate)
+
+# Registered last so it runs first: with CF_REDIRECT_BASE set, everything goes to the Cloudflare Worker.
+app.middleware("http")(cf_redirect)
 
 
 # Belt-and-suspenders: if anything escapes the route handlers, make sure the
