@@ -16,6 +16,8 @@ async function orgWithDomain() {
   const orgId = (await row<{ id: string }>("SELECT id FROM organizations WHERE clerk_org_id = ?", clerkOrg))!.id;
   const hostname = host();
   const domainId = await seedDomain(admin.userId, hostname);
+  // Real members predate the org; the adoption cutoff defaults to the org's created_at.
+  await env.DB.prepare("UPDATE users SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").bind(admin.userId).run();
   const attach = await api(`/api/v1/org/domains/${domainId}/attach`, { method: "POST", headers: admin.headers });
   expect(attach.status).toBe(200);
   return { clerkOrg, orgId, admin, hostname, domainId };
@@ -53,6 +55,21 @@ describe("org domain adoption", () => {
     // Idempotent: nothing left to move.
     const again = await json(await adopt(admin, domainId, { dry_run: false }));
     expect(again.adopted).toEqual({ files: 0, links: 0, aliases: 0 });
+  });
+
+  it("a member created after the org keeps their personal link on the platform host", async () => {
+    const { clerkOrg, admin, domainId } = await orgWithDomain();
+    const late = await member(clerkOrg, "member");
+    await env.DB.prepare("UPDATE users SET created_at = '2999-01-01T00:00:00.000Z' WHERE id = ?").bind(late.userId).run();
+    const lc = code("p");
+    await seedLink(late.userId, lc, { tracked_url: "https://example.com/personal" });
+
+    const res = await api(`/api/v1/org/domains/${domainId}/default`, { method: "POST", headers: admin.headers });
+    expect(res.status).toBe(200);
+    expect(await row("SELECT organization_id o, domain_id d FROM link_clicks WHERE short_code = ?", lc)).toEqual({ o: null, d: null });
+    const r = await api(`/r/${lc}`);
+    expect(r.status).toBe(302);
+    expect(r.headers.get("location")).toBe("https://example.com/personal");
   });
 
   it("dry run counts without writing; a collision is reported and not overwritten", async () => {

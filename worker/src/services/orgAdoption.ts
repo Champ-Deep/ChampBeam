@@ -25,7 +25,6 @@ export interface AdoptionReport {
   };
 }
 
-const NO_CUTOFF = "9999-12-31T00:00:00.000Z";
 const LIST_CAP = 200;
 
 // ?1 org, ?2 target domain, ?3 user-created-before cutoff. A statement binds only the params it uses.
@@ -49,9 +48,14 @@ export async function adoptExisting(
   d1: D1Database,
   orgId: string,
   domainId: string,
-  opts: { dryRun: boolean; before?: string | null },
+  opts: { dryRun: boolean; before?: string | null }, // before: override, default = org created_at
 ): Promise<AdoptionReport> {
-  const args = [orgId, domainId, opts.before || NO_CUTOFF];
+  // Personal space is a promise: without an explicit cutoff, only accounts older than the org move.
+  const cutoff =
+    opts.before ||
+    (await d1.prepare("SELECT created_at c FROM organizations WHERE id = ?1").bind(orgId).first<{ c: string }>())?.c ||
+    "0000-01-01T00:00:00.000Z"; // unknown org: attach nothing
+  const args = [orgId, domainId, cutoff];
   const st = (sql: string) => d1.prepare(sql).bind(...args.slice(0, Math.max(...[...sql.matchAll(/\?(\d)/g)].map((m) => +m[1]))));
   const count = async (sql: string) => (await st(sql).first<{ n: number }>())?.n ?? 0;
 
