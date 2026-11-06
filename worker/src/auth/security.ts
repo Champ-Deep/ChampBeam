@@ -98,8 +98,8 @@ async function resolveSession(c: Ctx): Promise<TokenData | null> {
         )
         .get()
     : undefined;
-  // A super admin acts as admin in whichever org they switched to (POST /admin/act-as), member or not.
-  if (!m && superAdmin && activeOrg) {
+  // A super admin acts as admin in whichever org they switched to (POST /admin/act-as): non-member or a lower role.
+  if (superAdmin && activeOrg && m?.role.toLowerCase() !== "admin") {
     const o = await c.var.db.select({ slug: organizations.slug }).from(organizations).where(eq(organizations.id, activeOrg)).get();
     if (o) m = { role: "admin", slug: o.slug };
   }

@@ -7,7 +7,8 @@ import { execFileSync } from "node:child_process";
 const BASE = (process.env.CB_BASE ?? "https://champbeam-staging.deep-ae0.workers.dev").replace(/\/+$/, "");
 if (!BASE.includes("champbeam-staging")) throw new Error(`refusing to run against ${BASE}`);
 const run = Date.now().toString(36);
-const PW = "e2e-long-enough-password";
+// Random per run: the repo is public and ROOT is a staging super admin, so no committed password may ever work.
+const PW = `pw-${crypto.randomUUID()}-${crypto.randomUUID()}`;
 let failed = 0;
 const step = (n, title) => console.log(`\n== ${n}. ${title}`);
 const check = (ok, what, extra = "") => {
@@ -41,7 +42,12 @@ function d1(sql) {
 const A = new Client(`e2e-a-${run}@staging.champbeam.test`);
 const B = new Client(`e2e-b-${run}@staging.champbeam.test`);
 const ROOT = new Client("e2e-root@staging.champbeam.test");
+// ROOT is a staging super admin once verified. Retire any account left by an earlier run (it may have an old
+// password) so a fresh one is made with this run's random password, and always end the run unverified.
+const resetRoot = () => d1(`UPDATE users SET email_verified = 0 WHERE email = '${ROOT.email}'`);
+d1(`UPDATE users SET email = 'e2e-root-old-${run}@staging.champbeam.test', email_verified = 0 WHERE email = '${ROOT.email}'`);
 
+try {
 step(0, "config endpoint (anonymous)");
 const cfg = await new Client("x").req("GET", "/api/v1/config");
 console.log(JSON.stringify(cfg.data));
@@ -107,8 +113,8 @@ check(leave.status === 400, "A cannot leave as the only admin", `status ${leave.
 
 step(7, "a super admin moves B to another org with their content");
 let rootUp = await ROOT.signUp("Root");
-if (rootUp.status !== 200) rootUp = await ROOT.req("POST", "/api/auth/sign-in/email", { email: ROOT.email, password: PW }); // re-run: account exists
-check(rootUp.status === 200, "super admin account signed up / signed in");
+check(rootUp.status === 200, "super admin account signed up");
+resetRoot(); // set the precondition before checking it
 const notYet = await ROOT.req("GET", "/api/v1/admin/orgs");
 check(notYet.status === 403, "unverified listed email is NOT a super admin", `status ${notYet.status}`);
 d1(`UPDATE users SET email_verified = 1 WHERE email = '${ROOT.email}'`);
@@ -164,6 +170,14 @@ per.forEach((a, k) => console.log(`D1 query time, ${names[k]}: median ${med(a).t
 const total = per.reduce((s, a) => s + med(a), 0);
 console.log(`D1 time for the 4 foreground queries of one redirect: ${total.toFixed(3)} ms  ->  ~${Math.floor(1000 / total)} redirects/s through one serialized D1 database (geo enrichment adds ~1 background write)`);
 d1(`DELETE FROM click_events WHERE user_agent IN ('e2e-d1-measure', 'e2e-measure')`);
+
+// Proof the fixture is not left privileged: ROOT must be refused before we exit.
+resetRoot();
+const after403 = await ROOT.req("GET", "/api/v1/admin/orgs");
+check(after403.status === 403, "ROOT is no longer a super admin after the run", `status ${after403.status}`);
+} finally {
+  resetRoot();
+}
 
 console.log(failed ? `\n${failed} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
 process.exit(failed ? 1 : 0);
