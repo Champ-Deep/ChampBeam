@@ -187,6 +187,26 @@ permission map and examples: `docs/V3-RELEASE.md` sections 3 and 4.
 | `GET /api/v1/org/reporting/summary?team=&user=&kind=&from=&to=` | member (own), team lead (team), grant or admin (org) | `shares_created`, `opens`, `clicks` by kind and member. `emails_sent` is always `not_measured`. Out-of-scope `team` or `user` is 403. |
 | `GET /api/v1/pages/slug-suggestion?filename=&domain_id=` | signed in | Basename-without-extension slug, numbered on collision. Reserves nothing. |
 
+## Self-serve orgs (Worker, v3)
+
+A new account is Personal: it belongs to no org. Org management is Better Auth's `/api/auth/organization/*` (create, update, update-member-role, remove-member, leave, accept-invitation); the routes below add what it lacks.
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `GET /api/v1/config` | anyone | `email_enabled`, `custom_domains_enabled`, `is_super_admin`, `platform_host`. Hide "Forgot password" when `email_enabled` is false. |
+| `POST /api/auth/organization/create` | verified email or Google sign-in | `{name, slug}`. Slug: lowercase, unique, not `admin`/`api`/`www`/`app`/`champbeam`. Caller becomes admin and the org becomes active. 5 administered orgs per user, super admins exempt. |
+| `POST /api/v1/org/invitations` | org admin | `{email, role: admin\|leader\|member\|viewer, resend?}`. Returns the invitation plus `accept_url` (always `https://<platform host>/accept-invitation/<id>`) and `email_sent`. Expires in 7 days. |
+| `GET /api/v1/org/invitations` | org admin | Pending invitations with `accept_url`. |
+| `POST /api/auth/organization/accept-invitation` | invited user | `{invitationId}`. The session email must equal the invited email. With email enabled the account must also be verified. |
+| `GET /api/v1/admin/orgs` | super admin | Every org with `members`, `content_items`, `files`, `links`. |
+| `POST /api/v1/admin/orgs` | super admin | `{name, slug, user_id\|email}`: create an org with that user as first admin. |
+| `POST /api/v1/admin/orgs/{id}/members` | super admin | `{user_id\|email, role}`. |
+| `POST /api/v1/admin/members/move` | super admin | `{user_id, from_org_id, to_org_id, role?, move_content=true, leave_source=true}`. One D1 batch. Refuses to move the last admin out. |
+| `POST /api/v1/admin/act-as` | super admin | `{organization_id\|null}`: switch this session into any org and act as admin there. |
+| `PUT /api/v1/admin/domains/{id}/legacy` | super admin | `{legacy_platform_before: ISO\|null}`: the domain also serves platform-bucket files and links created before that instant. |
+
+Every `/api/v1/admin` write adds an `admin_audit` row (actor, action, target, payload, at). A super admin is an email in `SUPER_ADMIN_EMAILS` that is verified or Google-linked.
+
 ## Service keys (trusted backend integrations)
 
 Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env, e.g. for the agent workspace) resolves to a dedicated org-scoped service identity and is accepted **only** on a write allowlist — register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `app/core/service_auth.py`.
