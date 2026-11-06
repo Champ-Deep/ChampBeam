@@ -1,0 +1,1600 @@
+[
+  {
+    "width": 375,
+    "theme": "paper",
+    "pending": [
+      "-"
+    ],
+    "active": [
+      "+21d"
+    ],
+    "done": [
+      "+0m",
+      "+21d",
+      "+21d"
+    ],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "geometry": {
+      "overflow": [],
+      "rows": [
+        [
+          {
+            "text": "1",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Partner briefing",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              184.203125
+            ],
+            "cellBounds": [
+              61,
+              209.34375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "link \u00b7 desktop",
+            "hidden": true,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              0,
+              0
+            ],
+            "cellBounds": [
+              0,
+              0
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Bangalore, IN",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              217.34375,
+              288.34375
+            ],
+            "cellBounds": [
+              209.34375,
+              298
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+0m",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              328.390625,
+              350
+            ],
+            "cellBounds": [
+              298,
+              358
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "2",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "APAC partner deck.pdf",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              155.40625
+            ],
+            "cellBounds": [
+              61,
+              209.34375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 mobile",
+            "hidden": true,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              0,
+              0
+            ],
+            "cellBounds": [
+              0,
+              0
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Singapore, SG",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              217.34375,
+              273.8125
+            ],
+            "cellBounds": [
+              209.34375,
+              298
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+21d",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              321.1875,
+              350
+            ],
+            "cellBounds": [
+              298,
+              358
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "3",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Pricing.html",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              155.40625
+            ],
+            "cellBounds": [
+              61,
+              209.34375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 desktop",
+            "hidden": true,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              0,
+              0
+            ],
+            "cellBounds": [
+              0,
+              0
+            ],
+            "clipped": false
+          },
+          {
+            "text": "No location",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              217.34375,
+              278.65625
+            ],
+            "cellBounds": [
+              209.34375,
+              298
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              342.796875,
+              350
+            ],
+            "cellBounds": [
+              298,
+              358
+            ],
+            "clipped": false
+          }
+        ]
+      ]
+    },
+    "errors": []
+  },
+  {
+    "width": 375,
+    "theme": "graphite",
+    "pending": [
+      "-",
+      "-"
+    ],
+    "active": [
+      "+0m"
+    ],
+    "done": [
+      "+0m",
+      "+21d",
+      "+21d"
+    ],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "geometry": {
+      "overflow": [],
+      "rows": [
+        [
+          {
+            "text": "1",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Partner briefing",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              184.203125
+            ],
+            "cellBounds": [
+              61,
+              209.34375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "link \u00b7 desktop",
+            "hidden": true,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              0,
+              0
+            ],
+            "cellBounds": [
+              0,
+              0
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Bangalore, IN",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              217.34375,
+              288.34375
+            ],
+            "cellBounds": [
+              209.34375,
+              298
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+0m",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              328.390625,
+              350
+            ],
+            "cellBounds": [
+              298,
+              358
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "2",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "APAC partner deck.pdf",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              155.40625
+            ],
+            "cellBounds": [
+              61,
+              209.34375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 mobile",
+            "hidden": true,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              0,
+              0
+            ],
+            "cellBounds": [
+              0,
+              0
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Singapore, SG",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              217.34375,
+              273.8125
+            ],
+            "cellBounds": [
+              209.34375,
+              298
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              342.796875,
+              350
+            ],
+            "cellBounds": [
+              298,
+              358
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "3",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Pricing.html",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              155.40625
+            ],
+            "cellBounds": [
+              61,
+              209.34375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 desktop",
+            "hidden": true,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              0,
+              0
+            ],
+            "cellBounds": [
+              0,
+              0
+            ],
+            "clipped": false
+          },
+          {
+            "text": "No location",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              217.34375,
+              278.65625
+            ],
+            "cellBounds": [
+              209.34375,
+              298
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              342.796875,
+              350
+            ],
+            "cellBounds": [
+              298,
+              358
+            ],
+            "clipped": false
+          }
+        ]
+      ]
+    },
+    "errors": []
+  },
+  {
+    "width": 768,
+    "theme": "paper",
+    "pending": [
+      "-",
+      "-"
+    ],
+    "active": [
+      "+0m"
+    ],
+    "done": [
+      "+0m",
+      "+21d",
+      "+21d"
+    ],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "geometry": {
+      "overflow": [],
+      "rows": [
+        [
+          {
+            "text": "1",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Partner briefing",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              184.203125
+            ],
+            "cellBounds": [
+              61,
+              245.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "link \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              253.234375,
+              325.875
+            ],
+            "cellBounds": [
+              245.234375,
+              427.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Bangalore, IN",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              435.921875,
+              506.921875
+            ],
+            "cellBounds": [
+              427.921875,
+              599
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+0m",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              645.390625,
+              667
+            ],
+            "cellBounds": [
+              599,
+              675
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "2",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "APAC partner deck.pdf",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              220.203125
+            ],
+            "cellBounds": [
+              61,
+              245.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 mobile",
+            "hidden": false,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              253.234375,
+              315.53125
+            ],
+            "cellBounds": [
+              245.234375,
+              427.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Singapore, SG",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              435.921875,
+              511.046875
+            ],
+            "cellBounds": [
+              427.921875,
+              599
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              659.796875,
+              667
+            ],
+            "cellBounds": [
+              599,
+              675
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "3",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Pricing.html",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              155.40625
+            ],
+            "cellBounds": [
+              61,
+              245.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              253.234375,
+              322.8125
+            ],
+            "cellBounds": [
+              245.234375,
+              427.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "No location",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              435.921875,
+              497.234375
+            ],
+            "cellBounds": [
+              427.921875,
+              599
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              659.796875,
+              667
+            ],
+            "cellBounds": [
+              599,
+              675
+            ],
+            "clipped": false
+          }
+        ]
+      ]
+    },
+    "errors": []
+  },
+  {
+    "width": 768,
+    "theme": "graphite",
+    "pending": [
+      "-"
+    ],
+    "active": [
+      "+21d"
+    ],
+    "done": [
+      "+0m",
+      "+21d",
+      "+21d"
+    ],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "geometry": {
+      "overflow": [],
+      "rows": [
+        [
+          {
+            "text": "1",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Partner briefing",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              184.203125
+            ],
+            "cellBounds": [
+              61,
+              245.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "link \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              253.234375,
+              325.875
+            ],
+            "cellBounds": [
+              245.234375,
+              427.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Bangalore, IN",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              435.921875,
+              506.921875
+            ],
+            "cellBounds": [
+              427.921875,
+              599
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+0m",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              645.390625,
+              667
+            ],
+            "cellBounds": [
+              599,
+              675
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "2",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "APAC partner deck.pdf",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              220.203125
+            ],
+            "cellBounds": [
+              61,
+              245.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 mobile",
+            "hidden": false,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              253.234375,
+              315.53125
+            ],
+            "cellBounds": [
+              245.234375,
+              427.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Singapore, SG",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              435.921875,
+              511.046875
+            ],
+            "cellBounds": [
+              427.921875,
+              599
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+21d",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              638.1875,
+              667
+            ],
+            "cellBounds": [
+              599,
+              675
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "3",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              17,
+              61
+            ],
+            "cellBounds": [
+              17,
+              61
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Pricing.html",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              69,
+              155.40625
+            ],
+            "cellBounds": [
+              61,
+              245.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              253.234375,
+              322.8125
+            ],
+            "cellBounds": [
+              245.234375,
+              427.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "No location",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              435.921875,
+              497.234375
+            ],
+            "cellBounds": [
+              427.921875,
+              599
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              659.796875,
+              667
+            ],
+            "cellBounds": [
+              599,
+              675
+            ],
+            "clipped": false
+          }
+        ]
+      ]
+    },
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "theme": "paper",
+    "pending": [
+      "-"
+    ],
+    "active": [
+      "+21d"
+    ],
+    "done": [
+      "+0m",
+      "+21d",
+      "+21d"
+    ],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "geometry": {
+      "overflow": [],
+      "rows": [
+        [
+          {
+            "text": "1",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              161,
+              205
+            ],
+            "cellBounds": [
+              161,
+              205
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Partner briefing",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              213,
+              328.203125
+            ],
+            "cellBounds": [
+              205,
+              389.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "link \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              397.234375,
+              469.875
+            ],
+            "cellBounds": [
+              389.234375,
+              571.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Bangalore, IN",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              579.921875,
+              650.921875
+            ],
+            "cellBounds": [
+              571.921875,
+              743
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+0m",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              789.390625,
+              811
+            ],
+            "cellBounds": [
+              743,
+              819
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "2",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              161,
+              205
+            ],
+            "cellBounds": [
+              161,
+              205
+            ],
+            "clipped": false
+          },
+          {
+            "text": "APAC partner deck.pdf",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              213,
+              364.203125
+            ],
+            "cellBounds": [
+              205,
+              389.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 mobile",
+            "hidden": false,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              397.234375,
+              459.53125
+            ],
+            "cellBounds": [
+              389.234375,
+              571.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Singapore, SG",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              579.921875,
+              655.046875
+            ],
+            "cellBounds": [
+              571.921875,
+              743
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+21d",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              782.1875,
+              811
+            ],
+            "cellBounds": [
+              743,
+              819
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "3",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              161,
+              205
+            ],
+            "cellBounds": [
+              161,
+              205
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Pricing.html",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              213,
+              299.40625
+            ],
+            "cellBounds": [
+              205,
+              389.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(112, 106, 93)",
+            "opacity": "1",
+            "contentBounds": [
+              397.234375,
+              466.8125
+            ],
+            "cellBounds": [
+              389.234375,
+              571.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "No location",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              579.921875,
+              641.234375
+            ],
+            "cellBounds": [
+              571.921875,
+              743
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(36, 28, 20)",
+            "opacity": "1",
+            "contentBounds": [
+              803.796875,
+              811
+            ],
+            "cellBounds": [
+              743,
+              819
+            ],
+            "clipped": false
+          }
+        ]
+      ]
+    },
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "theme": "graphite",
+    "pending": [
+      "-"
+    ],
+    "active": [
+      "+21d"
+    ],
+    "done": [
+      "+0m",
+      "+21d",
+      "+21d"
+    ],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "geometry": {
+      "overflow": [],
+      "rows": [
+        [
+          {
+            "text": "1",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              161,
+              205
+            ],
+            "cellBounds": [
+              161,
+              205
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Partner briefing",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              213,
+              328.203125
+            ],
+            "cellBounds": [
+              205,
+              389.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "link \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              397.234375,
+              469.875
+            ],
+            "cellBounds": [
+              389.234375,
+              571.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Bangalore, IN",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              579.921875,
+              650.921875
+            ],
+            "cellBounds": [
+              571.921875,
+              743
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+0m",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              789.390625,
+              811
+            ],
+            "cellBounds": [
+              743,
+              819
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "2",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              161,
+              205
+            ],
+            "cellBounds": [
+              161,
+              205
+            ],
+            "clipped": false
+          },
+          {
+            "text": "APAC partner deck.pdf",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              213,
+              364.203125
+            ],
+            "cellBounds": [
+              205,
+              389.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 mobile",
+            "hidden": false,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              397.234375,
+              459.53125
+            ],
+            "cellBounds": [
+              389.234375,
+              571.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Singapore, SG",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              579.921875,
+              655.046875
+            ],
+            "cellBounds": [
+              571.921875,
+              743
+            ],
+            "clipped": false
+          },
+          {
+            "text": "+21d",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              782.1875,
+              811
+            ],
+            "cellBounds": [
+              743,
+              819
+            ],
+            "clipped": false
+          }
+        ],
+        [
+          {
+            "text": "3",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              161,
+              205
+            ],
+            "cellBounds": [
+              161,
+              205
+            ],
+            "clipped": false
+          },
+          {
+            "text": "Pricing.html",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              213,
+              299.40625
+            ],
+            "cellBounds": [
+              205,
+              389.234375
+            ],
+            "clipped": false
+          },
+          {
+            "text": "file \u00b7 desktop",
+            "hidden": false,
+            "ink": "rgb(102, 107, 109)",
+            "opacity": "1",
+            "contentBounds": [
+              397.234375,
+              466.8125
+            ],
+            "cellBounds": [
+              389.234375,
+              571.921875
+            ],
+            "clipped": false
+          },
+          {
+            "text": "No location",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              579.921875,
+              641.234375
+            ],
+            "cellBounds": [
+              571.921875,
+              743
+            ],
+            "clipped": false
+          },
+          {
+            "text": "-",
+            "hidden": false,
+            "ink": "rgb(25, 28, 29)",
+            "opacity": "1",
+            "contentBounds": [
+              803.796875,
+              811
+            ],
+            "cellBounds": [
+              743,
+              819
+            ],
+            "clipped": false
+          }
+        ]
+      ]
+    },
+    "errors": []
+  }
+]

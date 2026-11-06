@@ -877,7 +877,9 @@ export function GeoTraceroute({
                     <LocationCell row={row} selected={selected} />
                   </td>
                   <td className="px-2 text-right font-mono whitespace-nowrap tabular-nums">
-                    {row.hop.display ?? <RttCell row={row} state={state} attachLive={attachLive} />}
+                    {row.hop.display != null ? (
+                      state === "pending" ? <span className="text-muted-foreground">{MISSING}</span> : row.hop.display
+                    ) : <RttCell row={row} state={state} attachLive={attachLive} />}
                   </td>
                   {showProbes && <td className="pr-3">
                     <ProbeMarks marks={row.marks} state={state} />

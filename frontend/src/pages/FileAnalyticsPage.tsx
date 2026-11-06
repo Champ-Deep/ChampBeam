@@ -263,9 +263,9 @@ export function FileAnalyticsPage() {
         </Card>
       </div>
 
-      {/* Device + Browser Breakdown (shown first, always works, even on localhost) */}
       <JourneysSection assetType="file" assetId={fileId} />
 
+      {/* Device + Browser Breakdown (shown first, always works, even on localhost) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>

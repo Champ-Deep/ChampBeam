@@ -82,6 +82,24 @@ On resume, reran `npx tsc -b`, `npm run lint`, `npx vitest run`, `npm run build`
 
 PR body: `docs/visitor-journeys-pr.md`. Target base: `feat/visitor-journeys-api`. Exact published head and CI outcomes are recorded in the card review handoff.
 
+## Review round 1 rework
+
+The requested change reaches only the shared elapsed cell, the browser regression and the Link/File section comments. The elapsed override now preserves the pending placeholder before showing its real value. Network RTT rendering and the playback engine are unchanged. Both Device + Browser Breakdown comments again sit immediately above their grids.
+
+Regression proof: added the pending-cell assertion before changing the component, then ran the complete browser script. It exited 1 with `AssertionError: Pending elapsed cells must be placeholders: ['+21d', '+21d']`. After the fix the same script exited 0 with `Completed 21 cases`. Logs are `rework-red.log` and `rework-green.log`.
+
+Fresh gates: `npx tsc -b` exit 0; `npm run lint` exit 0 with 0 errors and the same 54 warnings; `npx vitest run` 15 files and 108 tests passed; `npm run build` exit 0, 3453 modules, 8.64 s, main chunk 1,188.23 kB with the retained size warning. `node e2e/verify-registry.mjs` still proves 39 runtime functions unchanged. `git diff --check` passes.
+
+Repeated all 21 browser cases and opened all 20 refreshed PNGs. The twelve paper/graphite, 375/768/1440 one/two-city captures retain the previous canvas counts. Reduced-motion path buffers remain stable, all five palettes repaint, and the long journey completed in 2851.3 ms. A second paused mid-flight probe at all six width/palette pairs asserts nonempty pending cells containing only `-`, real values in active and finished cells, zero audit FAILs, zero runtime errors, zero geometric overflow and no table text outside its cell. Results: `rework-midflight-probes.json`.
+
+Critique and disposition:
+
+1. The elapsed column exposed future values during playback. Fixed in the presentation fork; the cropped `paper-768-midflight.png` read now confirms `+0m`, `-`, `-`.
+2. Full-frame auxiliary vision claimed ghosted overlapping rows, low contrast and a truncated mobile filename. Narrow table crops read the complete names and values, and the six paused-state DOM probes show text contained within every visible cell at opacity 1. No unrelated layout or palette changes were made to satisfy those disproved claims.
+3. Critique proposed changing elapsed granularity or duplicate day/hour labels. Declined: the brief specifies real elapsed labels and no extra timestamp precision was requested.
+
+The audit's existing fallback-font WARN and fixture skip-link INFO retain the reasons above. The unavailable `champbeam` skill remains a tooling limit; the existing product DESIGN.md and task contract were used. No new registry install, dependency, API, backend, auth or Clerk change was needed for this rework. The existing PR #62 is updated, not replaced. Automatic previews remain allowed by the publication ruling; no production deployment or merge command was run.
+
 ## Not checked
 
 No live authenticated session, production data, deployment, physical device or full-application accessibility certification. Backend, auth and Clerk code were untouched. Location changes suggest forwarding but do not prove that a deck changed hands. The page and API branch remain unmerged.

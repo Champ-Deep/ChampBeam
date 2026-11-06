@@ -100,6 +100,8 @@ with sync_playwright() as pw:
  page.get_by_role('button',name='Replay',exact=True).click()
  start=page.evaluate('performance.now()')
  page.wait_for_function("document.querySelector('[data-state=active]') !== null")
+ pending=page.locator('[data-slot=geo-traceroute] tbody tr[data-state=pending] td:last-child').all_text_contents()
+ assert pending and all(cell.strip()=='-' for cell in pending),f'Pending elapsed cells must be placeholders: {pending}'
  page.locator('.cb-journeys').screenshot(path=str(out/'paper-768-midflight.png'))
  page.wait_for_function("[...document.querySelectorAll('[data-slot=geo-traceroute] tbody tr')].every(r=>r.dataset.state==='done')")
  elapsed=page.evaluate('performance.now()')-start
