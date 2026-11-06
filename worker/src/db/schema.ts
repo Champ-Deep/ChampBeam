@@ -186,6 +186,8 @@ export const domains = sqliteTable("domains", {
   /** Set for an org-owned domain (administered by org admins, usable by members). */
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   isOrgDefault: bool("is_org_default").notNull().default(false),
+  /** ISO instant (0009): also serve platform-bucket content created before it. See assetLookup. */
+  legacyPlatformBefore: text("legacy_platform_before"),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
@@ -633,4 +635,13 @@ export const rateLimit = sqliteTable("rate_limit", {
   key: text("key").notNull().unique(),
   count: integer("count").notNull(),
   lastRequest: integer("last_request").notNull(),
+});
+
+export const adminAudit = sqliteTable("admin_audit", {
+  id: id(),
+  actorUserId: text("actor_user_id").notNull(),
+  action: text("action").notNull(),
+  target: text("target"),
+  payload: text("payload"),
+  at: text("at").notNull().$defaultFn(nowIso),
 });

@@ -23,6 +23,7 @@ import { diffSeconds, nowIso, parseIso } from "../lib/time";
 import { type Permission, roleHas } from "./permissions";
 import { resolveServiceIdentity } from "./serviceAuth";
 import { createAuth, type Auth } from "./betterAuth";
+import { isSuperAdmin } from "./superAdmin";
 
 export interface TokenData {
   userId: string;
@@ -35,6 +36,8 @@ export interface TokenData {
   orgSlug?: string | null;
   /** Same value as orgId since Better Auth (kept so its many readers need no change). */
   orgUuid?: string | null;
+  /** Session identities only: listed in SUPER_ADMIN_EMAILS and verified or Google-linked. */
+  isSuperAdmin?: boolean;
 }
 
 /** True when the active org role grants `p`. No org, or API key, means no permission. */
@@ -80,7 +83,8 @@ async function resolveSession(c: Ctx): Promise<TokenData | null> {
   if (user.isActive === false) throw new HTTPError(401, "Account is deactivated");
   const activeOrg = session.session.activeOrganizationId;
   // The membership is read on every request (cookieCache off), so a removal takes effect at once.
-  const m = activeOrg
+  const superAdmin = await isSuperAdmin(c.var.db, c.var.settings, user);
+  let m = activeOrg
     ? await c.var.db
         .select({ role: organizationMemberships.role, slug: organizations.slug })
         .from(organizationMemberships)
@@ -94,9 +98,15 @@ async function resolveSession(c: Ctx): Promise<TokenData | null> {
         )
         .get()
     : undefined;
+  // A super admin acts as admin in whichever org they switched to (POST /admin/act-as), member or not.
+  if (!m && superAdmin && activeOrg) {
+    const o = await c.var.db.select({ slug: organizations.slug }).from(organizations).where(eq(organizations.id, activeOrg)).get();
+    if (o) m = { role: "admin", slug: o.slug };
+  }
   return {
     userId: user.id,
     email: user.email ?? "",
+    isSuperAdmin: superAdmin,
     clerkUserId: user.clerkId ?? null,
     orgId: m ? activeOrg : null,
     orgRole: m ? m.role.toLowerCase() : null,
@@ -243,6 +253,13 @@ export async function requireOrgLeaderOrAdmin(c: Ctx): Promise<TokenData> {
   if (!can(u, "team.manage")) {
     throw new HTTPError(403, "This action requires a team leader or organization admin.");
   }
+  return u;
+}
+
+/** Platform super admin, interactive session only (never an API key). */
+export async function requireSuperAdmin(c: Ctx): Promise<TokenData> {
+  const u = await requireSessionAuth(c);
+  if (!u.isSuperAdmin) throw new HTTPError(403, "Super admin only.");
   return u;
 }
 

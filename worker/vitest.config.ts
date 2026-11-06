@@ -24,6 +24,7 @@ export default defineConfig(async () => {
             BETTER_AUTH_SECRET: "test-better-auth-secret-0123456789abcdef",
             BETTER_AUTH_URL: "https://share.example.com",
             // Pinned empty so a developer .dev.vars cannot switch Google sign-in on in tests.
+            SUPER_ADMIN_EMAILS: "root@example.com",
             GOOGLE_CLIENT_ID: "",
             GOOGLE_CLIENT_SECRET: "",
             CLERK_SECRET_KEY: "sk_test_dummy",

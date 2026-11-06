@@ -17,6 +17,8 @@ export interface Env {
   ASSETS?: Fetcher;
   /** Service binding to the webhook receiver. workers.dev -> workers.dev fetches in one account 404 (error 1042). */
   OPEN_WEBHOOK?: Fetcher;
+  /** Cloudflare Email Service (`send_email` binding). Unbound = no email is sent anywhere. */
+  EMAIL?: SendEmail;
   [key: string]: unknown;
 }
 
@@ -214,6 +216,14 @@ export function buildSettings(env: Env) {
       if (!h) return true;
       return platformRedirectHosts.has(h);
     },
+
+    /** Comma-separated emails that may act as platform super admin (also need a verified or Google-linked email). */
+    superAdminEmails: new Set(splitCsv(str(env, "SUPER_ADMIN_EMAILS")).map((e) => e.toLowerCase())),
+    emailEnabled: !!env.EMAIL,
+    emailFrom: "ChampBeam <no-reply@champbeam.com>",
+    /** The app origin (BETTER_AUTH_URL): invite and reset links always point here, never at a custom domain. */
+    platformOrigin: s.betterAuthUrl,
+    platformHost: hostnameOf(s.betterAuthUrl),
 
     cloudflareConfigured: !!(s.cloudflareApiToken && s.cloudflareZoneId),
     cloudflareRegistrarConfigured: !!(s.cloudflareApiToken && s.cloudflareAccountId),
