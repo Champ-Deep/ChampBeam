@@ -169,6 +169,17 @@ export function buildSettings(env: Env) {
     companyIntelProvider: str(env, "COMPANY_INTEL_PROVIDER", "asn"),
     ipinfoApiToken: str(env, "IPINFO_API_TOKEN"),
     companyIntelUrl: str(env, "COMPANY_INTEL_URL"),
+
+    // Assistant (routes/assistant.ts). The two API keys are Worker secrets; the response only ever carries *_configured flags.
+    assistantEnabled: bool(env, "ASSISTANT_ENABLED", true),
+    assistantProvider: str(env, "ASSISTANT_PROVIDER", "openrouter"),
+    assistantModel: str(env, "ASSISTANT_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+    assistantOpenrouterApiKey: str(env, "ASSISTANT_OPENROUTER_API_KEY"),
+    assistantVercelApiKey: str(env, "ASSISTANT_VERCEL_API_KEY"),
+    assistantVercelGatewayUrl: str(env, "ASSISTANT_VERCEL_GATEWAY_URL", "https://gateway.vercel.ai/v1"),
+    assistantTimeoutS: float(env, "ASSISTANT_TIMEOUT_S", 60),
+    assistantMaxTokens: int(env, "ASSISTANT_MAX_TOKENS", 700),
+    assistantMaxHistory: int(env, "ASSISTANT_MAX_HISTORY", 12),
     companyIntelApiKey: str(env, "COMPANY_INTEL_API_KEY"),
   };
 

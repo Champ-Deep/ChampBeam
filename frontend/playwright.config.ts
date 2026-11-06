@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
 //   E2E_BASE_URL   frontend origin, e.g. https://app.champbeam.com
 //   E2E_API_URL    backend API base, e.g. https://<railway-app>/api/v1
 //   E2E_STORAGE_STATE  (optional) path to a Playwright storageState JSON that
-//                      carries a signed-in Clerk session, to run authed specs.
+//                      carries a signed-in session cookie, to run authed specs.
 // Tests self-skip when the var they need is unset, so a bare `playwright test`
 // never fails for missing config — it reports what it could and couldn't run.
 const baseURL = process.env.E2E_BASE_URL || undefined;

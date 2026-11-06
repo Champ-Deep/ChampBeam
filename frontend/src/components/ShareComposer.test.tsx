@@ -10,7 +10,7 @@ import { pagesApi } from '../api/pages';
 import { orgApi } from '../api/org';
 import { isDownload } from '../hooks/useShareLists';
 
-vi.mock('@clerk/react', () => ({ useAuth: () => ({ isSignedIn: true, userId: 'fixture-user', orgId: 'fixture-org', orgRole: 'org:superadmin' }) }));
+vi.mock('../lib/authClient', () => ({ useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: 'fixture-user', orgId: 'fixture-org', user: null }) }));
 vi.mock('../api/org', () => ({ orgApi: { profile: vi.fn() } }));
 vi.mock('../api/files', () => ({ filesApi: { initUpload: vi.fn(), uploadBytes: vi.fn(), finalize: vi.fn() } }));
 vi.mock('../api/pages', () => ({ pagesApi: { suggestSlug: vi.fn(), create: vi.fn() } }));
@@ -138,7 +138,7 @@ describe('one composer', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('copy it manually');
     expect(screen.getByRole('link', { name: 'https://fixture.example/f/fixture' })).toHaveAttribute('href', 'https://fixture.example/f/fixture');
   });
-  it('denies create UI based on server permissions despite an admin-like Clerk role', async () => {
+  it('denies create UI based on server permissions despite an admin-like session role', async () => {
     vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, role: 'viewer', permissions: [], report_scope: 'org' });
     mount(); await screen.findByText('Read-only workspace');
     expect(screen.queryByLabelText('Choose file')).not.toBeInTheDocument();

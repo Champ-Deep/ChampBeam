@@ -14,7 +14,7 @@ import { organization } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/organization/access";
 import bcrypt from "bcryptjs";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
@@ -98,6 +98,20 @@ export function createAuth(env: Env, db: Db) {
       database: { generateId: () => crypto.randomUUID() },
     },
     databaseHooks: {
+      session: {
+        create: {
+          // Land members in their org instead of Personal: oldest active membership becomes the session's org.
+          before: async (session) => {
+            const m = await db
+              .select({ orgId: schema.organizationMemberships.organizationId })
+              .from(schema.organizationMemberships)
+              .where(and(eq(schema.organizationMemberships.userId, session.userId), eq(schema.organizationMemberships.status, "active")))
+              .orderBy(asc(schema.organizationMemberships.createdAt))
+              .get();
+            return { data: { ...session, activeOrganizationId: m?.orgId ?? null } };
+          },
+        },
+      },
       user: {
         create: {
           after: async (user) => {

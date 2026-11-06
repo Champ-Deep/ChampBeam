@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-// Signed-in flows. These need a real Clerk session captured to a storageState
-// file (Clerk's email-code login can't be scripted reliably). Create one once:
+// Signed-in flows. These need a real Better Auth session cookie captured to a
+// storageState file. Create one once:
 //
 //   1) npx playwright open --save-storage=auth.json <E2E_BASE_URL>/sign-in
 //      (sign in in the opened browser, then close it)
@@ -20,7 +20,7 @@ test.describe('signed-in flows', () => {
     // The dark sidebar carries the wordmark and the primary nav.
     await expect(page.getByText('Champbeam', { exact: false }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /Analytics/i })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Links/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Links', exact: true })).toBeVisible();
   });
 
   test('THM-A1 Appearance switch applies + persists across reload', async ({ page }) => {
@@ -39,7 +39,7 @@ test.describe('signed-in flows', () => {
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.goto('/analytics', { waitUntil: 'networkidle' });
     await expect(page.getByRole('heading', { name: /Analytics/i }).first()).toBeVisible();
-    const appErrors = errors.filter((e) => !/clerk|analytics\.js/i.test(e));
+    const appErrors = errors.filter((e) => !/analytics\.js/i.test(e));
     expect(appErrors, appErrors.join('\n')).toHaveLength(0);
   });
 

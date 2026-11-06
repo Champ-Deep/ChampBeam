@@ -549,6 +549,15 @@ export const maxmindUsage = sqliteTable("maxmind_usage", {
   updatedAt: text("updated_at").notNull().$defaultFn(nowIso),
 });
 
+/** Global singleton (id = 1): which provider/model the Assistant uses. Keys are Worker secrets, never here. */
+export const assistantConfig = sqliteTable("assistant_config", {
+  id: integer("id").primaryKey(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  enabled: bool("enabled").notNull().default(true),
+  updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(nowIso),
+});
+
 export const rateCounters = sqliteTable("rate_counters", {
   key: text("key").primaryKey(),
   count: integer("count").notNull().default(0),

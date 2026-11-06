@@ -58,7 +58,7 @@ export function Logo({ withWordmark = true, tone = 'dark', size = 36, className 
           className="font-display font-bold text-[19px] tracking-tight"
           style={{ color: wordmarkColor }}
         >
-          Champ<span style={{ color: 'var(--cb-accent-light)' }}>beam</span>
+          Champ<span style={{ color: tone === 'dark' ? 'var(--cb-accent-light)' : 'var(--cb-accent)' }}>beam</span>
         </span>
       )}
     </div>

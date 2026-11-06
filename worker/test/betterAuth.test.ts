@@ -109,6 +109,20 @@ describe("email and password", () => {
     expect(m?.role).toBe("member");
   });
 
+  it("a member's new session lands in their org; a user with no membership lands in Personal", async () => {
+    const orgId = await defaultOrg();
+    const email = `land-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    await api("/api/auth/sign-up/email", { method: "POST", headers: { ...ORIGIN, ...ip() }, json: { email, password: "long enough pw", name: "Lander" } });
+    const res = await signIn(email, "long enough pw");
+    const s = await api("/api/auth/get-session", { headers: cookieHeader(sessionCookie(res)!) });
+    expect(((await s.json()) as { session: { activeOrganizationId: string | null } }).session.activeOrganizationId).toBe(orgId);
+
+    await env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = (SELECT id FROM users WHERE email = ?)").bind(email).run();
+    const res2 = await signIn(email, "long enough pw");
+    const s2 = await api("/api/auth/get-session", { headers: cookieHeader(sessionCookie(res2)!) });
+    expect(((await s2.json()) as { session: { activeOrganizationId: string | null } }).session.activeOrganizationId ?? null).toBeNull();
+  });
+
   it("a deactivated user's session is a 401", async () => {
     const user = await createUser();
     await env.DB.prepare("UPDATE users SET is_active = 0 WHERE id = ?").bind(user.id).run();
