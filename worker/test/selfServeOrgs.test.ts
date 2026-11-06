@@ -212,6 +212,14 @@ describe("super admin", () => {
     expect(await orgCol("file_assets", t.file.id)).toBe(t.a.id);
   });
 
+  it("a super admin who holds a lower role in the org still acts as admin there", async () => {
+    const root = await superAdmin();
+    const org = await createOrg(`org_${rid()}`, "Lower");
+    await addMember(org.id, root.id, "viewer");
+    const ctx = await json(await api("/api/v1/org/context", { headers: await sessionHeaders(root.id, org.id) }));
+    expect(ctx).toMatchObject({ org_id: org.id, role: "admin", is_admin: true });
+  });
+
   it("acts as admin in any org after act-as, and only a super admin can", async () => {
     const root = await superAdmin();
     const org = await createOrg(`org_${rid()}`, "Foreign");
