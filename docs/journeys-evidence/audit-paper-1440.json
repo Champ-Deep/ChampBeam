@@ -1,0 +1,14 @@
+[
+  {
+    "severity": "INFO",
+    "rule": "skip-link",
+    "message": "no \"skip to content\" link found",
+    "where": ""
+  },
+  {
+    "severity": "WARN",
+    "rule": "default-font",
+    "message": "body font is \"arial\", an AI default; choose deliberately",
+    "where": ""
+  }
+]

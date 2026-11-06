@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle, Badge, Button, LoadingSpinner, EmptyState 
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { utmApi } from '../api/utm';
 import type {
   UTMOverview, UTMBreakdownItem, PerformanceOverTime,
@@ -563,6 +564,8 @@ export function AnalyticsPage() {
           })()}
         </>
       )}
+
+      {activeTab === 'dashboard' && <JourneysSection />}
 
       {/* Projects tab */}
       {activeTab === 'projects' && (
