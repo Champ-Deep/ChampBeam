@@ -5,7 +5,7 @@
  * Exports `redirectLink(c, shortCode)` so /s/{short_code} (shortLinks.ts) is a
  * full alias of /r.
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { AppEnv, Ctx, Settings } from "../env";
 import type { Db } from "../db/client";
@@ -31,15 +31,19 @@ export const router = new Hono<AppEnv>({ strict: false });
 const GATE_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 async function findLink(db: Db, domain: Domain | null, shortCode: string): Promise<LinkClick | null> {
+  // A domain with legacyPlatformBefore (share.lakeb2b.com) also resolves older platform-bucket links, as lookupAsset does for files.
   const row = await db
     .select()
     .from(linkClicks)
     .where(
       and(
         eq(linkClicks.shortCode, shortCode),
-        domain === null ? isNull(linkClicks.domainId) : eq(linkClicks.domainId, domain.id),
+        domain === null
+          ? isNull(linkClicks.domainId)
+          : or(eq(linkClicks.domainId, domain.id), domain.legacyPlatformBefore ? and(isNull(linkClicks.domainId), lt(linkClicks.createdAt, domain.legacyPlatformBefore)) : sql`0`),
       ),
     )
+    .orderBy(sql`CASE WHEN ${linkClicks.domainId} IS NULL THEN 1 ELSE 0 END`)
     .get();
   return row ?? null;
 }

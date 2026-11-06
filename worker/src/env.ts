@@ -219,6 +219,14 @@ export function buildSettings(env: Env) {
       return platformRedirectHosts.has(h);
     },
 
+    /** Comma-separated emails that may act as platform super admin (also need a verified or Google-linked email). */
+    superAdminEmails: new Set(splitCsv(str(env, "SUPER_ADMIN_EMAILS")).map((e) => e.toLowerCase())),
+    emailEnabled: !!env.EMAIL,
+    emailFrom: "ChampBeam <no-reply@champbeam.com>",
+    /** The app origin (BETTER_AUTH_URL): invite and reset links always point here, never at a custom domain. */
+    platformOrigin: s.betterAuthUrl,
+    platformHost: hostnameOf(s.betterAuthUrl),
+
     cloudflareConfigured: !!(s.cloudflareApiToken && s.cloudflareZoneId),
     cloudflareRegistrarConfigured: !!(s.cloudflareApiToken && s.cloudflareAccountId),
     localByodEnabled: !!(s.platformIpv4 && s.byodCnameTarget),
