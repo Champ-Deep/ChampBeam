@@ -6,7 +6,7 @@ import { intranetApi, type Member, type ReviewSettings } from '../api';
 import { PageHeader, QueryState } from '../components';
 import { ME_KEY, errorText, personName, useMe, useMembers } from '../shared';
 
-const AGENT_LABELS: Record<string, string> = { off: 'Off', local: 'Local scorer (Clef)', jev: 'Jev (needs IT sign-off)' };
+const AGENT_LABELS: Record<string, string> = { off: 'Off', local: 'Local scorer (Clef)', jev: 'Jev, metadata only' };
 
 function SettingsForm({ initial, maxExpiry, agentModes, onSaved }: { initial: ReviewSettings; maxExpiry: number; agentModes: string[]; onSaved: (msg: string) => Promise<void> }) {
   const [defaultDays, setDefaultDays] = useState(String(initial.default_expiry_days));
@@ -78,6 +78,13 @@ function SettingsForm({ initial, maxExpiry, agentModes, onSaved }: { initial: Re
           </label>
         </div>
         {!agentModes.includes('local') && <p className="cb-help">The local scorer is not configured on this deployment (set CLEF_URL).</p>}
+        {agentMode === 'jev' && (
+          <p role="note">
+            Jev runs outside the company network, through OpenRouter. It always receives metadata only (file name, size, type,
+            submitter and recipient names and emails, purpose, check results), whatever "What the agent sees" says. If Jev fails,
+            the local scorer is tried, then a human decides.
+          </p>
+        )}
         <p className="cb-help">Every change here is written to the decision log.</p>
         <Button type="submit" isLoading={busy}>Save settings</Button>
       </fieldset>

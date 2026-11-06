@@ -80,6 +80,7 @@ blob_router.add_api_route(
 INTRANET_RATE_LIMIT = "60/minute"
 _HEARTBEAT_SECONDS = 30
 _TICKET_TTL_SECONDS = 60
+_TICKET_TRANSFER_CODE = "transfer_code"
 _BENCHMARK_STALE_HOURS = 2
 
 
@@ -203,6 +204,7 @@ class TransferOut(BaseModel):
     decided_by_id: Optional[str] = None
     agent_result: Optional[dict] = None
     withdrawn_at: Optional[str] = None
+    access_code_required: bool = False
 
 
 class UploadInit(BaseModel):
@@ -234,6 +236,7 @@ class ApproveBody(BaseModel):
     expires_in_days: Optional[int] = Field(None, ge=1)
     one_time: Optional[bool] = None
     reason: Optional[str] = Field(None, max_length=1000)
+    access_code: Optional[str] = Field(None, max_length=8)
 
 
 class RejectBody(BaseModel):
@@ -397,6 +400,7 @@ async def _serialize(session: AsyncSession, transfers: list[Transfer]) -> list[T
                 decided_by_id=t.decided_by_id if t.decided_by_type == ACTOR_AGENT else None,
                 agent_result=t.agent_result,
                 withdrawn_at=iso_utc(t.withdrawn_at),
+                access_code_required=bool(t.access_code_hash),
             )
         )
     return out
@@ -525,6 +529,7 @@ async def me(actor: Actor = Depends(require_active_member), session: AsyncSessio
         "agent": {
             "modes": review_agent.available_modes(),
             "clef_configured": settings.clef_configured,
+            "jev_configured": settings.jev_configured,
             "benchmark_providers": _benchmark_providers(),
         },
     }
@@ -534,6 +539,8 @@ def _benchmark_providers() -> list[str]:
     providers = []
     if settings.clef_configured:
         providers.append(review_agent.PROVIDER_CLEF)
+    if settings.jev_configured:
+        providers.append(review_agent.PROVIDER_JEV)
     if settings.review_agent_allow_mock:
         providers.append(review_agent.PROVIDER_MOCK)
     return providers
@@ -808,9 +815,9 @@ async def get_review_settings(actor: Actor = Depends(require_active_member), ses
 async def put_review_settings(
     data: ReviewSettingsPatch, actor: Actor = Depends(require_admin), session: AsyncSession = Depends(get_db_session)
 ):
-    if data.agent_mode == AGENT_JEV:
-        raise HTTPException(status_code=422, detail="The Jev provider needs IT's written sign-off and is not available yet.")
     if data.agent_mode is not None and data.agent_mode not in review_agent.available_modes():
+        if data.agent_mode == AGENT_JEV:
+            raise HTTPException(status_code=422, detail="Jev is not configured on this deployment (set JEV_API_KEY).")
         raise HTTPException(status_code=422, detail="The local scorer (Clef) is not configured on this deployment.")
     if data.default_expiry_days is not None and data.default_expiry_days > settings.intranet_max_expiry_days:
         raise HTTPException(
@@ -831,7 +838,11 @@ async def put_review_settings(
             event=EVENT_SETTINGS_CHANGED,
             actor_type=ACTOR_HUMAN,
             actor_id=actor.user_id,
-            detail={"changes": changes},
+            detail=(
+                {"changes": changes, "jev_signoff_ref": settings.jev_signoff_ref}
+                if "agent_mode" in changes and row.agent_mode == AGENT_JEV and settings.jev_signoff_ref
+                else {"changes": changes}
+            ),
         )
     await session.commit()
     return _settings_out(row)
@@ -1096,14 +1107,22 @@ async def download_transfer(
     session: AsyncSession = Depends(get_db_session),
 ):
     transfer = await _get_transfer(session, actor, transfer_id)
-    return await _serve_transfer(session, actor, transfer)
+    return await _serve_transfer(session, actor, transfer, access_code=request.headers.get("X-Access-Code"))
 
 
-async def _serve_transfer(session: AsyncSession, actor: Actor, transfer: Transfer) -> StreamingResponse:
+async def _serve_transfer(
+    session: AsyncSession,
+    actor: Actor,
+    transfer: Transfer,
+    access_code: Optional[str] = None,
+    code_verified: bool = False,
+) -> StreamingResponse:
     is_recipient = str(transfer.recipient_user_id) == actor.user_id
     is_submitter = str(transfer.submitter_user_id) == actor.user_id
     if is_recipient:
         try:
+            if not code_verified:
+                await transfer_service.check_access_code(session, transfer, actor.user_id, access_code)
             claim = await transfer_service.claim_download(session, transfer, actor.user_id)
         except TransferError as exc:
             _raise(exc)
@@ -1178,6 +1197,7 @@ async def _serve_review(session: AsyncSession, actor: Actor, transfer: Transfer)
 
 class TicketBody(BaseModel):
     kind: Literal["transfer", "review"] = "transfer"
+    access_code: Optional[str] = Field(None, max_length=8)
 
 
 def _sign_ticket(payload: str) -> str:
@@ -1213,10 +1233,17 @@ async def download_ticket(
     actor: Actor = Depends(require_active_member),
     session: AsyncSession = Depends(get_db_session),
 ):
-    kind = (body or TicketBody()).kind
+    body = body or TicketBody()
+    kind = body.kind
     transfer = await _get_transfer(session, actor, transfer_id)
     if kind == "review" and not actor.is_reviewer:
         raise HTTPException(status_code=403, detail="This action requires the Reviewer role.")
+    if kind == "transfer" and transfer.access_code_hash and str(transfer.recipient_user_id) == actor.user_id:
+        try:
+            await transfer_service.check_access_code(session, transfer, actor.user_id, body.access_code)
+        except TransferError as exc:
+            _raise(exc)
+        kind = _TICKET_TRANSFER_CODE
     ticket = make_download_ticket(transfer.id, actor.user_id, actor.organization.clerk_org_id, kind)
     return {
         "url": f"{settings.api_v1_prefix}/intranet/download/{ticket}",
@@ -1241,7 +1268,7 @@ async def download_with_ticket(
         raise HTTPException(status_code=404, detail="Not found.")
     if kind == "review":
         return await _serve_review(session, actor, transfer)
-    return await _serve_transfer(session, actor, transfer)
+    return await _serve_transfer(session, actor, transfer, code_verified=kind == _TICKET_TRANSFER_CODE)
 
 
 @router.get("/review/agent-approved", response_model=List[TransferOut])
@@ -1281,7 +1308,7 @@ async def overturn_transfer(
 
 
 class BenchmarkCreate(BaseModel):
-    provider: Literal["clef", "mock"] = "clef"
+    provider: Literal["clef", "jev", "mock"] = "clef"
 
 
 def _benchmark_out(row: AgentBenchmark) -> dict:
@@ -1357,7 +1384,14 @@ async def approve_transfer(
     review = await transfer_service.get_review_settings(session, actor.organization.id)
     try:
         await transfer_service.approve(
-            session, transfer, actor.user_id, review, body.expires_in_days, body.one_time, body.reason
+            session,
+            transfer,
+            actor.user_id,
+            review,
+            body.expires_in_days,
+            body.one_time,
+            body.reason,
+            access_code=body.access_code,
         )
     except TransferError as exc:
         _raise(exc)

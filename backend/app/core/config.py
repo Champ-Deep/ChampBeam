@@ -201,6 +201,12 @@ class Settings(BaseSettings):
     review_agent_excerpt_bytes: int = 4096
     review_agent_benchmark_max_rows: int = 500
 
+    jev_api_key: str = ""
+    jev_url: str = "https://openrouter.ai/api/alpha/decisions"
+    jev_model: str = "typesafe/jev-1.13"
+    jev_timeout_s: float = 20.0
+    jev_signoff_ref: str = ""
+
     @property
     def clamd_configured(self) -> bool:
         return bool(self.clamd_host)
@@ -208,6 +214,10 @@ class Settings(BaseSettings):
     @property
     def clef_configured(self) -> bool:
         return bool(self.clef_url)
+
+    @property
+    def jev_configured(self) -> bool:
+        return bool(self.jev_api_key)
 
     @property
     def intranet_org_id_set(self) -> set[str]:

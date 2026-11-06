@@ -1,4 +1,4 @@
-# ChampBeam Intranet (P0 + P1)
+# ChampBeam Intranet (P0 to P2)
 
 An invite-only, review-gated file transfer mode of ChampBeam. A member submits a file for a
 named recipient. A Reviewer (IT) approves or rejects it, and approved files show up in the
@@ -30,10 +30,14 @@ Backend (`backend/.env`):
 | `CLEF_URL` / `CLEF_TOKEN` | The local scorer's HTTP endpoint and optional bearer token. The agent cannot be switched on until `CLEF_URL` is set |
 | `CLEF_TIMEOUT_S` | Default 20. A timeout escalates to a human; it is never read as approval |
 | `REVIEW_AGENT_EXCERPT_BYTES` | Default 4096. How much of a text file the agent sees in `content_excerpt` mode |
+| `JEV_API_KEY` | OpenRouter key for Jev. Setting it makes Jev available to Admins; clearing it stops Jev at once, even if the org setting still says `jev` |
+| `JEV_SIGNOFF_REF` | Optional. Reference to IT's approval of Jev (ticket id, or email date and sender). When set, it is recorded in the decision log whenever an Admin switches to Jev |
+| `JEV_URL` / `JEV_MODEL` | Default `https://openrouter.ai/api/alpha/decisions` and `typesafe/jev-1.13` |
+| `JEV_TIMEOUT_S` | Default 20. A timeout falls back to Clef, then a human |
 
 Frontend build: `VITE_APP_MODE=intranet`, `VITE_API_URL=<backend origin>`, `VITE_CLERK_PUBLISHABLE_KEY`.
 
-Run `alembic upgrade head` to apply `031_intranet_transfers` and `032_intranet_p1`. It adds the tables and a Postgres
+Run `alembic upgrade head` to apply `031_intranet_transfers`, `032_intranet_p1` and `033_intranet_p2`. It adds the tables and a Postgres
 trigger that rejects `UPDATE`/`DELETE`/`TRUNCATE` on `decision_log`.
 
 ## Clerk setup (manual, one time)
@@ -112,7 +116,40 @@ this body:
 
 It expects `200` with `{"p_approve": 0.0-1.0, "reasons": ["..."], "model": "...", "version": "..."}`.
 Anything else counts as an error. A thin wrapper around the clef MCP tools (`decide` /
-`clef_ask`) can expose this. Jev is not wired in yet (P2, needs IT's written sign-off).
+`clef_ask`) can expose this.
+
+### Jev (P2)
+
+Jev is available as soon as the server sets `JEV_API_KEY`. IT approves Jev by approving the
+deployment that carries the key; put their reference in `JEV_SIGNOFF_REF` so it lands in the log.
+The agent is still off by default: an Admin picks "Jev, metadata only" under Administration →
+Review settings → Agent. The fallback order is Jev, then Clef, then a human.
+
+- Jev always gets metadata only: file name, size, type, submitter and recipient names and emails,
+  purpose, requested limits and check results. It never gets `content_excerpt`, whatever the org
+  setting says (AGT-5). That data leaves the company network through OpenRouter.
+- The backend sends one batched request to `JEV_URL`: `{"model", "state": <metadata>, "questions"}`,
+  with one `noul` question named `release` plus one per criterion. `p_approve` is the probability
+  Jev gives to `release`. The per-criterion probabilities go into `reasons`. A missing or
+  out-of-range `release` answer counts as an error.
+- The benchmark can replay decisions through Jev too (`--provider jev`, or pick it in the app),
+  which sends the metadata of past submissions to OpenRouter.
+
+## Access code on release (REL-7)
+
+When approving, a Reviewer can set a 4 to 8 digit access code, or click "Generate code". The
+recipient then has to type the code before each download. The code is stored as an HMAC keyed by
+`STORAGE_UPLOAD_SECRET`, never in plain text, and the Reviewer gives it to the recipient themselves
+(by phone or chat): nothing is emailed. The approval log row records `"access_code": true`, never
+the code.
+
+- Five tries per file in 10 minutes, counted in the database, after which the download answers
+  `429` until the window passes. A correct code resets the counter. Each wrong code writes an
+  `access_code_failed` row.
+- Browser downloads check the code when the ticket is issued
+  (`POST …/download-ticket` with `{"access_code": "…"}`). API clients send it as `X-Access-Code`
+  on `GET …/download`. A ticket issued before a code was set does not bypass it.
+- Only the recipient is asked. The submitter can still open their own file.
 
 ## Benchmark
 
@@ -128,6 +165,6 @@ needed is Deep's call. There are two ways to run it:
 ## Tests
 
 ```
-cd backend && python -m pytest -q -p no:cacheprovider tests/test_intranet.py tests/test_intranet_p1.py
+cd backend && python -m pytest -q -p no:cacheprovider tests/test_intranet.py tests/test_intranet_p1.py tests/test_intranet_p2.py
 cd frontend && npx vitest run src/intranet
 ```

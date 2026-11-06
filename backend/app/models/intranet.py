@@ -65,6 +65,7 @@ EVENT_SCANNED = "scanned"
 EVENT_REMINDER_SENT = "reminder_sent"
 EVENT_OVERTURNED = "overturned"
 EVENT_BENCHMARK_RUN = "benchmark_run"
+EVENT_ACCESS_CODE_FAILED = "access_code_failed"
 
 ACTOR_HUMAN = "human"
 ACTOR_AGENT = "agent"
@@ -130,6 +131,9 @@ class Transfer(Base):
     escalation_reason = Column(Text, nullable=True)
     agent_evaluated_at = Column(DateTime, nullable=True)
     agent_result = Column(_JSON, nullable=True)
+    access_code_hash = Column(String(64), nullable=True)
+    access_code_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    access_code_window_at = Column(DateTime, nullable=True)
 
 
 class DecisionLogEntry(Base):

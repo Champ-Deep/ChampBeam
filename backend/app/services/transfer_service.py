@@ -7,9 +7,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import access_control as ac
 from app.core.config import settings
 from app.models.file_asset import (
     STATUS_ACTIVE,
@@ -22,6 +23,7 @@ from app.models.intranet import (
     ACTOR_AGENT,
     ACTOR_HUMAN,
     ACTOR_SYSTEM,
+    EVENT_ACCESS_CODE_FAILED,
     EVENT_APPROVED,
     EVENT_CHECK_FAILED,
     EVENT_OVERTURNED,
@@ -164,6 +166,7 @@ async def approve(
     reason: Optional[str],
     actor_type: str = ACTOR_HUMAN,
     agent: Optional[dict] = None,
+    access_code: Optional[str] = None,
 ) -> None:
     if str(transfer.submitter_user_id) == reviewer_id:
         raise TransferError("You cannot decide your own submission.", 403)
@@ -176,6 +179,9 @@ async def approve(
     final_one_time = bool(transfer.requested_one_time or one_time)
     if transfer.requested_one_time and one_time is False:
         raise TransferError("One-time access was requested and cannot be loosened.", 422)
+    code = (access_code or "").strip()
+    if code and not ac.ACCESS_CODE_RE.match(code):
+        raise TransferError("The access code must be 4 to 8 digits.", 422)
     now = datetime.utcnow()
     await _transition(
         session,
@@ -189,9 +195,14 @@ async def approve(
             "released_at": now,
             "expires_at": now + timedelta(days=days),
             "one_time": final_one_time,
+            "access_code_hash": ac.hash_access_code(transfer.id, code) if code else None,
+            "access_code_attempts": 0,
+            "access_code_window_at": None,
         },
     )
-    limits = {"expires_in_days": days, "one_time": final_one_time}
+    limits: dict = {"expires_in_days": days, "one_time": final_one_time}
+    if code:
+        limits["access_code"] = True
     await decision_log.append(
         session,
         organization_id=transfer.organization_id,
@@ -391,6 +402,52 @@ async def _classify_refusal(session: AsyncSession, transfer_id: UUID, now: datet
     if row.state == STATE_RELEASED and row.one_time:
         return TransferError("This one-time file is being downloaded in another session.", 409)
     return TransferError("This file has not been released.", 403)
+
+
+async def check_access_code(session: AsyncSession, transfer: Transfer, user_id: str, code: Optional[str]) -> None:
+    if not transfer.access_code_hash:
+        return
+    code = (code or "").strip()
+    if not code:
+        raise TransferError("This file needs the access code the Reviewer gave you.", 403)
+    now = datetime.utcnow()
+    fresh = or_(
+        Transfer.access_code_window_at.is_(None),
+        Transfer.access_code_window_at <= now - timedelta(seconds=ac.CODE_WINDOW_SECONDS),
+    )
+    result = await session.execute(
+        update(Transfer)
+        .where(Transfer.id == transfer.id, or_(fresh, Transfer.access_code_attempts < ac.CODE_ATTEMPTS_PER_WINDOW))
+        .values(
+            access_code_attempts=case((fresh, 1), else_=Transfer.access_code_attempts + 1),
+            access_code_window_at=case((fresh, now), else_=Transfer.access_code_window_at),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        await session.commit()
+        raise TransferError(
+            f"Too many wrong access codes. Try again in {ac.CODE_WINDOW_SECONDS // 60} minutes.", 429
+        )
+    if ac.verify_access_code(transfer, code):
+        await session.execute(
+            update(Transfer)
+            .where(Transfer.id == transfer.id)
+            .values(access_code_attempts=0, access_code_window_at=None)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        return
+    await decision_log.append(
+        session,
+        organization_id=transfer.organization_id,
+        transfer_id=transfer.id,
+        event=EVENT_ACCESS_CODE_FAILED,
+        actor_type=ACTOR_HUMAN,
+        actor_id=user_id,
+    )
+    await session.commit()
+    raise TransferError("That access code is wrong.", 403)
 
 
 async def claim_download(session: AsyncSession, transfer: Transfer, recipient_id: str) -> DownloadClaim:

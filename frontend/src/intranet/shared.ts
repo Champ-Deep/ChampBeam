@@ -7,6 +7,13 @@ export const ME_KEY = ['intranet-me'] as const;
 export const BADGES_KEY = ['intranet-badges'] as const;
 export const TRANSFER_KEYS = [['intranet-mine'], ['intranet-inbox'], ['intranet-queue'], BADGES_KEY, ['intranet-log']] as const;
 
+export const ACCESS_CODE_PATTERN = '[0-9]{4,8}';
+
+export function generateAccessCode(): string {
+  const [n = 0] = crypto.getRandomValues(new Uint32Array(1));
+  return String(n % 1_000_000).padStart(6, '0');
+}
+
 export function useMe() {
   return useQuery({ queryKey: ME_KEY, queryFn: () => intranetApi.me(), retry: false, staleTime: 60_000 });
 }
@@ -65,6 +72,7 @@ export function fileLine(t: Transfer): string {
 export function limitsLine(t: Transfer): string {
   const parts: string[] = [];
   if (t.one_time) parts.push('One-time');
+  if (t.access_code_required) parts.push('Access code');
   if (t.expires_at) parts.push(`Expires ${formatRelative(t.expires_at)}`);
   else if (t.requested_expires_in_days) parts.push(`Expiry ${t.requested_expires_in_days} days after release`);
   if (!t.expires_at && t.requested_one_time && !t.one_time) parts.push('One-time requested');

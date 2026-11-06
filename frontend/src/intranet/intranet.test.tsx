@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmProvider } from '../components/ui';
 import { intranetApi, type Me, type Member, type Transfer } from './api';
 import { AdminPage } from './pages/AdminPage';
+import { InboxPage } from './pages/InboxPage';
 import { ReviewQueuePage } from './pages/ReviewQueuePage';
 import { SubmissionsPage } from './pages/SubmissionsPage';
 import { SubmitPage } from './pages/SubmitPage';
@@ -13,6 +14,7 @@ import { SubmitPage } from './pages/SubmitPage';
 vi.mock('./api', () => ({
   intranetApi: {
     me: vi.fn(),
+    inbox: vi.fn(),
     members: vi.fn(),
     submit: vi.fn(),
     mine: vi.fn(),
@@ -49,7 +51,7 @@ const me: Me = {
   limits: { max_file_bytes: 1024, max_bytes_per_user: 4096, max_expiry_days: 90, blocked_extensions: ['exe', 'bat'] },
   malware_scan: false,
   malware_scan_max_bytes: null,
-  agent: { modes: ['off', 'local'], clef_configured: true, benchmark_providers: ['clef'] },
+  agent: { modes: ['off', 'local'], clef_configured: true, jev_configured: false, benchmark_providers: ['clef'] },
 };
 
 const members: Member[] = [
@@ -94,6 +96,7 @@ function transfer(overrides: Partial<Transfer> = {}): Transfer {
     decided_by_id: null,
     agent_result: null,
     withdrawn_at: null,
+    access_code_required: false,
     ...overrides,
   };
 }
@@ -266,5 +269,52 @@ describe('admin review settings', () => {
     await waitFor(() => expect(intranetApi.saveReviewSettings).toHaveBeenCalledWith({ agent_mode: 'local' }));
     expect(await screen.findByText('75.0%')).toBeInTheDocument();
     expect(screen.getByText('0.95 (current)')).toBeInTheDocument();
+  });
+});
+
+describe('access code (REL-7)', () => {
+  it('lets a reviewer release with an access code', async () => {
+    vi.mocked(intranetApi.queue).mockResolvedValue([transfer()]);
+    vi.mocked(intranetApi.approve).mockResolvedValue(transfer({ state: 'released', access_code_required: true }));
+    mount(<ReviewQueuePage />);
+    fireEvent.change(await screen.findByLabelText(/Access code/), { target: { value: '48a21' } });
+    expect(screen.getByLabelText(/Access code/)).toHaveValue('4821');
+    fireEvent.click(screen.getByRole('button', { name: 'Approve and release' }));
+    await waitFor(() =>
+      expect(intranetApi.approve).toHaveBeenCalledWith('t-1', { expires_in_days: 3, one_time: false, access_code: '4821' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Generate code' }));
+    expect((screen.getByLabelText(/Access code/) as HTMLInputElement).value).toMatch(/^[0-9]{6}$/);
+  });
+
+  it('asks the recipient for the code before downloading', async () => {
+    vi.mocked(intranetApi.inbox).mockResolvedValue([
+      transfer({ state: 'released', receipt: 'not_opened', released_at: new Date().toISOString(), access_code_required: true }),
+    ]);
+    vi.mocked(intranetApi.download).mockResolvedValue();
+    mount(<InboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download' }));
+    expect(intranetApi.download).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Access code from the Reviewer'), { target: { value: '4821' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(intranetApi.download).toHaveBeenCalledWith('t-1', 'transfer', '4821'));
+  });
+});
+
+describe('jev agent mode', () => {
+  it('offers Jev only when the server allows it and says it sees metadata only', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({
+      ...me,
+      is_admin: true,
+      agent: { modes: ['off', 'local', 'jev'], clef_configured: true, jev_configured: true, benchmark_providers: ['clef', 'jev'] },
+    });
+    vi.mocked(intranetApi.invites).mockResolvedValue([]);
+    vi.mocked(intranetApi.reviewSettings).mockResolvedValue(me.settings);
+    vi.mocked(intranetApi.benchmarks).mockResolvedValue([]);
+    mount(<AdminPage />);
+    const agent = await screen.findByLabelText('Agent');
+    expect(within(agent).getByRole('option', { name: /Jev, metadata only/ })).toBeInTheDocument();
+    fireEvent.change(agent, { target: { value: 'jev' } });
+    expect(screen.getByText(/always receives metadata only/)).toBeInTheDocument();
   });
 });

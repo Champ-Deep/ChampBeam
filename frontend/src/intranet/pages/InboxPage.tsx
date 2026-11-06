@@ -4,19 +4,27 @@ import { Button, useConfirm } from '../../components/ui';
 import { formatRelative } from '../../lib/format';
 import { intranetApi, type Transfer } from '../api';
 import { PageHeader, QueryState } from '../components';
-import { TRANSFER_KEYS, errorText, fileLine, limitsLine, personName, receiptLabel, stateTone } from '../shared';
+import { ACCESS_CODE_PATTERN, TRANSFER_KEYS, errorText, fileLine, limitsLine, personName, receiptLabel, stateTone } from '../shared';
 
 export function InboxPage() {
   const client = useQueryClient();
   const confirm = useConfirm();
   const inbox = useQuery({ queryKey: ['intranet-inbox'], queryFn: () => intranetApi.inbox(), refetchInterval: 30_000 });
   const [error, setError] = useState('');
+  const [codeFor, setCodeFor] = useState<string | null>(null);
+  const [code, setCode] = useState('');
 
-  async function download(t: Transfer) {
+  async function download(t: Transfer, accessCode?: string) {
     setError('');
+    if (t.access_code_required && !accessCode) {
+      setCodeFor(t.id);
+      setCode('');
+      return;
+    }
     if (t.one_time && !(await confirm({ message: 'This file can be downloaded once. After the download completes it is deleted. Continue?', confirmLabel: 'Download' }))) return;
     try {
-      await intranetApi.download(t.id);
+      await intranetApi.download(t.id, 'transfer', accessCode);
+      setCodeFor(null);
       window.setTimeout(() => {
         void Promise.all(TRANSFER_KEYS.map((queryKey) => client.invalidateQueries({ queryKey })));
       }, 3000);
@@ -48,8 +56,34 @@ export function InboxPage() {
                   <td>{limitsLine(t)}</td>
                   <td style={{ color: stateTone(t) }}>{t.state === 'consumed' ? 'Downloaded' : receiptLabel(t)}</td>
                   <td>
-                    {t.state === 'released' && (
+                    {t.state === 'released' && codeFor !== t.id && (
                       <Button size="sm" onClick={() => void download(t)}>Download</Button>
+                    )}
+                    {t.state === 'released' && codeFor === t.id && (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void download(t, code);
+                        }}
+                      >
+                        <label>
+                          Access code from the Reviewer
+                          <input
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            pattern={ACCESS_CODE_PATTERN}
+                            maxLength={8}
+                            required
+                            autoFocus
+                            value={code}
+                            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                          />
+                        </label>
+                        <div className="cb-actions">
+                          <Button size="sm" type="submit">Download</Button>
+                          <Button size="sm" type="button" variant="outline" onClick={() => setCodeFor(null)}>Cancel</Button>
+                        </div>
+                      </form>
                     )}
                   </td>
                 </tr>

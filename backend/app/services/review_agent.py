@@ -122,6 +122,72 @@ class ClefScorer:
         return _validate(data, self.name)
 
 
+JEV_DECISION_KEY = "release"
+
+
+def jev_request(payload: dict[str, Any]) -> dict[str, Any]:
+    state = {k: v for k, v in payload.items() if k != "content_excerpt"}
+    questions: dict[str, dict[str, str]] = {
+        JEV_DECISION_KEY: {
+            "type": "noul",
+            "instructions": "state describes an internal file transfer. Statement: IT can release this file to "
+            "the recipient without a human review, because every criterion below holds. "
+            + " ".join(c["question"] for c in CRITERIA),
+        }
+    }
+    for c in CRITERIA:
+        questions[c["name"]] = {
+            "type": "noul",
+            "instructions": f"state describes an internal file transfer. Statement: {c['question']}",
+        }
+    return {"model": settings.jev_model, "state": state, "questions": questions}
+
+
+def _noul(answers: dict[str, Any], key: str) -> Optional[float]:
+    a = answers.get(key)
+    if not isinstance(a, dict) or a.get("type") != "noul":
+        return None
+    p = a.get("noul")
+    if isinstance(p, bool) or not isinstance(p, (int, float)) or math.isnan(float(p)) or not 0.0 <= float(p) <= 1.0:
+        return None
+    return float(p)
+
+
+class JevScorer:
+    name = PROVIDER_JEV
+
+    async def score(self, payload: dict[str, Any]) -> ScoreResult:
+        if not settings.jev_configured:
+            raise ScorerError("Jev is not configured")
+        body = jev_request(payload)
+        headers = {"Authorization": f"Bearer {settings.jev_api_key}", "Content-Type": "application/json"}
+        try:
+            async with httpx.AsyncClient(timeout=settings.jev_timeout_s) as client:
+                resp = await client.post(settings.jev_url, json=body, headers=headers)
+        except httpx.HTTPError as exc:
+            raise ScorerError(f"Jev request failed: {exc.__class__.__name__}") from exc
+        if resp.status_code != 200:
+            raise ScorerError(f"Jev returned HTTP {resp.status_code}")
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ScorerError("Jev returned invalid JSON") from exc
+        answers = data.get("answers") if isinstance(data, dict) else None
+        if not isinstance(answers, dict):
+            raise ScorerError("Jev returned no answers")
+        p = _noul(answers, JEV_DECISION_KEY)
+        if p is None:
+            raise ScorerError("Jev returned an invalid release probability")
+        reasons = []
+        for c in CRITERIA:
+            cp = _noul(answers, c["name"])
+            reasons.append(f"{c['name']}: {'unjudged' if cp is None else f'{cp:.2f}'}")
+        model = str(data.get("model") or settings.jev_model)
+        return _validate(
+            {"p_approve": p, "reasons": reasons, "model": model, "version": model.rsplit("-", 1)[-1]}, self.name
+        )
+
+
 class MockScorer:
     name = PROVIDER_MOCK
 
@@ -136,6 +202,8 @@ class MockScorer:
 def get_scorer(provider: str) -> Scorer:
     if provider == PROVIDER_CLEF:
         return ClefScorer()
+    if provider == PROVIDER_JEV and settings.jev_configured:
+        return JevScorer()
     if provider == PROVIDER_MOCK and settings.review_agent_allow_mock:
         return MockScorer()
     raise ScorerError(f"Provider '{provider}' is not available")
@@ -156,6 +224,8 @@ def available_modes() -> list[str]:
     modes = [AGENT_OFF]
     if settings.clef_configured or settings.review_agent_allow_mock:
         modes.append(AGENT_LOCAL)
+    if settings.jev_configured:
+        modes.append(AGENT_JEV)
     return modes
 
 

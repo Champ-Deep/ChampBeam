@@ -4,7 +4,7 @@ import { Button } from '../../components/ui';
 import { formatRelative } from '../../lib/format';
 import { intranetApi, type Transfer } from '../api';
 import { PageHeader, QueryState } from '../components';
-import { TRANSFER_KEYS, errorText, fileLine, personName, scanLabel, useMe } from '../shared';
+import { ACCESS_CODE_PATTERN, TRANSFER_KEYS, errorText, fileLine, generateAccessCode, personName, scanLabel, useMe } from '../shared';
 
 function formatAge(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -88,6 +88,7 @@ function ReviewItem({ t, isOwn, defaultDays, agentOn, onDone }: { t: Transfer; i
   const allowedDays = t.requested_expires_in_days ?? defaultDays;
   const [days, setDays] = useState(String(allowedDays));
   const [oneTime, setOneTime] = useState(t.requested_one_time);
+  const [accessCode, setAccessCode] = useState('');
   const [mode, setMode] = useState<'idle' | 'reject'>('idle');
   const { busy, error, run } = useAction(onDone);
   const windowLine = agentWindow(t, agentOn);
@@ -122,7 +123,10 @@ function ReviewItem({ t, isOwn, defaultDays, agentOn, onDone }: { t: Transfer; i
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              void run(() => intranetApi.approve(t.id, { expires_in_days: Number(days), one_time: oneTime }), 'Approved and released.');
+              void run(
+                () => intranetApi.approve(t.id, { expires_in_days: Number(days), one_time: oneTime, ...(accessCode ? { access_code: accessCode } : {}) }),
+                accessCode ? `Approved and released. Give ${personName(t.recipient)} the access code ${accessCode} yourself.` : 'Approved and released.',
+              );
             }}
           >
             <div className="cb-form-grid">
@@ -134,7 +138,26 @@ function ReviewItem({ t, isOwn, defaultDays, agentOn, onDone }: { t: Transfer; i
                 <input type="checkbox" checked={oneTime} disabled={t.requested_one_time} onChange={(e) => setOneTime(e.target.checked)} />
                 One-time download
               </label>
+              <div>
+                <label>
+                  Access code (optional, 4 to 8 digits)
+                  <input
+                    inputMode="numeric"
+                    autoComplete="off"
+                    pattern={ACCESS_CODE_PATTERN}
+                    maxLength={8}
+                    value={accessCode}
+                    aria-describedby={`code-help-${t.id}`}
+                    onChange={(e) => setAccessCode(e.target.value.replace(/\D/g, ''))}
+                  />
+                </label>
+                <Button type="button" size="sm" variant="outline" onClick={() => setAccessCode(generateAccessCode())}>Generate code</Button>
+              </div>
             </div>
+            <p id={`code-help-${t.id}`} className="cb-help">
+              With a code, the recipient must type it before downloading. Tell them the code yourself, by phone or chat. It is stored
+              hashed and cannot be shown again. Five wrong tries lock the file for 10 minutes.
+            </p>
             <div className="cb-actions">
               <Button type="submit">Approve and release</Button>
               <Button type="button" variant="danger" onClick={() => setMode('reject')}>Reject…</Button>

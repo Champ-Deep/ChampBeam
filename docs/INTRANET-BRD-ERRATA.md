@@ -50,9 +50,23 @@ Line numbers below are for `main` @ `e0538ad`.
 - **Escalations** re-notify Reviewers the same way as reminders. An escalated item is not
   re-scored.
 
+## P2 decisions that refine the BRD
+
+- **Access code (REL-7):** the BRD points at `access_control.py` for "5 attempts per 10 minutes".
+  That limit is counted in Redis per IP and lets everything through when Redis is down. The
+  intranet keeps the HMAC helpers but counts attempts on the `transfers` row, per file, so it
+  holds without Redis. Only Reviewers can set the code, at approval; the agent never sets one.
+- **Jev sign-off (OQ-9):** built and available whenever the server has `JEV_API_KEY`. IT's
+  approval happens at deployment: the key only exists on a server IT runs. The optional
+  `JEV_SIGNOFF_REF` is logged when an Admin switches the org to Jev. The agent itself stays off
+  by default, as AGT-1 requires.
+- **Jev input:** Jev is never given `content_excerpt`. The BRD allows it with IT's written
+  agreement. That would need a second, separate sign-off, so it is not built.
+
 ## Not in this build (still open)
 
-- Jev provider, access code on release, Resend one-time links (P2).
+- Resend one-time links for external recipients (REL-8) are not built. OQ-1 has not confirmed
+  that external recipients are in scope.
 - Production home for Clef (OQ-6) and IT's choice of scanner (OQ-5). The code works with any
   clamd it can reach.
 - Reactivating a member only clears `deactivated_at`. Deactivation also removes the Clerk org

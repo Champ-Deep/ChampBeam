@@ -45,7 +45,7 @@ async def _main(org: str, provider: str, limit: int, out_dir: Path) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--org", required=True, help="Clerk organization id (org_...)")
-    parser.add_argument("--provider", default="clef", choices=["clef", "mock"])
+    parser.add_argument("--provider", default="clef", choices=["clef", "jev", "mock"])
     parser.add_argument("--limit", type=int, default=500, help="Most recent human decisions to replay")
     parser.add_argument("--out-dir", type=Path, default=Path("benchmarks"))
     args = parser.parse_args()

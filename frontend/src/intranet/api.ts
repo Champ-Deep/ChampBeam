@@ -57,6 +57,7 @@ export interface Transfer {
   decided_by_id: string | null;
   agent_result: { p_approve: number; reasons: string[]; provider: string; model: string } | null;
   withdrawn_at: string | null;
+  access_code_required: boolean;
 }
 
 export interface ReviewSettings {
@@ -83,7 +84,7 @@ export interface Me {
   };
   malware_scan: boolean;
   malware_scan_max_bytes: number | null;
-  agent: { modes: string[]; clef_configured: boolean; benchmark_providers: string[] };
+  agent: { modes: string[]; clef_configured: boolean; jev_configured: boolean; benchmark_providers: string[] };
 }
 
 export interface Member {
@@ -256,7 +257,7 @@ export const intranetApi = {
   async queue(): Promise<Transfer[]> {
     return asArray<Transfer>((await api.get('/intranet/review/queue')).data);
   },
-  async approve(id: string, body: { expires_in_days?: number | null; one_time?: boolean; reason?: string }): Promise<Transfer> {
+  async approve(id: string, body: { expires_in_days?: number | null; one_time?: boolean; reason?: string; access_code?: string }): Promise<Transfer> {
     return (await api.post<Transfer>(`/intranet/review/${id}/approve`, body)).data;
   },
   async reject(id: string, reason: string): Promise<Transfer> {
@@ -280,8 +281,9 @@ export const intranetApi = {
   async startBenchmark(provider: string): Promise<Benchmark> {
     return (await api.post<Benchmark>('/intranet/agent/benchmarks', { provider })).data;
   },
-  async download(id: string, kind: 'transfer' | 'review' = 'transfer'): Promise<void> {
-    const ticket = (await api.post<{ url: string }>(`/intranet/transfers/${id}/download-ticket`, { kind })).data;
+  async download(id: string, kind: 'transfer' | 'review' = 'transfer', accessCode?: string): Promise<void> {
+    const body = accessCode ? { kind, access_code: accessCode } : { kind };
+    const ticket = (await api.post<{ url: string }>(`/intranet/transfers/${id}/download-ticket`, body)).data;
     window.location.assign(resolveApiPath(ticket.url));
   },
   async log(filters: LogFilters): Promise<{ items: LogEntry[]; total: number }> {
