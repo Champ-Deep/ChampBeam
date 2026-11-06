@@ -71,6 +71,8 @@ POST /api/v1/files/{file_id}/finalize    {}
 
 File views are tracked like clicks, including per-page reading time for documents. Files and links share the same access controls (`PUT .../access`): expiry, view caps, email gate (captured leads via `.../leads`), VPN blocking, instant revoke.
 
+**Attribution (links).** `PUT /api/v1/utm/links/{id}/access` accepts `track_conversions` (bool). When true, the redirect appends `cb_id=<click event id>` to the destination so a later lead or sale can name its click. Every click event also stores `channel` (email, paid_social, organic_social, search, referral, qr, direct, in_app), `visitor_type` (scanner, bot, hosting, vpn, business, mobile, residential, or null when unknown) and `is_scanner`. Scanner clicks (HEAD, security-vendor UA or ASN, or a datacenter ASN with no Accept-Language) are recorded, never dropped, and excluded from `/analytics/company-intent`.
+
 **Update in place:** `PUT /api/v1/files/{file_id}/content` with the new bytes as the raw body (correct `Content-Type` header, optional `?filename=`) replaces the content while keeping the same `short_code`, serve URL and QR code — links you already sent now serve the new version, atomically, with view history preserved.
 
 **Hosted HTML pages:** single-file HTML uploads are served inline with inline `<script>`/`<style>` and `localStorage` fully working (nothing is injected or sanitized; a CSP restricts external calls to same-origin + Google Fonts). Combined with update-in-place, this makes shareable, revisable, view-tracked dashboards/pages a first-class use case.

@@ -39,6 +39,7 @@ import { background } from "../lib/background";
 import { randomString } from "../lib/crypto";
 import { cfGeo, clientIp as coreClientIp, type CfGeo } from "../lib/request";
 import { nowIso } from "../lib/time";
+import { classifyVisitor } from "./attribution";
 import { resolveCompany } from "./companyIntel";
 import { type GeoDeps, lookupIp } from "./geoip";
 import { parseUserAgent } from "./ua";
@@ -439,6 +440,9 @@ export async function insertClickEvent(
     userAgent: string | null;
     referrer: string | null;
     domainId?: string | null;
+    channel?: string | null;
+    visitorType?: string | null;
+    isScanner?: boolean;
   },
 ): Promise<string> {
   const ua = parseUserAgent(args.userAgent ?? "");
@@ -457,6 +461,9 @@ export async function insertClickEvent(
       browser: clip(ua.browser, 100),
       os: clip(ua.os, 100),
       isRevisit: false,
+      channel: args.channel ?? null,
+      visitorType: args.visitorType ?? null,
+      isScanner: !!args.isScanner,
       clickedAt: nowIso(),
     })
     .run();
@@ -570,6 +577,21 @@ export async function resolveGeoForEvent(
   }
   // The event row is inserted (and awaited) before the response, so it is
   // always visible here — no retry loop needed as in the Python.
+  // Re-classify now that VPN and company type are known (the insert only had the ASN).
+  const row = await deps.db
+    .select({ isScanner: clickEvents.isScanner, deviceType: clickEvents.deviceType })
+    .from(clickEvents)
+    .where(eq(clickEvents.id, eventId))
+    .get();
+  if (row) {
+    set.visitorType = classifyVisitor({
+      isScanner: row.isScanner,
+      deviceType: row.deviceType,
+      isVpn: !!(geo?.is_vpn ?? false),
+      asnOrg: geo?.asn_org ?? null,
+      companyType: company?.type ?? null,
+    });
+  }
   const res = await deps.db.update(clickEvents).set(set).where(eq(clickEvents.id, eventId)).returning({ id: clickEvents.id }).all();
   if (res.length === 0) console.warn(`resolveGeoForEvent: event ${eventId} not found, dropping geo enrichment`);
 }

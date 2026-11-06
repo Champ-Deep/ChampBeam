@@ -85,6 +85,7 @@ const LinkAccessRequest = z.object({
   require_email: optBool,
   block_vpn: optBool,
   branded: optBool,
+  track_conversions: optBool,
   revoked: optBool,
 });
 
@@ -457,6 +458,7 @@ function linkAccessResponse(link: LinkClick) {
     require_email: !!link.requireEmail,
     block_vpn: !!link.blockVpn,
     branded: !!link.branded,
+    track_conversions: !!link.trackConversions,
     revoked: link.revokedAt != null,
     access_status: linkAccessStatus(link),
     views,
@@ -479,6 +481,7 @@ router.put("/links/:link_id/access", async (c) => {
   if (sent("require_email")) set.requireEmail = !!data.require_email;
   if (sent("block_vpn")) set.blockVpn = !!data.block_vpn;
   if (sent("branded")) set.branded = !!data.branded;
+  if (sent("track_conversions")) set.trackConversions = !!data.track_conversions;
   if (sent("revoked")) set.revokedAt = data.revoked ? now : null;
   const db = c.var.db;
   if (Object.keys(set).length) await db.update(linkClicks).set(set).where(eq(linkClicks.id, link.id)).run();

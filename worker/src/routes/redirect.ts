@@ -14,6 +14,8 @@ import { captureLead, clientIp, gateCookieName, hasGateCookie, isVpnIp, validEma
 import { blockedPage, emailGatePage } from "../lib/accessPages";
 import { cfGeo } from "../lib/request";
 import { isPast } from "../lib/time";
+import { classifyChannel, classifyVisitor, detectScanner } from "../services/attribution";
+import { parseUserAgent } from "../services/ua";
 import { type Domain, requestHost, resolveDomain } from "../services/assetLookup";
 import {
   captureVisit,
@@ -67,6 +69,17 @@ async function resolveDestination(settings: Settings, link: LinkClick): Promise<
     if (destination && destination.startsWith("champvault://")) destination = null;
   }
   return destination || null;
+}
+
+/** Append cb_id=<click event id> so a later lead/sale can name its click. Unparseable URLs pass through. */
+export function withClickId(destination: string, clickId: string): string {
+  try {
+    const u = new URL(destination);
+    u.searchParams.set("cb_id", clickId);
+    return u.toString();
+  } catch {
+    return destination;
+  }
 }
 
 /**
@@ -124,21 +137,39 @@ export async function redirectLink(c: Ctx, shortCode: string): Promise<Response>
   if (!destination) return redirectResponse("/", 302);
 
   // Best-effort event insert (the view was already counted atomically above).
+  let finalUrl = destination;
   try {
     const visit = captureVisit(c, ip);
+    const asnOrg = visit.cf.asOrganization;
+    const isScanner = detectScanner({
+      method: c.req.method,
+      userAgent: visit.userAgent,
+      asnOrg,
+      acceptLanguage: c.req.header("accept-language") ?? null,
+    });
     const eventId = await insertClickEvent(db, {
       linkId: link.id,
       ipAddress: ip,
       userAgent: visit.userAgent,
       referrer: visit.referrer,
       domainId: domain ? domain.id : null,
+      channel: classifyChannel({ referrer: visit.referrer, utmMedium: link.utmMedium, utmSource: link.utmSource }),
+      visitorType: classifyVisitor({
+        isScanner,
+        deviceType: parseUserAgent(visit.userAgent ?? "").device_type,
+        isVpn: false,
+        asnOrg,
+        companyType: null,
+      }),
+      isScanner,
     });
     if (eventId && ip) scheduleGeoEnrichment(c, eventId, visit);
+    if (eventId && link.trackConversions) finalUrl = withClickId(destination, eventId);
   } catch (err) {
     console.error(`redirect: click event insert failed for short_code=${shortCode} link_id=${link.id}`, err);
   }
 
-  return redirectResponse(destination, 302);
+  return redirectResponse(finalUrl, 302);
 }
 
 router.get("/r/:short_code", (c) => redirectLink(c, c.req.param("short_code")));
