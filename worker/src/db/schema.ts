@@ -208,6 +208,7 @@ export const linkClicks = sqliteTable("link_clicks", {
   requireEmail: bool("require_email").notNull().default(false),
   blockVpn: bool("block_vpn").notNull().default(false),
   branded: bool("branded").notNull().default(false),
+  trackConversions: bool("track_conversions").notNull().default(false),
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   createdAt: createdAt(true),
 });
@@ -297,6 +298,9 @@ export const clickEvents = sqliteTable("click_events", {
   companyIndustry: text("company_industry"),
   companySize: text("company_size"),
   companyType: text("company_type"),
+  channel: text("channel"),
+  visitorType: text("visitor_type"),
+  isScanner: bool("is_scanner").notNull().default(false),
   clickedAt: text("clicked_at").notNull().$defaultFn(nowIso),
 });
 
