@@ -27,40 +27,47 @@ async function superAdmin() {
 }
 const orgOfUser = (orgId: string, userId: string) =>
   env.DB.prepare("SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ?").bind(orgId, userId).first<{ role: string }>();
+const withGoogle = async (userId: string) => {
+  const now = Date.now();
+  await env.DB.prepare("INSERT INTO account (id, account_id, provider_id, user_id, created_at, updated_at) VALUES (?,?,?,?,?,?)")
+    .bind(crypto.randomUUID(), "g-" + userId, "google", userId, now, now)
+    .run();
+};
 const createOrgApi = (headers: Record<string, string>, slug: string, name = "Acme") =>
   api("/api/auth/organization/create", { method: "POST", headers, json: { name, slug } });
 
-describe("create org", () => {
-  it("a verified user creates an org, becomes its admin, and it is their active org", async () => {
-    const u = await verified();
-    const headers = await sessionHeaders(u.id);
+describe("create org (super admin only)", () => {
+  it("a super admin creates an org, becomes its admin, and it is their active org", async () => {
+    const root = await superAdmin();
     const slug = `acme-${rid()}`;
-    const res = await createOrgApi(headers, slug);
+    const res = await createOrgApi(root.headers, slug);
     expect(res.status).toBe(200);
     const org = await json(res);
-    expect((await orgOfUser(org.id, u.id))?.role).toBe("admin");
-    const ctx = await json(await api("/api/v1/org/context", { headers }));
+    expect((await orgOfUser(org.id, root.id))?.role).toBe("admin");
+    const ctx = await json(await api("/api/v1/org/context", { headers: root.headers }));
     expect(ctx).toMatchObject({ org_id: org.id, org_slug: slug, role: "admin", is_admin: true });
   });
 
-  it("refuses an unverified password user", async () => {
-    const u = await createUser();
-    const res = await createOrgApi(await sessionHeaders(u.id), `nope-${rid()}`);
-    expect(res.status).toBe(403);
+  it("refuses a verified user, a verified Google user and an unverified password user", async () => {
+    const plain = await verified();
+    const google = await verified();
+    await withGoogle(google.id);
+    const unverified = await createUser();
+    for (const u of [plain, google, unverified]) {
+      const slug = `nope-${rid()}`;
+      expect((await createOrgApi(await sessionHeaders(u.id), slug)).status).toBe(403);
+      const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM organizations WHERE slug = ?").bind(slug).first<{ n: number }>();
+      expect(n?.n).toBe(0);
+    }
   });
 
-  it("allows an unverified user who signed in with Google", async () => {
-    const u = await createUser();
-    const now = Date.now();
-    await env.DB.prepare("INSERT INTO account (id, account_id, provider_id, user_id, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-      .bind(crypto.randomUUID(), "g-" + u.id, "google", u.id, now, now)
-      .run();
-    expect((await createOrgApi(await sessionHeaders(u.id), `goog-${rid()}`)).status).toBe(200);
+  it("refuses a non-listed user even when the email looks like an admin's", async () => {
+    const u = await verified(`not-root-${rid()}@example.com`);
+    expect((await createOrgApi(await sessionHeaders(u.id), `fake-${rid()}`)).status).toBe(403);
   });
 
   it("refuses reserved, uppercase and duplicate slugs", async () => {
-    const u = await verified();
-    const headers = await sessionHeaders(u.id);
+    const { headers } = await superAdmin();
     for (const slug of ["admin", "api", "www", "app", "champbeam"]) expect((await createOrgApi(headers, slug)).status).toBe(400);
     expect((await createOrgApi(headers, "Mixed-Case")).status).toBe(400);
     const slug = `dup-${rid()}`;
@@ -69,21 +76,15 @@ describe("create org", () => {
   });
 
   it("refuses renaming an org's slug to a reserved word", async () => {
-    const u = await verified();
-    const headers = await sessionHeaders(u.id);
+    const { headers } = await superAdmin();
     const org = await json(await createOrgApi(headers, `ren-${rid()}`));
     const res = await api("/api/auth/organization/update", { method: "POST", headers, json: { organizationId: org.id, data: { slug: "admin" } } });
     expect(res.status).toBe(400);
   });
 
-  it("caps a user at 5 administered orgs; a super admin is exempt", async () => {
-    const u = await verified();
-    const headers = await sessionHeaders(u.id);
-    for (let i = 0; i < 5; i++) expect((await createOrgApi(headers, `cap${i}-${rid()}`)).status).toBe(200);
-    expect((await createOrgApi(headers, `cap6-${rid()}`)).status).toBe(403);
-
-    const root = await superAdmin();
-    for (let i = 0; i < 6; i++) expect((await createOrgApi(root.headers, `root${i}-${rid()}`)).status).toBe(200);
+  it("has no per-user org cap", async () => {
+    const { headers } = await superAdmin();
+    for (let i = 0; i < 6; i++) expect((await createOrgApi(headers, `root${i}-${rid()}`)).status).toBe(200);
   });
 });
 
@@ -239,8 +240,8 @@ describe("super admin", () => {
 describe("invitations", () => {
   async function orgWithAdmin() {
     const admin = await verified();
-    const headers = await sessionHeaders(admin.id);
-    const org = await json(await createOrgApi(headers, `inv-${rid()}`));
+    const root = await superAdmin();
+    const org = await json(await api("/api/v1/admin/orgs", { method: "POST", headers: root.headers, json: { name: "Inv", slug: `inv-${rid()}`, email: admin.email } }));
     return { admin, org, headers: await sessionHeaders(admin.id, org.id) };
   }
   const invite = (headers: Record<string, string>, email: string, role = "member") =>
@@ -431,11 +432,14 @@ describe("email behind the binding", () => {
 describe("GET /api/v1/config", () => {
   it("reports email, custom domains, super admin and platform host", async () => {
     const anon = await json(await api("/api/v1/config"));
-    expect(anon).toEqual({ email_enabled: false, custom_domains_enabled: false, is_super_admin: false, platform_host: "share.example.com" });
+    expect(anon).toEqual({ email_enabled: false, custom_domains_enabled: false, is_super_admin: false, can_create_org: false, platform_host: "share.example.com" });
     const root = await superAdmin();
-    expect((await json(await api("/api/v1/config", { headers: root.headers }))).is_super_admin).toBe(true);
+    expect(await json(await api("/api/v1/config", { headers: root.headers }))).toMatchObject({ is_super_admin: true, can_create_org: true });
     const plain = await verified();
-    expect((await json(await api("/api/v1/config", { headers: await sessionHeaders(plain.id) }))).is_super_admin).toBe(false);
+    expect(await json(await api("/api/v1/config", { headers: await sessionHeaders(plain.id) }))).toMatchObject({ is_super_admin: false, can_create_org: false });
+    const google = await verified();
+    await withGoogle(google.id);
+    expect((await json(await api("/api/v1/config", { headers: await sessionHeaders(google.id) }))).can_create_org).toBe(false);
   });
 });
 

@@ -51,7 +51,7 @@ try {
 step(0, "config endpoint (anonymous)");
 const cfg = await new Client("x").req("GET", "/api/v1/config");
 console.log(JSON.stringify(cfg.data));
-check(cfg.data?.email_enabled === false && cfg.data?.is_super_admin === false && cfg.data?.platform_host === new URL(BASE).host, "config reports email off, not super admin, platform host");
+check(cfg.data?.email_enabled === false && cfg.data?.is_super_admin === false && cfg.data?.can_create_org === false && cfg.data?.platform_host === new URL(BASE).host, "config reports email off, not super admin, platform host");
 
 step(1, "A signs up and is personal");
 check((await A.signUp("Aye")).status === 200, "A signed up");
@@ -61,20 +61,35 @@ const aCtx = await A.req("GET", "/api/v1/org/context");
 check(aCtx.status === 403, "A has no org context (Personal workspace)", `status ${aCtx.status}`);
 const aMem = d1(`SELECT COUNT(*) AS n FROM organization_memberships WHERE user_id = (SELECT id FROM users WHERE email = '${A.email}')`);
 check(aMem[0].results[0].n === 0, "A has 0 memberships (no champions-group auto-join)");
-
-step(2, "A creates an org and is its admin");
-const slug = `e2e-${run}`;
-const early = await A.req("POST", "/api/auth/organization/create", { name: "E2E Org", slug });
-check(early.status === 403, "unverified A is refused", `status ${early.status}`);
+const aSlug = `e2e-a-self-${run}`;
+check((await A.req("POST", "/api/auth/organization/create", { name: "A Self", slug: aSlug })).status === 403, "unverified A's own create is refused");
 d1(`UPDATE users SET email_verified = 1 WHERE email IN ('${A.email}')`);
 console.log("(staging has no email sender, so A's email_verified was set in the staging D1)");
-const reserved = await A.req("POST", "/api/auth/organization/create", { name: "Bad", slug: "admin" });
+const aSelf = await A.req("POST", "/api/auth/organization/create", { name: "A Self", slug: aSlug });
+check(aSelf.status === 403, "verified A's own create is refused (only super admins create orgs)", `status ${aSelf.status}`);
+check(d1(`SELECT COUNT(*) AS n FROM organizations WHERE slug = '${aSlug}'`)[0].results[0].n === 0, "no org row was written for A");
+const aCfg = await A.req("GET", "/api/v1/config");
+check(aCfg.data?.can_create_org === false && aCfg.data?.is_super_admin === false, "config says A cannot create orgs");
+
+step(2, "super admin creates an org with A as first admin");
+let rootUp = await ROOT.signUp("Root");
+check(rootUp.status === 200, "super admin account signed up");
+resetRoot(); // set the precondition before checking it
+const notYet = await ROOT.req("GET", "/api/v1/admin/orgs");
+check(notYet.status === 403, "unverified listed email is NOT a super admin", `status ${notYet.status}`);
+const rootCfg0 = await ROOT.req("GET", "/api/v1/config");
+check(rootCfg0.data?.can_create_org === false, "config says unverified listed email cannot create orgs");
+d1(`UPDATE users SET email_verified = 1 WHERE email = '${ROOT.email}'`);
+const rootCfg = await ROOT.req("GET", "/api/v1/config");
+check(rootCfg.data?.is_super_admin === true && rootCfg.data?.can_create_org === true, "config says the super admin can create orgs");
+const slug = `e2e-${run}`;
+const reserved = await ROOT.req("POST", "/api/auth/organization/create", { name: "Bad", slug: "admin" });
 check(reserved.status === 400, "reserved slug 'admin' refused", `status ${reserved.status}`);
-const created = await A.req("POST", "/api/auth/organization/create", { name: "E2E Org", slug });
-check(created.status === 200, "A created the org", `status ${created.status}`);
+const created = await ROOT.req("POST", "/api/v1/admin/orgs", { name: "E2E Org", slug, email: A.email });
+check(created.status === 201, "super admin created the org with A as first admin", `status ${created.status}`);
 const org1 = created.data.id;
 const ctx1 = await A.req("GET", "/api/v1/org/context");
-check(ctx1.data?.role === "admin" && ctx1.data?.org_id === org1, "A is admin and the org is active", JSON.stringify({ role: ctx1.data?.role, org_slug: ctx1.data?.org_slug }));
+check(ctx1.status === 200 && ctx1.data?.org_id === org1 && ctx1.data?.role === "admin", "A is admin of the org", JSON.stringify({ role: ctx1.data?.role, org_slug: ctx1.data?.org_slug }));
 
 step(3, "A invites B and gets the accept URL");
 const inv = await A.req("POST", "/api/v1/org/invitations", { email: B.email, role: "member" });
@@ -112,12 +127,6 @@ const leave = await A.req("POST", "/api/auth/organization/leave", { organization
 check(leave.status === 400, "A cannot leave as the only admin", `status ${leave.status}`);
 
 step(7, "a super admin moves B to another org with their content");
-let rootUp = await ROOT.signUp("Root");
-check(rootUp.status === 200, "super admin account signed up");
-resetRoot(); // set the precondition before checking it
-const notYet = await ROOT.req("GET", "/api/v1/admin/orgs");
-check(notYet.status === 403, "unverified listed email is NOT a super admin", `status ${notYet.status}`);
-d1(`UPDATE users SET email_verified = 1 WHERE email = '${ROOT.email}'`);
 const gen = await B.req("POST", "/api/v1/utm/generate", { base_url: "https://example.com/e2e", utm_source: "e2e" });
 check(gen.status === 200 && !!gen.data?.link_id, "B created a link in org 1", gen.data?.short_url);
 const dest = await ROOT.req("POST", "/api/v1/admin/orgs", { name: "E2E Dest", slug: `e2e-dest-${run}`, email: ROOT.email });
