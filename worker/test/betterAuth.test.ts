@@ -92,8 +92,8 @@ describe("email and password", () => {
     expect(statuses[5]).toBe(429);
   });
 
-  it("a new sign-up auto-joins the Champions Group org as member", async () => {
-    const orgId = await defaultOrg();
+  it("a new sign-up is personal: it joins no org, even when champions-group exists", async () => {
+    await defaultOrg();
     const email = `join-${crypto.randomUUID().slice(0, 8)}@example.com`;
     const up = await api("/api/auth/sign-up/email", {
       method: "POST",
@@ -101,23 +101,25 @@ describe("email and password", () => {
       json: { email, password: "long enough pw", name: "Joiner" },
     });
     expect(up.status).toBe(200);
-    const m = await env.DB.prepare(
-      "SELECT m.role FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ? AND m.organization_id = ?",
+    const n = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ?",
     )
-      .bind(email, orgId)
-      .first<{ role: string }>();
-    expect(m?.role).toBe("member");
+      .bind(email)
+      .first<{ n: number }>();
+    expect(n?.n).toBe(0);
   });
 
   it("a member's new session lands in their org; a user with no membership lands in Personal", async () => {
     const orgId = await defaultOrg();
     const email = `land-${crypto.randomUUID().slice(0, 8)}@example.com`;
     await api("/api/auth/sign-up/email", { method: "POST", headers: { ...ORIGIN, ...ip() }, json: { email, password: "long enough pw", name: "Lander" } });
+    const uid = (await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first<{ id: string }>())!.id;
+    await addMembership(orgId, uid, "member");
     const res = await signIn(email, "long enough pw");
     const s = await api("/api/auth/get-session", { headers: cookieHeader(sessionCookie(res)!) });
     expect(((await s.json()) as { session: { activeOrganizationId: string | null } }).session.activeOrganizationId).toBe(orgId);
 
-    await env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = (SELECT id FROM users WHERE email = ?)").bind(email).run();
+    await env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = ?").bind(uid).run();
     const res2 = await signIn(email, "long enough pw");
     const s2 = await api("/api/auth/get-session", { headers: cookieHeader(sessionCookie(res2)!) });
     expect(((await s2.json()) as { session: { activeOrganizationId: string | null } }).session.activeOrganizationId ?? null).toBeNull();
@@ -173,7 +175,7 @@ describe("organizations", () => {
     expect((await json(after)).detail).toMatch(/Select an organization/);
   });
 
-  it("users cannot create organizations through the Better Auth API", async () => {
+  it("an unverified, non-Google user cannot create an organization", async () => {
     const user = await createUser();
     const res = await api("/api/auth/organization/create", {
       method: "POST",

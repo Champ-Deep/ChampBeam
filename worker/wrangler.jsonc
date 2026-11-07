@@ -77,8 +77,12 @@
     "CLERK_PUBLISHABLE_KEY": "",
     "CORS_ALLOW_ORIGINS": "https://champbeam.com,https://www.champbeam.com,https://champbeam.deep-ae0.workers.dev",
     "CORS_ALLOW_ORIGIN_REGEX": "",
-    "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files"
+    "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files",
+    "SUPER_ADMIN_EMAILS": "deep1499@gmail.com"
   },
+  // Email (verification, password reset, invitations) turns on when a Cloudflare Email Service binding named
+  // EMAIL exists: add `"send_email": [{ "name": "EMAIL" }]` here and per env, with champbeam.com onboarded in
+  // the Email Service. Unbound, nothing is sent and GET /api/v1/config reports email_enabled false.
 
   // Environment overlays. Bindings and vars are NOT inherited by wrangler environments, so each
   // one is spelled out. Rules (checked by scripts/check-env-overlays.mjs):
@@ -96,7 +100,7 @@
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
       "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "BETTER_AUTH_URL": "TODO_deepify_origin", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
-                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify" }
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify", "SUPER_ADMIN_EMAILS": "deep1499@gmail.com" }
     },
     // Real Cloudflare staging: managed D1/R2, real cron, sign-in with NON-production identities.
     "staging": {
@@ -108,7 +112,7 @@
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
       "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://champbeam-staging.deep-ae0.workers.dev", "BETTER_AUTH_URL": "https://champbeam-staging.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-staging.deep-ae0.workers.dev", "PLATFORM_REDIRECT_HOST": "champbeam-staging.deep-ae0.workers.dev",
-                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging", "SUPER_ADMIN_EMAILS": "deep1499@gmail.com,e2e-root@staging.champbeam.test" }
     }
   }
 }

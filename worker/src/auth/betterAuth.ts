@@ -8,6 +8,7 @@
  * below gate only Better Auth's own org-management endpoints.
  */
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { verifyPassword } from "better-auth/crypto";
 import { organization } from "better-auth/plugins";
@@ -19,9 +20,14 @@ import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
+import { sendMail } from "../lib/email";
+import { slugProblem } from "../services/orgSlug";
+import { isSuperAdmin } from "./superAdmin";
 
-/** The one org every user belongs to (Deep's ruling, 5 Nov). New sign-ups join it as `member`. */
-export const DEFAULT_ORG_SLUG = "champions-group";
+const INVITE_TTL_SECONDS = 7 * 86_400;
+
+/** The accept page lives on the platform host, never on a custom domain. */
+export const inviteUrl = (settings: { platformOrigin: string }, invitationId: string) => `${settings.platformOrigin}/accept-invitation/${invitationId}`;
 
 const ac = createAccessControl(defaultStatements);
 const roles = {
@@ -38,6 +44,14 @@ const roles = {
 export function createAuth(env: Env, db: Db) {
   const settings = getSettings(env);
   const google = settings.googleClientId && settings.googleClientSecret;
+  // An email failure must never fail the sign-up, reset or invite that triggered it.
+  const mail = async (to: string, subject: string, body: string, linkLabel: string, url: string): Promise<void> => {
+    try {
+      await sendMail(env, settings, { to, subject, body, linkLabel, url });
+    } catch (err) {
+      console.error(`email "${subject}" failed`, err);
+    }
+  };
   return betterAuth({
     appName: settings.appName,
     baseURL: settings.betterAuthUrl,
@@ -76,12 +90,24 @@ export function createAuth(env: Env, db: Db) {
     },
     emailAndPassword: {
       enabled: true,
-      // No email sender at launch (D2 = B): no reset or verification mail.
+      // Reset only exists when the Email binding does; the UI reads email_enabled and hides "Forgot password" otherwise.
+      sendResetPassword: settings.emailEnabled
+        ? async ({ user, url }) => mail(user.email, "Reset your ChampBeam password", "Use this link to choose a new password. It expires in one hour.", "Reset password", url)
+        : undefined,
       password: {
         // Imported Clerk hashes are bcrypt; everything Better Auth writes is its default scrypt.
         verify: ({ hash, password }) => (hash.startsWith("$2") ? bcrypt.compare(password, hash) : verifyPassword({ hash, password })),
       },
     },
+    // Verification mail goes out at password sign-up. Sign-in is not blocked on it: a personal workspace
+    // works unverified, while creating an org (below) and accepting an invite (with email on) need it.
+    emailVerification: settings.emailEnabled
+      ? {
+          sendOnSignUp: true,
+          autoSignInAfterVerification: true,
+          sendVerificationEmail: async ({ user, url }) => mail(user.email, "Verify your email for ChampBeam", "Confirm this address to finish setting up your ChampBeam account.", "Verify email", url),
+        }
+      : undefined,
     socialProviders: google
       ? { google: { clientId: settings.googleClientId, clientSecret: settings.googleClientSecret } }
       : {},
@@ -112,33 +138,36 @@ export function createAuth(env: Env, db: Db) {
           },
         },
       },
-      user: {
-        create: {
-          after: async (user) => {
-            const org = await db
-              .select({ id: schema.organizations.id })
-              .from(schema.organizations)
-              .where(eq(schema.organizations.slug, DEFAULT_ORG_SLUG))
-              .get();
-            if (!org) {
-              console.warn(`auth: no '${DEFAULT_ORG_SLUG}' org, new user ${user.id} joined no org`);
-              return;
-            }
-            await db
-              .insert(schema.organizationMemberships)
-              .values({ organizationId: org.id, userId: user.id, role: schema.ROLE_MEMBER })
-              .onConflictDoNothing();
-          },
-        },
-      },
+      // Personal by default: a new user belongs to no org until they create one or accept an invite.
     },
     plugins: [
       organization({
         ac,
         roles,
         creatorRole: "admin",
-        allowUserToCreateOrganization: false,
+        // Deep's ruling (6 Nov): only super admins create orgs. A paid tier later widens this one line.
+        allowUserToCreateOrganization: (user) => isSuperAdmin(db, settings, user),
+        invitationExpiresIn: INVITE_TTL_SECONDS,
+        // Better Auth's default cap is 100 members per org.
+        membershipLimit: 5000,
+        // shortcut: with no Email binding the unguessable invite link is the secret, so an unverified
+        // account may accept it (the accept call still requires the session email to equal the invited
+        // email). Upgrade when email lands: this flips to true as soon as the binding exists.
+        requireEmailVerificationOnInvitation: settings.emailEnabled,
+        sendInvitationEmail: settings.emailEnabled
+          ? async (d) =>
+              mail(d.email, `${d.inviter.user.name || d.inviter.user.email} invited you to ${d.organization.name} on ChampBeam`, `You were invited to join ${d.organization.name} as ${d.role}. The invitation expires in 7 days.`, "Accept invitation", inviteUrl(settings, d.id))
+          : undefined,
         organizationHooks: {
+          beforeCreateOrganization: async ({ organization }) => {
+            const why = slugProblem(organization.slug);
+            if (why) throw new APIError("BAD_REQUEST", { message: why });
+          },
+          beforeUpdateOrganization: async ({ organization }) => {
+            if (organization.slug === undefined) return;
+            const why = slugProblem(organization.slug);
+            if (why) throw new APIError("BAD_REQUEST", { message: why });
+          },
           // Removing a member deletes the row; also end their reporting grants, as the Clerk revoke did.
           afterRemoveMember: async ({ member }) => {
             await db

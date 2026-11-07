@@ -38,6 +38,9 @@ import { router as internalProvisioning } from "./routes/internalProvisioning";
 import { router as pages } from "./routes/pages";
 import { router as system } from "./routes/system";
 import { router as assistant } from "./routes/assistant";
+import { router as orgInvites } from "./routes/orgInvites";
+import { router as admin } from "./routes/admin";
+import { router as config } from "./routes/config";
 
 export const app = new Hono<AppEnv>({ strict: false });
 
@@ -97,6 +100,9 @@ app.route(v1, qr);
 app.route(`${v1}/webhooks`, webhooks);
 app.route(`${v1}/org`, org);
 app.route(`${v1}/org`, orgReporting);
+app.route(`${v1}/org`, orgInvites);
+app.route(`${v1}/admin`, admin);
+app.route(`${v1}/config`, config);
 app.route(`${v1}/content`, content);
 app.route(`${v1}/champvault`, champvault);
 app.route(`${v1}/rooms`, rooms);
