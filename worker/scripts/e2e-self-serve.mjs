@@ -31,6 +31,7 @@ class Client {
     try { data = await res.json(); } catch { /* no body */ }
     return { status: res.status, data, res };
   }
+  signIn() { return this.req("POST", "/api/auth/sign-in/email", { email: this.email, password: PW }); }
   signUp(name) { return this.req("POST", "/api/auth/sign-up/email", { email: this.email, password: PW, name }); }
 }
 
@@ -88,6 +89,7 @@ check(reserved.status === 400, "reserved slug 'admin' refused", `status ${reserv
 const created = await ROOT.req("POST", "/api/v1/admin/orgs", { name: "E2E Org", slug, email: A.email });
 check(created.status === 201, "super admin created the org with A as first admin", `status ${created.status}`);
 const org1 = created.data.id;
+check((await A.signIn()).status === 200, "A signs in again (a session opened before the hand-over starts in Personal)");
 const ctx1 = await A.req("GET", "/api/v1/org/context");
 check(ctx1.status === 200 && ctx1.data?.org_id === org1 && ctx1.data?.role === "admin", "A is admin of the org", JSON.stringify({ role: ctx1.data?.role, org_slug: ctx1.data?.org_slug }));
 
@@ -103,7 +105,8 @@ step(4, "B signs up and accepts, and is a member");
 check((await B.signUp("Bee")).status === 200, "B signed up");
 check((await B.req("GET", "/api/v1/org/context")).status === 403, "B is personal before accepting (invite alone grants nothing)");
 const wrong = await new Client(`e2e-c-${run}@staging.champbeam.test`);
-await wrong.signUp("Sea");
+await new Promise((r) => setTimeout(r, 11_000)); // Better Auth allows 3 sign-ups per 10 s per IP
+check((await wrong.signUp("Sea")).status === 200, "third-party account signed up");
 check((await wrong.req("POST", "/api/auth/organization/accept-invitation", { invitationId: inv.data.id })).status === 403, "another account cannot accept B's invitation");
 const acc = await B.req("POST", "/api/auth/organization/accept-invitation", { invitationId: inv.data.id });
 check(acc.status === 200, "B accepted", `status ${acc.status}`);
