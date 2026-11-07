@@ -193,8 +193,8 @@ A new account is Personal: it belongs to no org. Org management is Better Auth's
 
 | Endpoint | Who | Notes |
 |---|---|---|
-| `GET /api/v1/config` | anyone | `email_enabled`, `custom_domains_enabled`, `is_super_admin`, `platform_host`. Hide "Forgot password" when `email_enabled` is false. |
-| `POST /api/auth/organization/create` | verified email or Google sign-in | `{name, slug}`. Slug: lowercase, unique, not `admin`/`api`/`www`/`app`/`champbeam`. Caller becomes admin and the org becomes active. 5 administered orgs per user, super admins exempt. |
+| `GET /api/v1/config` | anyone | `email_enabled`, `custom_domains_enabled`, `is_super_admin`, `can_create_org` (the UI keys org creation off this; equals `is_super_admin` today), `platform_host`. Hide "Forgot password" when `email_enabled` is false. |
+| `POST /api/auth/organization/create` | super admin only (Deep's ruling, 6 Nov); everyone else gets 403 | `{name, slug}`. Slug: lowercase, unique, not `admin`/`api`/`www`/`app`/`champbeam`. Caller becomes admin and the org becomes active. No per-user cap. |
 | `POST /api/v1/org/invitations` | org admin | `{email, role: admin\|leader\|member\|viewer, resend?}`. Returns the invitation plus `accept_url` (always `https://<platform host>/accept-invitation/<id>`) and `email_sent`. Expires in 7 days. |
 | `GET /api/v1/org/invitations` | org admin | Pending invitations with `accept_url`. |
 | `POST /api/auth/organization/accept-invitation` | invited user | `{invitationId}`. The session email must equal the invited email. With email enabled the account must also be verified. |

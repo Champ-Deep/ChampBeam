@@ -15,17 +15,15 @@ import { organization } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/organization/access";
 import bcrypt from "bcryptjs";
-import { and, asc, count, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
 import { sendMail } from "../lib/email";
 import { slugProblem } from "../services/orgSlug";
-import { hasGoogleAccount, isSuperAdmin } from "./superAdmin";
+import { isSuperAdmin } from "./superAdmin";
 
-/** Orgs one user may administer (create or be promoted in). Super admins are exempt. */
-export const MAX_ORGS_PER_USER = 5;
 const INVITE_TTL_SECONDS = 7 * 86_400;
 
 /** The accept page lives on the platform host, never on a custom domain. */
@@ -147,17 +145,8 @@ export function createAuth(env: Env, db: Db) {
         ac,
         roles,
         creatorRole: "admin",
-        // Verified email or Google sign-in. Cap: MAX_ORGS_PER_USER orgs administered, super admins exempt.
-        allowUserToCreateOrganization: async (user) => !!user.emailVerified || (await hasGoogleAccount(db, user.id)),
-        organizationLimit: async (user) => {
-          if (await isSuperAdmin(db, settings, user)) return false;
-          const n = await db
-            .select({ n: count() })
-            .from(schema.organizationMemberships)
-            .where(and(eq(schema.organizationMemberships.userId, user.id), eq(schema.organizationMemberships.role, schema.ROLE_ADMIN), eq(schema.organizationMemberships.status, "active")))
-            .get();
-          return (n?.n ?? 0) >= MAX_ORGS_PER_USER;
-        },
+        // Deep's ruling (6 Nov): only super admins create orgs. A paid tier later widens this one line.
+        allowUserToCreateOrganization: (user) => isSuperAdmin(db, settings, user),
         invitationExpiresIn: INVITE_TTL_SECONDS,
         // Better Auth's default cap is 100 members per org.
         membershipLimit: 5000,

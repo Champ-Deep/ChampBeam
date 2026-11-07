@@ -12,6 +12,8 @@ router.get("/", async (c) => {
     email_enabled: s.emailEnabled,
     custom_domains_enabled: s.cloudflareConfigured,
     is_super_admin: !!u?.isSuperAdmin,
+    // The UI keys off this, not is_super_admin; a paid tier widens it later.
+    can_create_org: !!u?.isSuperAdmin,
     platform_host: s.platformHost,
   });
 });
