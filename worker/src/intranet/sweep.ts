@@ -8,6 +8,9 @@ import { getDb } from "../db/client";
 import { computeSha256Async } from "../routes/_files";
 import * as C from "./constants";
 import * as T from "./transfers";
+import { retryStuckScans } from "./scan";
+import { runPass } from "./reviewAgent";
+import { runQueued } from "./benchmark";
 
 export async function backfillSha256(env: Env, limit = 5): Promise<number> {
   const { results } = await env.DB.prepare(
@@ -21,12 +24,23 @@ export async function backfillSha256(env: Env, limit = 5): Promise<number> {
   return results.length;
 }
 
-export async function runIntranetSweep(env: Env, _settings: Settings): Promise<void> {
+export async function runIntranetSweep(env: Env, settings: Settings): Promise<void> {
   const keys = await T.sweep(env.DB);
   for (const key of keys) await T.deleteBlob(env.FILES, key);
-  try {
-    await backfillSha256(env);
-  } catch (err) {
-    console.error("intranet sweeper: sha256 backfill failed", err);
+  const steps: [string, () => Promise<unknown>][] = [
+    ["sha256 backfill", () => backfillSha256(env)],
+    ["scan retry", () => retryStuckScans(env, settings)],
+    ["review agent", async () => {
+      const s = await runPass(env, settings);
+      if (s.approved || s.escalated) console.log(`review agent: ${s.approved} approved, ${s.escalated} escalated`);
+    }],
+    ["benchmarks", () => runQueued(env, settings)],
+  ];
+  for (const [name, step] of steps) {
+    try {
+      await step();
+    } catch (err) {
+      console.error(`intranet sweeper: ${name} failed`, err);
+    }
   }
 }

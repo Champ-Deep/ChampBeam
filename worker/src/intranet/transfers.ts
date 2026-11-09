@@ -245,6 +245,39 @@ export async function revoke(d1: D1Database, t: TransferRow, actorId: string, re
   return { transfer, key: await markFileDeleted(d1, t.file_id) };
 }
 
+/** SUB-6: the submitter withdraws an unreleased submission. */
+export async function withdraw(d1: D1Database, t: TransferRow, actorId: string, reason: string | null): Promise<{ transfer: TransferRow; key: string | null }> {
+  if (t.submitter_user_id !== actorId) throw new TransferError("Only the submitter can withdraw a submission.", 403);
+  const transfer = await transition(
+    d1,
+    t,
+    C.WITHDRAWABLE_STATES,
+    { state: C.STATE_WITHDRAWN, withdrawn_at: nowIso() },
+    [{ organizationId: t.organization_id, transferId: t.id, event: C.EVENT_WITHDRAWN, actorType: C.ACTOR_HUMAN, actorId, reason }],
+  );
+  return { transfer, key: await markFileDeleted(d1, t.file_id) };
+}
+
+/** AGT-8: a Reviewer overturns an agent approval until the recipient has opened (or started to open) the file. */
+export async function overturn(d1: D1Database, t: TransferRow, reviewerId: string, reason: string): Promise<{ transfer: TransferRow; key: string | null }> {
+  const r = (reason ?? "").trim();
+  if (!r) throw new TransferError("A reason is required to overturn.", 422);
+  if (t.decided_by_type !== C.ACTOR_AGENT) throw new TransferError("Only agent approvals can be overturned.", 409);
+  if (t.submitter_user_id === reviewerId) throw new TransferError("You cannot decide your own submission.", 403);
+  const guard = d1
+    .prepare(
+      `UPDATE transfers SET state = '${C.STATE_REJECTED}', decided_at = ?2, decided_by_type = '${C.ACTOR_HUMAN}', decided_by_id = ?3, reject_reason = ?4
+       WHERE id = ?1 AND state = '${C.STATE_RELEASED}' AND decided_by_type = '${C.ACTOR_AGENT}' AND first_opened_at IS NULL AND download_claim_token IS NULL`,
+    )
+    .bind(t.id, nowIso(), reviewerId, r);
+  const ok = await commit(d1, {
+    guard,
+    logs: [{ organizationId: t.organization_id, transferId: t.id, event: C.EVENT_OVERTURNED, actorType: C.ACTOR_HUMAN, actorId: reviewerId, reason: r }],
+  });
+  if (!ok) throw new TransferError("The recipient has already opened this file, so it cannot be overturned.", 409);
+  return { transfer: (await getTransfer(d1, t.id))!, key: await markFileDeleted(d1, t.file_id) };
+}
+
 // ---------------------------------------------------------------------------
 // Downloads (REL-2, REL-4): one-time files are claimed atomically, consumed when the stream ends.
 // ---------------------------------------------------------------------------
@@ -366,6 +399,24 @@ export async function sweep(d1: D1Database, limit = 200): Promise<string[]> {
     await commit(d1, {
       guard,
       logs: [{ organizationId: inv.organization_id, event: C.EVENT_INVITE_EXPIRED, actorType: C.ACTOR_SYSTEM, actorId: C.SWEEPER_ACTOR, detail: { invite_id: inv.id } }],
+    });
+  }
+
+  // REV-6: one in-platform reminder per submission that waited longer than the org's reminder_hours.
+  const { results: waiting } = await d1
+    .prepare(
+      `SELECT t.id, t.organization_id, t.submitted_at, s.reminder_hours FROM transfers t JOIN org_review_settings s ON s.organization_id = t.organization_id
+       WHERE t.state IN ('${C.STATE_SUBMITTED}', '${C.STATE_IN_REVIEW}') AND t.reminded_at IS NULL AND s.reminder_hours IS NOT NULL
+       ORDER BY t.submitted_at ASC LIMIT ?1`,
+    )
+    .bind(limit)
+    .all<{ id: string; organization_id: string; submitted_at: string; reminder_hours: number }>();
+  for (const w of waiting) {
+    if (Date.parse(w.submitted_at) > Date.now() - w.reminder_hours * 3_600_000) continue;
+    const guard = d1.prepare("UPDATE transfers SET reminded_at = ?2 WHERE id = ?1 AND reminded_at IS NULL").bind(w.id, now);
+    await commit(d1, {
+      guard,
+      logs: [{ organizationId: w.organization_id, transferId: w.id, event: C.EVENT_REMINDER_SENT, actorType: C.ACTOR_SYSTEM, actorId: C.SWEEPER_ACTOR, reason: `Waiting for review longer than ${w.reminder_hours} hours.` }],
     });
   }
 

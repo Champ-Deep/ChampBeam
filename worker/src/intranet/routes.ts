@@ -25,6 +25,8 @@ import { append, commit, verifyChain, type LogRow } from "./decisionLog";
 import { intranetAcceptInvite, inviteOut, normalizeEmail, type InviteRow } from "./invites";
 import * as T from "./transfers";
 import { TransferError, type TransferRow } from "./transfers";
+import { scanTransfer } from "./scan";
+import * as B from "./benchmark";
 
 export const router = new Hono<AppEnv>();
 
@@ -717,15 +719,9 @@ router.post("/transfers", async (c) => {
   if (!scanning) logs.push({ organizationId: a.orgId, transferId: id, event: C.EVENT_SCANNED, actorType: C.ACTOR_SYSTEM, actorId: "scanner", detail: { status: C.SCAN_NOT_SCANNED } } as never);
   await commit(d1, { guard, logs });
   background(c, () => computeSha256Async(c.env.FILES, c.var.db, fid, asset.storage_key), "intranet sha256");
-  if (scanning) background(c, () => afterSubmitHook(c, id), "intranet scan");
+  if (scanning) background(c, () => scanTransfer(c.env, s, id), "intranet scan");
   return c.json(await serializeOne(d1, id), 201);
 });
-
-/** Replaced in P1 (malware scan). */
-let afterSubmitHook: (c: Ctx, transferId: string) => Promise<void> = async () => {};
-export function setAfterSubmitHook(fn: typeof afterSubmitHook) {
-  afterSubmitHook = fn;
-}
 
 router.get("/transfers/mine", async (c) => {
   const a = await requireActive(c);
@@ -760,6 +756,15 @@ router.post("/transfers/:id/revoke", async (c) => {
   if (!(a.isReviewer || t.submitter_user_id === a.userId)) httpError(403, "Only the submitter or a Reviewer can revoke.");
   const body = await optionalBody(c, ReasonBody);
   const { key } = await T.revoke(c.env.DB, t, a.userId, body.reason ?? null);
+  background(c, () => T.deleteBlob(c.env.FILES, key), "intranet blob delete");
+  return c.json(await serializeOne(c.env.DB, t.id));
+});
+
+router.post("/transfers/:id/withdraw", async (c) => {
+  const a = await requireActive(c);
+  const t = await getOrgTransfer(c, a, c.req.param("id"));
+  const body = await optionalBody(c, ReasonBody);
+  const { key } = await T.withdraw(c.env.DB, t, a.userId, body.reason ?? null);
   background(c, () => T.deleteBlob(c.env.FILES, key), "intranet blob delete");
   return c.json(await serializeOne(c.env.DB, t.id));
 });
@@ -989,6 +994,61 @@ router.post("/review/:id/reject", async (c) => {
   const { key } = await T.reject(c.env.DB, t, a.userId, body.reason);
   background(c, () => T.deleteBlob(c.env.FILES, key), "intranet blob delete");
   return c.json(await serializeOne(c.env.DB, t.id));
+});
+
+// Agent approvals a Reviewer can still overturn (AGT-8).
+router.get("/review/agent-approved", async (c) => {
+  const a = await requireReviewer(c);
+  return c.json(
+    await listTransfers(
+      c.env.DB,
+      `t.organization_id = ?1 AND t.state = '${C.STATE_RELEASED}' AND t.decided_by_type = '${C.ACTOR_AGENT}' AND t.first_opened_at IS NULL`,
+      [a.orgId],
+      "t.released_at DESC",
+      200,
+    ),
+  );
+});
+
+router.post("/review/:id/overturn", async (c) => {
+  const a = await requireReviewer(c);
+  const body = await parseJson(c, z.object({ reason: z.string().max(1000) }));
+  const t = await getOrgTransfer(c, a, c.req.param("id"));
+  const { key } = await T.overturn(c.env.DB, t, a.userId, body.reason);
+  background(c, () => T.deleteBlob(c.env.FILES, key), "intranet blob delete");
+  return c.json(await serializeOne(c.env.DB, t.id));
+});
+
+// ---------------------------------------------------------------------------
+// Agent benchmark (admins)
+// ---------------------------------------------------------------------------
+
+router.post("/agent/benchmarks", async (c) => {
+  const a = await requireAdmin(c);
+  const body = await optionalBody(c, z.object({ provider: z.enum(["clef", "jev", "mock"]).default("clef") }));
+  const s = c.var.settings;
+  if (!benchmarkProviders(s).includes(body.provider)) httpError(422, `Provider '${body.provider}' is not configured on this deployment.`);
+  const d1 = c.env.DB;
+  const running = await d1
+    .prepare("SELECT 1 FROM agent_benchmarks WHERE organization_id = ?1 AND status IN ('queued', 'running') AND created_at > ?2")
+    .bind(a.orgId, new Date(Date.now() - 2 * 3_600_000).toISOString())
+    .first();
+  if (running) httpError(409, "A benchmark is already running.");
+  const row: B.BenchmarkRow = { id: crypto.randomUUID(), organization_id: a.orgId, provider: body.provider, status: "queued", created_at: nowIso(), finished_at: null, created_by_id: a.userId, report: null, error: null };
+  await d1
+    .prepare("INSERT INTO agent_benchmarks (id, organization_id, provider, status, created_at, created_by_id) VALUES (?1, ?2, ?3, 'queued', ?4, ?5)")
+    .bind(row.id, row.organization_id, row.provider, row.created_at, row.created_by_id)
+    .run();
+  background(c, () => B.runJob(c.env, s, row.id), "agent benchmark");
+  return c.json(B.benchmarkOut(row), 202);
+});
+
+router.get("/agent/benchmarks", async (c) => {
+  const a = await requireAdmin(c);
+  const { results } = await c.env.DB.prepare("SELECT * FROM agent_benchmarks WHERE organization_id = ?1 ORDER BY created_at DESC LIMIT 10")
+    .bind(a.orgId)
+    .all<B.BenchmarkRow>();
+  return c.json(results.map(B.benchmarkOut));
 });
 
 // ---------------------------------------------------------------------------
