@@ -279,6 +279,42 @@ export async function overturn(d1: D1Database, t: TransferRow, reviewerId: strin
 }
 
 // ---------------------------------------------------------------------------
+// Access code on release (REL-7, P2). Attempts are counted on the transfer row (5 per file per 10 minutes),
+// so the limit holds without Redis and per file rather than per IP.
+// ---------------------------------------------------------------------------
+
+export const CODE_ATTEMPTS_PER_WINDOW = 5;
+export const CODE_WINDOW_SECONDS = 600;
+
+export async function checkAccessCode(d1: D1Database, settings: Settings, t: TransferRow, userId: string, code: string | null): Promise<void> {
+  if (!t.access_code_hash) return;
+  const c = (code ?? "").trim();
+  if (!c) throw new TransferError("This file needs the access code the Reviewer gave you.", 403);
+  const now = nowIso();
+  const windowStart = new Date(Date.now() - CODE_WINDOW_SECONDS * 1000).toISOString();
+  // Count the attempt atomically; a fresh window restarts at 1.
+  const res = await d1
+    .prepare(
+      `UPDATE transfers SET
+         access_code_attempts = CASE WHEN access_code_window_at IS NULL OR access_code_window_at <= ?2 THEN 1 ELSE access_code_attempts + 1 END,
+         access_code_window_at = CASE WHEN access_code_window_at IS NULL OR access_code_window_at <= ?2 THEN ?3 ELSE access_code_window_at END
+       WHERE id = ?1 AND (access_code_window_at IS NULL OR access_code_window_at <= ?2 OR access_code_attempts < ?4)`,
+    )
+    .bind(t.id, windowStart, now, CODE_ATTEMPTS_PER_WINDOW)
+    .run();
+  if ((res.meta.changes ?? 0) !== 1) {
+    throw new TransferError(`Too many wrong access codes. Try again in ${CODE_WINDOW_SECONDS / 60} minutes.`, 429);
+  }
+  const ok = /^\d{4,8}$/.test(c) && timingSafeEqual(await hashTransferCode(settings, t.id, c), t.access_code_hash);
+  if (ok) {
+    await d1.prepare("UPDATE transfers SET access_code_attempts = 0, access_code_window_at = NULL WHERE id = ?1").bind(t.id).run();
+    return;
+  }
+  await commit(d1, { logs: [{ organizationId: t.organization_id, transferId: t.id, event: C.EVENT_ACCESS_CODE_FAILED, actorType: C.ACTOR_HUMAN, actorId: userId }] });
+  throw new TransferError("That access code is wrong.", 403);
+}
+
+// ---------------------------------------------------------------------------
 // Downloads (REL-2, REL-4): one-time files are claimed atomically, consumed when the stream ends.
 // ---------------------------------------------------------------------------
 

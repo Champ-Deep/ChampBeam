@@ -839,7 +839,8 @@ function streamObject(
 async function serveTransfer(c: Ctx, a: Actor, t: TransferRow, opts: { accessCode?: string | null; codeVerified?: boolean } = {}): Promise<Response> {
   const d1 = c.env.DB;
   if (t.recipient_user_id === a.userId) {
-    if (!opts.codeVerified) await checkAccessCodeHook(c, t, a.userId, opts.accessCode ?? null);
+    // REL-7: only the recipient is asked; the submitter can still open their own file.
+    if (!opts.codeVerified) await T.checkAccessCode(d1, c.var.settings, t, a.userId, opts.accessCode ?? null);
     const claim = await T.claimDownload(d1, c.var.settings, t, a.userId);
     const asset = await liveAsset(d1, t);
     const obj = asset ? await c.env.FILES.get(asset.storage_key) : null;
@@ -873,12 +874,6 @@ async function serveReview(c: Ctx, a: Actor, t: TransferRow): Promise<Response> 
   if (!asset || !obj) httpError(410, "This file is no longer stored.");
   await T.openForReview(d1, t, a.userId);
   return streamObject(c, obj, asset.size_bytes, downloadHeaders(asset.filename, asset.mime_type));
-}
-
-/** Replaced in P2 (access code on release). */
-let checkAccessCodeHook: (c: Ctx, t: TransferRow, userId: string, code: string | null) => Promise<void> = async () => {};
-export function setAccessCodeHook(fn: typeof checkAccessCodeHook) {
-  checkAccessCodeHook = fn;
 }
 
 router.get("/transfers/:id/download", async (c) => {
@@ -935,7 +930,7 @@ router.post("/transfers/:id/download-ticket", async (c) => {
   let kind: string = body.kind;
   if (kind === "review" && !a.isReviewer) httpError(403, "This action requires the Reviewer role.");
   if (kind === "transfer" && t.access_code_hash && t.recipient_user_id === a.userId) {
-    await checkAccessCodeHook(c, t, a.userId, body.access_code ?? null);
+    await T.checkAccessCode(c.env.DB, c.var.settings, t, a.userId, body.access_code ?? null);
     kind = TICKET_TRANSFER_CODE;
   }
   const ticket = await makeDownloadTicket(c.var.settings, t.id, a.userId, a.orgId, kind);
