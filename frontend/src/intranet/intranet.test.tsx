@@ -1,0 +1,320 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConfirmProvider } from '../components/ui';
+import { intranetApi, type Me, type Member, type Transfer } from './api';
+import { AdminPage } from './pages/AdminPage';
+import { InboxPage } from './pages/InboxPage';
+import { ReviewQueuePage } from './pages/ReviewQueuePage';
+import { SubmissionsPage } from './pages/SubmissionsPage';
+import { SubmitPage } from './pages/SubmitPage';
+
+vi.mock('./api', () => ({
+  intranetApi: {
+    me: vi.fn(),
+    inbox: vi.fn(),
+    members: vi.fn(),
+    submit: vi.fn(),
+    mine: vi.fn(),
+    queue: vi.fn(),
+    approve: vi.fn(),
+    reject: vi.fn(),
+    revoke: vi.fn(),
+    withdraw: vi.fn(),
+    download: vi.fn(),
+    agentApproved: vi.fn(),
+    overturn: vi.fn(),
+    invites: vi.fn(),
+    reviewSettings: vi.fn(),
+    saveReviewSettings: vi.fn(),
+    benchmarks: vi.fn(),
+    startBenchmark: vi.fn(),
+  },
+}));
+
+const me: Me = {
+  user: { user_id: 'u-alice', email: 'alice@champions.test', full_name: 'Alice' },
+  organization: { id: 'org-1', name: 'Champions', slug: 'champions' },
+  is_admin: false,
+  is_reviewer: true,
+  settings: {
+    agent_mode: 'off',
+    agent_window_hours: 24,
+    agent_threshold: 0.95,
+    agent_input_mode: 'metadata_only',
+    default_expiry_days: 7,
+    hard_expiry_days: 7,
+    reminder_hours: 12,
+  },
+  limits: { max_file_bytes: 1024, max_bytes_per_user: 4096, max_expiry_days: 90, blocked_extensions: ['exe', 'bat'] },
+  malware_scan: false,
+  malware_scan_max_bytes: null,
+  agent: { modes: ['off', 'local'], clef_configured: true, jev_configured: false, benchmark_providers: ['clef'] },
+};
+
+const members: Member[] = [
+  { user_id: 'u-alice', email: 'alice@champions.test', full_name: 'Alice', role: 'member', is_admin: false, is_reviewer: true, active: true },
+  { user_id: 'u-bob', email: 'bob@champions.test', full_name: 'Bob', role: 'member', is_admin: false, is_reviewer: false, active: true },
+  { user_id: 'u-gone', email: 'gone@champions.test', full_name: 'Gone', role: 'member', is_admin: false, is_reviewer: false, active: false },
+];
+
+function transfer(overrides: Partial<Transfer> = {}): Transfer {
+  return {
+    id: 't-1',
+    state: 'submitted',
+    receipt: 'pending',
+    filename: 'export.csv',
+    size_bytes: 10,
+    mime_type: 'text/csv',
+    sha256: null,
+    purpose: 'Monthly export',
+    submitter: { user_id: 'u-bob', email: 'bob@champions.test', full_name: 'Bob' },
+    recipient: { user_id: 'u-alice', email: 'alice@champions.test', full_name: 'Alice' },
+    requested_expires_in_days: 3,
+    requested_one_time: false,
+    one_time: false,
+    expires_at: null,
+    submitted_at: new Date().toISOString(),
+    agent_window_ends_at: null,
+    hard_expires_at: null,
+    decided_at: null,
+    decided_by_type: null,
+    reject_reason: null,
+    released_at: null,
+    first_opened_at: null,
+    consumed_at: null,
+    expired_at: null,
+    revoked_at: null,
+    age_seconds: 3600,
+    scan_status: 'clean',
+    scan_detail: null,
+    reminded_at: null,
+    escalated_at: null,
+    escalation_reason: null,
+    decided_by_id: null,
+    agent_result: null,
+    withdrawn_at: null,
+    access_code_required: false,
+    ...overrides,
+  };
+}
+
+function mount(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <ConfirmProvider>{ui}</ConfirmProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(intranetApi.me).mockResolvedValue(me);
+  vi.mocked(intranetApi.members).mockResolvedValue(members);
+  vi.mocked(intranetApi.agentApproved).mockResolvedValue([]);
+});
+afterEach(cleanup);
+
+describe('submit page', () => {
+  it('lists only other active members and warns that scanning is off', async () => {
+    mount(<SubmitPage />);
+    const select = await screen.findByLabelText('Recipient');
+    const labels = Array.from((select as HTMLSelectElement).options).map((o) => o.textContent);
+    expect(labels.some((l) => l?.startsWith('Bob'))).toBe(true);
+    expect(labels.some((l) => l?.startsWith('Alice'))).toBe(false);
+    expect(labels.some((l) => l?.startsWith('Gone'))).toBe(false);
+    expect(screen.getByText(/Malware scanning is not enabled/)).toBeInTheDocument();
+  });
+
+  it('blocks executables before upload', async () => {
+    mount(<SubmitPage />);
+    fireEvent.change(await screen.findByLabelText('Files to submit'), {
+      target: { files: [new File(['x'], 'setup.exe', { type: 'application/octet-stream' })] },
+    });
+    expect(await screen.findByText(/Blocked file type: .exe/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit for review' })).toBeDisabled();
+  });
+
+  it('submits each file with the requested limits', async () => {
+    vi.mocked(intranetApi.submit).mockResolvedValue(transfer());
+    mount(<SubmitPage />);
+    fireEvent.change(await screen.findByLabelText('Files to submit'), {
+      target: { files: [new File(['a'], 'a.csv', { type: 'text/csv' }), new File(['b'], 'b.csv', { type: 'text/csv' })] },
+    });
+    fireEvent.change(screen.getByLabelText('Recipient'), { target: { value: 'u-bob' } });
+    fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'Quarterly data' } });
+    fireEvent.change(screen.getByLabelText('Access ends after (days)'), { target: { value: '2' } });
+    fireEvent.click(screen.getByLabelText(/One-time/));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }));
+    await waitFor(() => expect(intranetApi.submit).toHaveBeenCalledTimes(2));
+    expect(intranetApi.submit).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient_user_id: 'u-bob', purpose: 'Quarterly data', requested_expires_in_days: 2, requested_one_time: true }),
+      expect.any(Function),
+    );
+    expect(await screen.findAllByText(/submitted, waiting for review/)).toHaveLength(2);
+  });
+});
+
+describe('review queue', () => {
+  it('hides decisions on the reviewer\'s own submission', async () => {
+    vi.mocked(intranetApi.queue).mockResolvedValue([
+      transfer({ id: 't-own', submitter: { user_id: 'u-alice', email: null, full_name: 'Alice' }, filename: 'mine.csv' }),
+    ]);
+    mount(<ReviewQueuePage />);
+    expect(await screen.findByText(/another Reviewer must decide it/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve and release' })).not.toBeInTheDocument();
+  });
+
+  it('requires a reason to reject and approves within the requested limit', async () => {
+    vi.mocked(intranetApi.queue).mockResolvedValue([transfer()]);
+    vi.mocked(intranetApi.approve).mockResolvedValue(transfer({ state: 'released' }));
+    vi.mocked(intranetApi.reject).mockResolvedValue(transfer({ state: 'rejected' }));
+    mount(<ReviewQueuePage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject…' }));
+    const rejectButton = screen.getByRole('button', { name: 'Reject' });
+    expect(rejectButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Contains PII' } });
+    fireEvent.click(rejectButton);
+    await waitFor(() => expect(intranetApi.reject).toHaveBeenCalledWith('t-1', 'Contains PII'));
+
+    cleanup();
+    mount(<ReviewQueuePage />);
+    const days = await screen.findByLabelText('Access ends after (days)');
+    expect(days).toHaveValue(3);
+    expect(days).toHaveAttribute('max', '3');
+    fireEvent.click(screen.getByRole('button', { name: 'Approve and release' }));
+    await waitFor(() => expect(intranetApi.approve).toHaveBeenCalledWith('t-1', { expires_in_days: 3, one_time: false }));
+  });
+});
+
+describe('my submissions', () => {
+  it('shows delivery receipts and rejection reasons', async () => {
+    vi.mocked(intranetApi.mine).mockResolvedValue([
+      transfer({ id: 'a', state: 'released', receipt: 'not_opened', filename: 'waiting.csv' }),
+      transfer({ id: 'b', state: 'released', receipt: 'opened', first_opened_at: new Date().toISOString(), filename: 'seen.csv' }),
+      transfer({ id: 'c', state: 'rejected', receipt: 'rejected', reject_reason: 'Wrong recipient', filename: 'no.csv' }),
+    ]);
+    mount(<SubmissionsPage />);
+    expect(await screen.findByText('Not opened')).toBeInTheDocument();
+    expect(screen.getByText(/^Opened less than a minute ago/)).toBeInTheDocument();
+    expect(screen.getByText('Reason: Wrong recipient')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument();
+  });
+
+  it('offers withdraw while unreleased and explains malware refusals', async () => {
+    vi.mocked(intranetApi.mine).mockResolvedValue([
+      transfer({ id: 'p', state: 'scanning', receipt: 'scanning', scan_status: 'pending', filename: 'pending.csv' }),
+      transfer({ id: 'x', state: 'check_failed', receipt: 'check_failed', scan_status: 'infected', filename: 'bad.csv' }),
+    ]);
+    vi.mocked(intranetApi.withdraw).mockResolvedValue(transfer({ id: 'p', state: 'withdrawn', receipt: 'withdrawn' }));
+    mount(<SubmissionsPage />);
+    expect(await screen.findByText('Scanning for malware')).toBeInTheDocument();
+    expect(screen.getByText(/Malware was detected/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Withdraw' }));
+    await waitFor(() => expect(intranetApi.withdraw).toHaveBeenCalledWith('p'));
+  });
+});
+
+describe('review queue P1 flags', () => {
+  it('flags unscanned, overdue and escalated items and lists agent approvals for overturn', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({ ...me, settings: { ...me.settings, agent_mode: 'local' } });
+    vi.mocked(intranetApi.queue).mockResolvedValue([
+      transfer({ id: 'n', scan_status: 'not_scanned', scan_detail: 'File is larger than the 25 MB scan limit.', reminded_at: new Date().toISOString(), filename: 'huge.csv' }),
+      transfer({ id: 'e', escalated_at: new Date().toISOString(), escalation_reason: 'Confidence 0.40 is below the 0.95 threshold.', filename: 'odd.csv' }),
+    ]);
+    vi.mocked(intranetApi.agentApproved).mockResolvedValue([
+      transfer({ id: 'a', state: 'released', receipt: 'not_opened', decided_by_type: 'agent', decided_by_id: 'agent:clef', agent_result: { p_approve: 0.97, reasons: [], provider: 'clef', model: 'm' }, filename: 'auto.csv' }),
+    ]);
+    vi.mocked(intranetApi.overturn).mockResolvedValue(transfer({ id: 'a', state: 'rejected' }));
+    mount(<ReviewQueuePage />);
+    expect(await screen.findByText('Overdue')).toBeInTheDocument();
+    expect(screen.getAllByText(/Not scanned: File is larger/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Escalated')).toBeInTheDocument();
+    expect(screen.getByText(/Agent escalated:/)).toBeInTheDocument();
+    expect(await screen.findByText(/clef · confidence 0.97/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Overturn…' }));
+    fireEvent.change(screen.getByLabelText('Reason for overturning'), { target: { value: 'Wrong person' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Overturn' }));
+    await waitFor(() => expect(intranetApi.overturn).toHaveBeenCalledWith('a', 'Wrong person'));
+  });
+});
+
+describe('admin review settings', () => {
+  it('sends only changed fields and shows the latest benchmark', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({ ...me, is_admin: true });
+    vi.mocked(intranetApi.invites).mockResolvedValue([]);
+    vi.mocked(intranetApi.reviewSettings).mockResolvedValue(me.settings);
+    vi.mocked(intranetApi.saveReviewSettings).mockResolvedValue({ ...me.settings, agent_mode: 'local' });
+    vi.mocked(intranetApi.benchmarks).mockResolvedValue([
+      {
+        id: 'b1', provider: 'clef', status: 'done', created_at: null, finished_at: new Date().toISOString(), error: null, markdown: '# r',
+        report: {
+          cases: 4, scored: 4, errors: 0, human_approved: 2, human_rejected: 2, current_threshold: 0.95, models: ['m@1'], note: '',
+          sweep: [{ threshold: 0.95, agreement: 0.75, auto_approved: 3, coverage: 0.75, false_releases: 1, false_release_rate: 0.5, missed_approvals: 0 }],
+        },
+      },
+    ]);
+    mount(<AdminPage />);
+    fireEvent.change(await screen.findByLabelText('Agent'), { target: { value: 'local' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(intranetApi.saveReviewSettings).toHaveBeenCalledWith({ agent_mode: 'local' }));
+    expect(await screen.findByText('75.0%')).toBeInTheDocument();
+    expect(screen.getByText('0.95 (current)')).toBeInTheDocument();
+  });
+});
+
+describe('access code (REL-7)', () => {
+  it('lets a reviewer release with an access code', async () => {
+    vi.mocked(intranetApi.queue).mockResolvedValue([transfer()]);
+    vi.mocked(intranetApi.approve).mockResolvedValue(transfer({ state: 'released', access_code_required: true }));
+    mount(<ReviewQueuePage />);
+    fireEvent.change(await screen.findByLabelText(/Access code/), { target: { value: '48a21' } });
+    expect(screen.getByLabelText(/Access code/)).toHaveValue('4821');
+    fireEvent.click(screen.getByRole('button', { name: 'Approve and release' }));
+    await waitFor(() =>
+      expect(intranetApi.approve).toHaveBeenCalledWith('t-1', { expires_in_days: 3, one_time: false, access_code: '4821' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Generate code' }));
+    expect((screen.getByLabelText(/Access code/) as HTMLInputElement).value).toMatch(/^[0-9]{6}$/);
+  });
+
+  it('asks the recipient for the code before downloading', async () => {
+    vi.mocked(intranetApi.inbox).mockResolvedValue([
+      transfer({ state: 'released', receipt: 'not_opened', released_at: new Date().toISOString(), access_code_required: true }),
+    ]);
+    vi.mocked(intranetApi.download).mockResolvedValue();
+    mount(<InboxPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download' }));
+    expect(intranetApi.download).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Access code from the Reviewer'), { target: { value: '4821' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(intranetApi.download).toHaveBeenCalledWith('t-1', 'transfer', '4821'));
+  });
+});
+
+describe('jev agent mode', () => {
+  it('offers Jev only when the server allows it and says it sees metadata only', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({
+      ...me,
+      is_admin: true,
+      agent: { modes: ['off', 'local', 'jev'], clef_configured: true, jev_configured: true, benchmark_providers: ['clef', 'jev'] },
+    });
+    vi.mocked(intranetApi.invites).mockResolvedValue([]);
+    vi.mocked(intranetApi.reviewSettings).mockResolvedValue(me.settings);
+    vi.mocked(intranetApi.benchmarks).mockResolvedValue([]);
+    mount(<AdminPage />);
+    const agent = await screen.findByLabelText('Agent');
+    expect(within(agent).getByRole('option', { name: /Jev, metadata only/ })).toBeInTheDocument();
+    fireEvent.change(agent, { target: { value: 'jev' } });
+    expect(screen.getByText(/always receives metadata only/)).toBeInTheDocument();
+  });
+});

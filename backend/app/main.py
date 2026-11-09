@@ -29,6 +29,7 @@ from app.core.service_auth import service_key_gate
 from app.api.v1 import auth, health, projects, utm, short_links, domains, qr, system
 from app.api.v1 import files as files_v1
 from app.api.v1 import webhooks, org, content, champvault, rooms, api_keys, internal_provisioning, pages, assistant
+from app.api.v1 import intranet
 from app.api.redirect import router as redirect_router
 from app.api.files import router as files_serve_router
 from app.api.page_state import router as page_state_router
@@ -75,6 +76,14 @@ async def lifespan(app: FastAPI):
             settings.storage_local_path,
         )
 
+    if settings.intranet_mode:
+        logger.info("INTRANET_MODE on: marketing, public and docs routes are not mounted")
+        if not settings.intranet_org_id_set:
+            logger.warning(
+                "INTRANET_ORG_IDS is empty: any Clerk organization can use the intranet. "
+                "Set it to the allowed org id(s)."
+            )
+
     # Background sweeper that reclaims expired anonymous file uploads.
     sweeper_task = asyncio.create_task(expiry_sweeper_loop())
     # Background loop that auto-advances pending BYOD domains (DNS check ->
@@ -103,8 +112,9 @@ app = FastAPI(
     version=settings.app_version,
     description="Champbeam API - UTM link generator and analytics platform.",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if settings.intranet_mode else "/docs",
+    redoc_url=None if settings.intranet_mode else "/redoc",
+    openapi_url=None if settings.intranet_mode else "/openapi.json",
 )
 
 # CORS middleware
@@ -199,26 +209,31 @@ async def root():
 
 # Include routers
 app.include_router(health.router)
-app.include_router(redirect_router)  # /r/{short_code}, top-level, no prefix
-app.include_router(files_serve_router)  # /f/{short_code}, top-level, no prefix
-app.include_router(page_state_router)  # /api/pages/{ident}/…, public token auth, same-origin with pages
-app.include_router(auth.router, prefix=settings.api_v1_prefix)
-app.include_router(utm.router, prefix=settings.api_v1_prefix)
-app.include_router(projects.router, prefix=settings.api_v1_prefix)
-app.include_router(domains.router, prefix=settings.api_v1_prefix)
-app.include_router(files_v1.router, prefix=settings.api_v1_prefix)
-app.include_router(qr.router, prefix=settings.api_v1_prefix)
-app.include_router(webhooks.router, prefix=settings.api_v1_prefix)
-app.include_router(org.router, prefix=settings.api_v1_prefix)
-app.include_router(content.router, prefix=settings.api_v1_prefix)
-app.include_router(champvault.router, prefix=settings.api_v1_prefix)
-app.include_router(rooms.router, prefix=settings.api_v1_prefix)
-app.include_router(api_keys.router, prefix=settings.api_v1_prefix)
-app.include_router(internal_provisioning.router, prefix=settings.api_v1_prefix)
-app.include_router(pages.router, prefix=settings.api_v1_prefix)
-app.include_router(assistant.router, prefix=settings.api_v1_prefix)
-app.include_router(system.router, prefix=settings.api_v1_prefix)
-app.include_router(short_links.router)
+if settings.intranet_mode:
+    app.include_router(webhooks.router, prefix=settings.api_v1_prefix)
+    app.include_router(intranet.router, prefix=settings.api_v1_prefix)
+    app.include_router(intranet.blob_router, prefix=settings.api_v1_prefix)
+else:
+    app.include_router(redirect_router)  # /r/{short_code}, top-level, no prefix
+    app.include_router(files_serve_router)  # /f/{short_code}, top-level, no prefix
+    app.include_router(page_state_router)  # /api/pages/{ident}/…, public token auth, same-origin with pages
+    app.include_router(auth.router, prefix=settings.api_v1_prefix)
+    app.include_router(utm.router, prefix=settings.api_v1_prefix)
+    app.include_router(projects.router, prefix=settings.api_v1_prefix)
+    app.include_router(domains.router, prefix=settings.api_v1_prefix)
+    app.include_router(files_v1.router, prefix=settings.api_v1_prefix)
+    app.include_router(qr.router, prefix=settings.api_v1_prefix)
+    app.include_router(webhooks.router, prefix=settings.api_v1_prefix)
+    app.include_router(org.router, prefix=settings.api_v1_prefix)
+    app.include_router(content.router, prefix=settings.api_v1_prefix)
+    app.include_router(champvault.router, prefix=settings.api_v1_prefix)
+    app.include_router(rooms.router, prefix=settings.api_v1_prefix)
+    app.include_router(api_keys.router, prefix=settings.api_v1_prefix)
+    app.include_router(internal_provisioning.router, prefix=settings.api_v1_prefix)
+    app.include_router(pages.router, prefix=settings.api_v1_prefix)
+    app.include_router(assistant.router, prefix=settings.api_v1_prefix)
+    app.include_router(system.router, prefix=settings.api_v1_prefix)
+    app.include_router(short_links.router)
 
 
 if __name__ == "__main__":

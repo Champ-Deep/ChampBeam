@@ -18,6 +18,10 @@ if (hostname === 'lakeb2b.com' || hostname.endsWith('.lakeb2b.com')) {
 // Theme the document before React mounts so the first paint is correct.
 initTheme()
 
+// VITE_APP_MODE=intranet builds the invite-only, review-gated file transfer app instead of ChampBeam.
+const INTRANET = import.meta.env.VITE_APP_MODE === 'intranet'
+const IntranetApp = React.lazy(() => import('./intranet/IntranetApp'))
+
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('#root element missing')
 
@@ -26,7 +30,7 @@ ReactDOM.createRoot(rootEl).render(
     <SessionScope>
       <BrowserRouter>
         <ConfirmProvider>
-          <App />
+          {INTRANET ? <React.Suspense fallback={<p role="status">Loading…</p>}><IntranetApp /></React.Suspense> : <App />}
         </ConfirmProvider>
         <Toaster position="top-right" duration={4000} />
       </BrowserRouter>
