@@ -1,170 +1,152 @@
 # ChampBeam Intranet (P0 to P2)
 
-An invite-only, review-gated file transfer mode of ChampBeam. A member submits a file for a
-named recipient. A Reviewer (IT) approves or rejects it, and approved files show up in the
-recipient's Inbox. Nothing is emailed. Every step is written to an append-only, hash-chained
-decision log. Requirements are in `ChampBeam Intranet BRD.docx`; see
-[INTRANET-BRD-ERRATA.md](INTRANET-BRD-ERRATA.md) for where the build differs from it.
+The intranet is an invite-only, review-gated file transfer mode of ChampBeam. A member submits a file for a named
+recipient. A Reviewer (IT) approves or rejects it, and approved files show up in the recipient's Inbox. Nothing is
+emailed. Every step is written to an append-only, hash-chained decision log.
 
-It runs on the FastAPI `backend/`, not the Cloudflare Worker, so files stay on an IT-owned disk.
+Requirements are in `ChampBeam Intranet BRD.docx`. [INTRANET-BRD-ERRATA.md](INTRANET-BRD-ERRATA.md) lists where the
+build differs from it and records the decisions taken on the open questions.
 
-## Configuration
+**Runtime: the Cloudflare Worker** (`worker/`, Hono + D1 + R2 + Better Auth), deployed as its own Worker
+`champbeam-intranet` with `INTRANET_MODE=true`. In that mode the Worker serves only the intranet API, Better Auth,
+`/health`, the blob upload target and the intranet SPA. Every marketing and public route (`/r`, `/f`, `/p`, pages,
+UTM, rooms ...) answers 404.
 
-Backend (`backend/.env`):
+- Deployment steps: [INTRANET-DEPLOY.md](INTRANET-DEPLOY.md).
+- Last acceptance run: [INTRANET-P0-ACCEPTANCE.md](INTRANET-P0-ACCEPTANCE.md).
+- The first build on the FastAPI `backend/` is kept as the reference implementation:
+  [INTRANET-FASTAPI.md](INTRANET-FASTAPI.md).
+
+## Code map (worker)
+
+| File | What |
+|---|---|
+| `migrations/0009_intranet.sql` | `transfers`, `decision_log` (+ triggers refusing UPDATE/DELETE), `org_review_settings`, `org_invites`, `agent_benchmarks`; `is_reviewer`, `deactivated_at` on memberships |
+| `src/intranet/routes.ts` | `/api/v1/intranet/*` |
+| `src/intranet/transfers.ts` | Lifecycle: approve, reject, revoke, withdraw, overturn, download claim/consume, access code, sweeper |
+| `src/intranet/decisionLog.ts` | Hash chain, atomic "state change + log rows" batches, chain verification |
+| `src/intranet/invites.ts` | Invite-only sign-up on Better Auth |
+| `src/intranet/scan.ts` | clamd INSTREAM over a Worker TCP socket |
+| `src/intranet/reviewAgent.ts`, `benchmark.ts` | Review agent (Clef, Jev, mock) and benchmark |
+| `src/intranet/gate.ts` | `INTRANET_MODE` route gate |
+| `src/intranet/sweep.ts` | The cron sweeper |
+| `frontend/src/intranet/` | The SPA, built with `VITE_APP_MODE=intranet` |
+
+## Configuration (`wrangler.jsonc` env `intranet`, secrets with `wrangler secret put --env intranet`)
 
 | Variable | Value |
 |---|---|
-| `INTRANET_MODE` | `true`. Mounts only `/health`, `/api/v1/webhooks/clerk`, `/api/v1/intranet/*` and the blob upload route |
-| `STORAGE_BACKEND` / `STORAGE_LOCAL_PATH` | `local` and a path on durable, IT-controlled disk |
-| `STORAGE_UPLOAD_SECRET` | Long random string. Signs upload tokens and download tickets |
-| `INTRANET_ORG_IDS` | Comma-separated Clerk org ids allowed to use the intranet. Set this, or any Clerk org could sign in |
-| `INTRANET_MAX_FILE_BYTES` | Per-file cap, default 5 GiB. `MAX_BYTES_PER_USER` still caps total stored bytes per person (OQ-4) |
-| `INTRANET_BLOCKED_EXTENSIONS` | Comma list. Default blocks executables and scripts |
+| `INTRANET_MODE` | `true` |
+| `FRONTEND_URL`, `BETTER_AUTH_URL`, `REDIRECT_BASE_URL` | The intranet origin |
+| `BETTER_AUTH_SECRET` (secret) | 32+ random bytes |
+| `STORAGE_UPLOAD_SECRET` (secret) | Long random string. Signs upload tokens and download tickets, and keys access-code HMACs |
+| `INTRANET_ORG_IDS` | Org ids or slugs allowed to use the intranet. Set it after bootstrap |
+| `INTRANET_MAX_FILE_BYTES` | Per-file cap, default 5 GiB. Without R2 S3 credentials, uploads stream through the Worker and are capped at `WORKER_UPLOAD_MAX_BYTES` (100 MB) |
+| `MAX_BYTES_PER_USER` | Total stored bytes per person, default 5 GiB (OQ-4) |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (secrets) | Presigned direct-to-R2 uploads for files over 100 MB |
+| `INTRANET_BLOCKED_EXTENSIONS` | Comma list. The default blocks executables and scripts |
 | `INTRANET_MAX_EXPIRY_DAYS` | Upper bound for any access window, default 90 |
 | `INTRANET_INVITE_TTL_DAYS` | Default 7 |
-| `INTRANET_INVITE_REDIRECT_URL` | Where Clerk sends an invitee after accepting, e.g. `https://intranet.example/sign-in` |
-| `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET` | Required: invites and member changes call the Clerk Backend API |
-| `CLAMD_HOST` / `CLAMD_PORT` | clamd TCP address (port default 3310). Unset means files are queued flagged "not scanned" |
-| `CLAMD_MAX_STREAM_BYTES` | Default 25 MiB, which is clamd's own `StreamMaxLength` default. Raise both together to scan larger files |
-| `CLAMD_TIMEOUT_S` | Default 120 |
-| `CLEF_URL` / `CLEF_TOKEN` | The local scorer's HTTP endpoint and optional bearer token. The agent cannot be switched on until `CLEF_URL` is set |
-| `CLEF_TIMEOUT_S` | Default 20. A timeout escalates to a human; it is never read as approval |
+| `CLAMD_HOST` / `CLAMD_PORT` / `CLAMD_MAX_STREAM_BYTES` / `CLAMD_TIMEOUT_S` | clamd reachable from Cloudflare (for example through a Tunnel). If unset, files are queued and flagged "not scanned" |
+| `CLEF_URL` / `CLEF_TOKEN` / `CLEF_TIMEOUT_S` | Local scorer. The agent cannot be switched on until `CLEF_URL` is set |
 | `REVIEW_AGENT_EXCERPT_BYTES` | Default 4096. How much of a text file the agent sees in `content_excerpt` mode |
-| `JEV_API_KEY` | OpenRouter key for Jev. Setting it makes Jev available to Admins; clearing it stops Jev at once, even if the org setting still says `jev` |
-| `JEV_SIGNOFF_REF` | Optional. Reference to IT's approval of Jev (ticket id, or email date and sender). When set, it is recorded in the decision log whenever an Admin switches to Jev |
-| `JEV_URL` / `JEV_MODEL` | Default `https://openrouter.ai/api/alpha/decisions` and `typesafe/jev-1.13` |
-| `JEV_TIMEOUT_S` | Default 20. A timeout falls back to Clef, then a human |
+| `JEV_API_KEY` / `JEV_SIGNOFF_REF` / `JEV_URL` / `JEV_MODEL` / `JEV_TIMEOUT_S` | Jev through OpenRouter |
 
-Frontend build: `VITE_APP_MODE=intranet`, `VITE_API_URL=<backend origin>`, `VITE_CLERK_PUBLISHABLE_KEY`.
+## Access (ACC-1 to ACC-5)
 
-Run `alembic upgrade head` to apply `031_intranet_transfers`, `032_intranet_p1` and `033_intranet_p2`. It adds the tables and a Postgres
-trigger that rejects `UPDATE`/`DELETE`/`TRUNCATE` on `decision_log`.
-
-## Clerk setup (manual, one time)
-
-1. Use a Clerk instance dedicated to the intranet.
-2. **User & authentication → Restrictions → Sign-up mode: Restricted.** Only invited emails can create accounts (ACC-1, ACC-3).
-3. **Organizations:** turn off "Allow users to create organizations". Create the org yourself and copy its id into `INTRANET_ORG_IDS`.
-4. Add the first admin to the org with role `org:admin` in the dashboard. From then on, admins invite people from **Administration** in the app.
-5. Point a webhook at `/api/v1/webhooks/clerk` for `user.*`, `organization.*` and `organizationMembership.*`.
-
-## Roles
-
-- **Admin** (Clerk `org:admin`): invites and deactivates members, assigns Reviewer and Admin, and changes review settings.
-- **Reviewer** (set in-app): sees the queue, opens files and approves or rejects them. A Reviewer cannot decide their own submission.
-- **Member**: submits files, sees their own submissions and receipts, and receives released files.
+- **First Admin:** `node scripts/intranet-bootstrap.mjs --email <admin> --origin <origin>` creates the org and prints
+  an Admin invite link.
+- **Invites:** under Administration → Invite a member, an Admin enters an email (with the role, and whether the person
+  is a Reviewer) and gets a one-time link that expires in 7 days. Nothing is emailed: the Admin sends the link
+  themselves. Only its SHA-256 is stored.
+- **Sign-up:** only through `/accept-invite?token=…`. Better Auth's own sign-up route is disabled in intranet mode, and
+  its user-create hook refuses any address without a live invite, so neither an email sign-up nor a Google sign-in can
+  create an account for someone who was not invited. Better Auth's own org-management routes are disabled too:
+  membership changes go through the logged intranet API.
+- **Deactivate:** takes effect at once. The person's sessions are deleted, and every intranet request re-reads the
+  membership row. Reactivate restores access.
+- **Roles:** Admin is `organization_memberships.role = admin`. Reviewer is the app-managed `is_reviewer` flag.
 
 ## Lifecycle
 
-`scanning → submitted → in_review → released → consumed | expired | revoked`. Other exits:
-`→ check_failed` (malware found), `→ rejected` (reason required), `→ withdrawn` (by the submitter
-before release). An undecided submission expires after `hard_expiry_days` (default 7). The sweeper
-deletes the blob whenever a file leaves the platform. The log row stays.
+`scanning → submitted → in_review → released → consumed | expired | revoked`. The other exits are:
+
+- `→ check_failed`: malware found.
+- `→ rejected`: a reason is required.
+- `→ withdrawn`: by the submitter, before release.
+
+An undecided submission expires after `hard_expiry_days` (default 7). The sweeper (cron, every 5 minutes) deletes the
+blob whenever a file leaves the platform, and the log row stays.
+
+**On D1:** every state change is one conditional `UPDATE` (its `WHERE` clause names the states it may leave),
+written in the same atomic batch as its decision-log rows. If the guard matched nothing, nothing is logged. If a log
+write fails, the change rolls back. The chain stays linear through a unique `(organization_id, prev_hash)` index:
+the loser of a race retries on the new tip.
+
+**One-time downloads (REL-4):** the first request claims the file atomically (`UPDATE … WHERE` no live claim). A
+heartbeat holds the claim while the R2 stream runs, and the file is consumed when the stream completes. If the
+client drops out, the claim is released so the download can be retried. Browser downloads use a 60-second HMAC
+ticket (`POST …/download-ticket`, then `GET /intranet/download/{ticket}`), so a cross-site link cannot spend a
+one-time file.
 
 ## Malware scanning (SUB-5)
 
-When `CLAMD_HOST` is set, every submission starts in `scanning`, and reviewers don't see it yet.
-The file is streamed to clamd with `INSTREAM`:
+When `CLAMD_HOST` is set, every submission starts in `scanning` and Reviewers don't see it yet. The file is streamed
+from R2 to clamd with `INSTREAM` over a Worker TCP socket:
 
 - **Clean:** the file enters the queue.
 - **Infected:** the file is refused, deleted and logged as `check_failed`.
-- **No verdict** (scanner unreachable, timed out, or the file is over the stream limit): the file
-  enters the queue marked "Not scanned", and the agent will never approve it.
+- **No verdict** (scanner unreachable, timed out, or the file is over the stream limit): the file enters the queue
+  marked "Not scanned", and the agent will never approve it.
 
-The sweeper retries scans that are stuck in `scanning` (for example after a restart).
+The sweeper retries scans that are stuck in `scanning`.
 
 ## Reminders (REV-6)
 
-When a submission has waited longer than `reminder_hours` (12 by default, set by the org), the
-sweeper writes one `reminder_sent` row. The queue then shows it as Overdue, the Review badge turns
-red, and Reviewers get a toast. Reminders are in-platform only; nothing is emailed.
+When a submission has waited longer than `reminder_hours` (12 by default, set by the org), the sweeper writes one
+`reminder_sent` row. The queue then shows it as Overdue, the Review badge turns red, and Reviewers get a toast.
 
 ## Review agent (AGT-1 to AGT-9)
 
-The agent is off by default. An Admin turns it on with Administration → Review settings → Agent:
-Local scorer, and every change is logged. Each time the sweeper runs, it looks at pending
-submissions whose wait window (24h by default, clock hours) has passed and that it hasn't looked at
-before:
+The agent is off by default. An Admin turns it on under Administration → Review settings → Agent, and every change is
+logged. Each sweep looks at pending submissions whose wait window (24h by default, clock hours) has passed and that
+the agent hasn't evaluated before:
 
-1. **Deterministic checks first:** the malware scan must be `clean`, the size and type checks must
-   pass, the sha256 must be known and not seen in an earlier submission. Any failure escalates to a
-   human without calling the scorer.
-2. **Scoring:** the configured provider runs, then `clef` as the fallback. If every provider errors
-   or returns an invalid answer, the submission is escalated.
-3. **Decision:** at or above the threshold (0.95 by default) the agent approves and releases with
-   the submitter's requested limits. Below it, the agent escalates. It never rejects.
+1. **Deterministic checks first.** The scan must be `clean`, the size and type checks must pass, and the sha256 must
+   be known and not seen in an earlier submission. Any failure escalates to a human without calling a scorer.
+2. **Scoring.** The configured provider runs first, then `clef`. An error or an invalid answer escalates to a human.
+3. **Decision.** At or above the threshold (0.95 by default) the agent approves. Below it, the agent escalates. It
+   never rejects.
 
-Agent rows are logged with `actor_type=agent` and `actor_id=agent:<provider>`, plus provider,
-model, input mode, `p_approve`, threshold and the input's SHA-256. A Reviewer can overturn an agent
-approval (Review queue → "Approved by the agent") until the recipient opens the file.
+Agent rows carry `actor_type=agent` and `actor_id=agent:<provider>`, plus the provider, model, input mode,
+`p_approve`, threshold and the input's SHA-256. A Reviewer can overturn an agent approval until the recipient opens
+the file.
 
-### Clef HTTP contract
+The Clef HTTP contract is the same as in [INTRANET-FASTAPI.md](INTRANET-FASTAPI.md). The Worker sends
+`POST $CLEF_URL` with `{question, criteria, input}` and expects `{p_approve, reasons, model, version}`.
 
-The backend sends `POST $CLEF_URL` with header `Authorization: Bearer $CLEF_TOKEN` (if set) and
-this body:
-
-```json
-{
-  "question": "Should IT release this internal file transfer without a human review?",
-  "criteria": [{"name": "business_purpose", "question": "..."}, ...],
-  "input": {"filename": "...", "size_bytes": 123, "mime_type": "...", "submitter": {"name": "...", "email": "..."},
-            "recipient": {...}, "purpose": "...", "requested_expires_in_days": 7, "requested_one_time": false,
-            "hard_checks": {...}, "malware_scan": "clean", "input_mode": "metadata_only",
-            "content_excerpt": "first N bytes (content_excerpt mode, text files only)"}
-}
-```
-
-It expects `200` with `{"p_approve": 0.0-1.0, "reasons": ["..."], "model": "...", "version": "..."}`.
-Anything else counts as an error. A thin wrapper around the clef MCP tools (`decide` /
-`clef_ask`) can expose this.
-
-### Jev (P2)
-
-Jev is available as soon as the server sets `JEV_API_KEY`. IT approves Jev by approving the
-deployment that carries the key; put their reference in `JEV_SIGNOFF_REF` so it lands in the log.
-The agent is still off by default: an Admin picks "Jev, metadata only" under Administration →
-Review settings → Agent. The fallback order is Jev, then Clef, then a human.
-
-- Jev always gets metadata only: file name, size, type, submitter and recipient names and emails,
-  purpose, requested limits and check results. It never gets `content_excerpt`, whatever the org
-  setting says (AGT-5). That data leaves the company network through OpenRouter.
-- The backend sends one batched request to `JEV_URL`: `{"model", "state": <metadata>, "questions"}`,
-  with one `noul` question named `release` plus one per criterion. `p_approve` is the probability
-  Jev gives to `release`. The per-criterion probabilities go into `reasons`. A missing or
-  out-of-range `release` answer counts as an error.
-- The benchmark can replay decisions through Jev too (`--provider jev`, or pick it in the app),
-  which sends the metadata of past submissions to OpenRouter.
+**Jev** is offered only when `JEV_API_KEY` is set. It always gets metadata only, never `content_excerpt`. The
+fallback order is Jev, then Clef, then a human.
 
 ## Access code on release (REL-7)
 
-When approving, a Reviewer can set a 4 to 8 digit access code, or click "Generate code". The
-recipient then has to type the code before each download. The code is stored as an HMAC keyed by
-`STORAGE_UPLOAD_SECRET`, never in plain text, and the Reviewer gives it to the recipient themselves
-(by phone or chat): nothing is emailed. The approval log row records `"access_code": true`, never
-the code.
-
-- Five tries per file in 10 minutes, counted in the database, after which the download answers
-  `429` until the window passes. A correct code resets the counter. Each wrong code writes an
-  `access_code_failed` row.
-- Browser downloads check the code when the ticket is issued
-  (`POST …/download-ticket` with `{"access_code": "…"}`). API clients send it as `X-Access-Code`
-  on `GET …/download`. A ticket issued before a code was set does not bypass it.
-- Only the recipient is asked. The submitter can still open their own file.
+A Reviewer can set a 4 to 8 digit code when approving. The recipient types it before each download, either as
+`X-Access-Code` or when the browser ticket is issued. The code is stored as an HMAC; the log records
+`access_code: true` and never the code itself. The recipient gets five tries per file per 10 minutes, counted on the
+transfer row. Each wrong code writes `access_code_failed`.
 
 ## Benchmark
 
-Before the agent goes on live traffic, run the benchmark. It replays human approve and reject
-decisions from the decision log through the scorer, metadata only, and reports agreement, false
-releases and missed approvals across a sweep of thresholds. No pass mark is computed: the agreement
-needed is Deep's call. There are two ways to run it:
-
-- In the app: Administration → Agent benchmark → Run benchmark. The report can be downloaded as Markdown.
-- On the server: `python scripts/benchmark_review_agent.py --org org_XXXX --provider clef --out-dir ./benchmarks`
-  writes JSON and Markdown.
+Administration → Agent benchmark queues a run. The cron sweeper processes it (and also starts it straight away on a
+best-effort basis). The run replays human approve/reject decisions through the scorer, metadata only, and reports
+agreement, false releases and missed approvals across a threshold sweep. No pass mark is computed: the agreement
+needed is Deep's call.
 
 ## Tests
 
 ```
-cd backend && python -m pytest -q -p no:cacheprovider tests/test_intranet.py tests/test_intranet_p1.py tests/test_intranet_p2.py
-cd frontend && npx vitest run src/intranet
+cd worker && npm run test:intranet            # 48 tests: P0 (BRD section 13), P1, P2
+cd worker && npx vitest run                   # the rest of the Worker; INTRANET_MODE off, intranet API answers 404
+cd frontend && npx vitest run src/intranet    # 13 UI tests
+node worker/scripts/intranet-acceptance.mjs --origin <url> [--local]   # BRD section 13 over HTTP against a deployment
 ```

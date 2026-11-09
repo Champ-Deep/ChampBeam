@@ -71,3 +71,39 @@ Line numbers below are for `main` @ `e0538ad`.
   clamd it can reach.
 - Reactivating a member only clears `deactivated_at`. Deactivation also removes the Clerk org
   membership, so the person needs a new invite to sign in again.
+
+## 2026-11-09: open questions accepted, runtime moved to Cloudflare
+
+Harshal marked every open question as accepted on 2026-11-09. Where a question had a "Recommendation" in BRD
+section 11, that recommendation stands. The one exception is OQ-2: the direction was "use Cloudflare instead", so
+the intranet now runs on the Cloudflare Worker, and row 1 of the reuse-map table above ("Built on `backend/`") no
+longer applies.
+
+| OQ | Question | Decision now in force | Where it shows in the build |
+|---|---|---|---|
+| OQ-1 | External recipients? | Members only for v1 | REL-8 (Resend one-time links) not built; recipients must be active members |
+| OQ-2 | Where does it run? | **Cloudflare**: its own Worker `champbeam-intranet`, D1 `champbeam-intranet-db`, R2 `champbeam-intranet-files` | `worker/` with `INTRANET_MODE=true`; `wrangler.jsonc` env `intranet`; `docs/INTRANET-DEPLOY.md` |
+| OQ-3 | Clerk acceptable? | Superseded: `main` moved to Better Auth (PR #55/#57), so the intranet uses Better Auth on D1 | Invite-only sign-up through `org_invites` + Better Auth hooks; Clerk is not used |
+| OQ-4 | Size limit and quota | 5 GiB per file, 5 GiB per user | `INTRANET_MAX_FILE_BYTES`, `MAX_BYTES_PER_USER`; over 100 MB needs R2 S3 credentials (presigned PUT) |
+| OQ-5 | Malware scanner | ClamAV (clamd) if IT has nothing; ship without scan until it exists, flagged in the UI | `CLAMD_HOST` (clamd over a Worker TCP socket); unset = "Not scanned" |
+| OQ-6 | Home for the local scorer | Agent stays off until Clef has a home | `CLEF_URL` unset = the agent cannot be switched on |
+| OQ-7 | Log retention | One year, exportable | CSV export built; nothing deletes log rows (the triggers forbid it), so one-year pruning, if wanted, is an operator job |
+| OQ-8 | 24 h window: clock or business hours | Clock hours | `agent_window_hours` from submission time |
+| OQ-9 | Jev accepted, which input mode? | Local first; Jev metadata only, when IT provides the key | `JEV_API_KEY` gate; Jev never gets `content_excerpt` |
+
+What changed in the Cloudflare port, compared with the FastAPI build above:
+
+- **Auth.** Clerk invitations are replaced by intranet invites on Better Auth: the token's SHA-256 is stored, the
+  link is shown to the Admin once, and nothing is emailed. The Better Auth sign-up route and its org-management
+  routes are disabled in intranet mode. The user-create hook refuses addresses without a live invite, including
+  Google sign-ins. Reactivating a member now restores access directly, with no new invite needed.
+- **Storage.** Files are in R2, not on an IT-owned disk (the OQ-2 decision above).
+- **Transactions.** D1 has no interactive transactions, so each state change and its log rows are one atomic batch
+  (the guarded `UPDATE` first, then log `INSERT`s gated on `changes()`). The Postgres advisory lock that serialised
+  the hash chain is replaced by a unique `(organization_id, prev_hash)` index plus a retry.
+- **Append-only log.** Enforced by SQLite `BEFORE UPDATE` / `BEFORE DELETE` triggers. SQLite has no `TRUNCATE`.
+- **Background work.** Starlette background tasks become `waitUntil` plus the cron sweeper (every 5 minutes): the
+  integrity hash, scans and benchmarks are retried or run from cron, because `waitUntil` only has seconds.
+- **Malware scan.** Uses `cloudflare:sockets`, so clamd must be reachable from Cloudflare (a public host or a
+  Cloudflare Tunnel).
+
