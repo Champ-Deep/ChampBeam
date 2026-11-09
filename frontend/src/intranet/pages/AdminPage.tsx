@@ -193,6 +193,8 @@ export function AdminPage() {
   const settings = useQuery({ queryKey: ['intranet-review-settings'], queryFn: () => intranetApi.reviewSettings() });
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'member' | 'admin'>('member');
+  const [inviteReviewer, setInviteReviewer] = useState(false);
+  const [lastInvite, setLastInvite] = useState<{ email: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -239,7 +241,12 @@ export function AdminPage() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void change(async () => { await intranetApi.invite(email.trim(), role); setEmail(''); }, 'Invitation sent. It expires in 7 days.');
+            void change(async () => {
+              const created = await intranetApi.invite(email.trim(), role, inviteReviewer);
+              setLastInvite(created.invite_url ? { email: created.email, url: created.invite_url } : null);
+              setEmail('');
+              setInviteReviewer(false);
+            }, 'Invitation created. It expires in 7 days.');
           }}
         >
           <fieldset disabled={busy}>
@@ -252,10 +259,24 @@ export function AdminPage() {
                   <option value="admin">Admin</option>
                 </select>
               </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={inviteReviewer} onChange={(e) => setInviteReviewer(e.target.checked)} />
+                Reviewer role
+              </label>
             </div>
-            <Button type="submit" disabled={!email.trim()}>Send invitation</Button>
+            <Button type="submit" disabled={!email.trim()}>Create invitation</Button>
           </fieldset>
         </form>
+        {lastInvite && (
+          <div className="cb-panel" role="status" aria-live="polite">
+            <p><strong>Invite link for {lastInvite.email}</strong></p>
+            <p className="cb-help">Nothing is emailed. Send this link to the person yourself (chat or Teams). It works once and expires in 7 days; it is not shown again.</p>
+            <div className="cb-actions">
+              <input readOnly value={lastInvite.url} aria-label="Invite link" onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 0 }} />
+              <Button type="button" size="sm" onClick={() => void navigator.clipboard?.writeText(lastInvite.url).then(() => setNotice('Invite link copied.'))}>Copy link</Button>
+            </div>
+          </div>
+        )}
         <QueryState isLoading={invites.isLoading} error={invites.error} label="invitations" />
         {invites.data && invites.data.length > 0 && (
           <div className="cb-table-scroll">
@@ -279,7 +300,7 @@ export function AdminPage() {
 
       <section className="cb-panel">
         <h2>Members</h2>
-        <p className="cb-help">Reviewers see the queue and decide submissions. A Reviewer can never decide their own submission. Deactivating also removes the person from the organization in Clerk, so bringing them back needs a new invitation.</p>
+        <p className="cb-help">Reviewers see the queue and decide submissions. A Reviewer can never decide their own submission. Deactivating signs the person out at once; Reactivate restores their access. Their history stays in the log.</p>
         <QueryState isLoading={members.isLoading} error={members.error} label="members" />
         {members.data && (
           <div className="cb-table-scroll">

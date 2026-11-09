@@ -101,6 +101,9 @@ export interface Invite {
   id: string;
   email: string;
   role: string;
+  is_reviewer?: boolean;
+  /** Returned once, when the invite is created. */
+  invite_url?: string;
   status: 'pending' | 'accepted' | 'revoked' | 'expired';
   created_at: string | null;
   expires_at: string | null;
@@ -208,8 +211,14 @@ export const intranetApi = {
   async invites(): Promise<Invite[]> {
     return asArray<Invite>((await api.get('/intranet/invites')).data);
   },
-  async invite(email: string, role: 'admin' | 'member'): Promise<Invite> {
-    return (await api.post<Invite>('/intranet/invites', { email, role })).data;
+  async invite(email: string, role: 'admin' | 'member', isReviewer = false): Promise<Invite> {
+    return (await api.post<Invite>('/intranet/invites', { email, role, is_reviewer: isReviewer })).data;
+  },
+  async lookupInvite(token: string): Promise<{ email: string; organization: string | null; expires_at: string }> {
+    return (await api.get<{ email: string; organization: string | null; expires_at: string }>('/intranet/invites/lookup', { params: { token } })).data;
+  },
+  async acceptInvite(token: string, name: string, password: string): Promise<void> {
+    await api.post('/intranet/invites/accept', { token, name, password });
   },
   async revokeInvite(id: string): Promise<Invite> {
     return (await api.delete<Invite>(`/intranet/invites/${id}`)).data;

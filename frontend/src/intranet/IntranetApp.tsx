@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { Show, SignIn, useAuth, useClerk, useOrganizationList, useUser } from '@clerk/react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ClipboardCheck, FileClock, Inbox, Menu, ScrollText, Send, ShieldCheck, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { apiErrorStatus } from '../api/_shared';
 import { AnnouncementBanner } from '../components/AnnouncementBanner';
 import { Button } from '../components/ui';
+import { Input } from '../components/ui/Input';
 import { Logo } from '../components/ui/Logo';
+import { authClient, googleSignInEnabled, useAuth } from '../lib/authClient';
+import { intranetApi } from './api';
 import { AdminPage } from './pages/AdminPage';
 import { DecisionLogPage } from './pages/DecisionLogPage';
 import { InboxPage } from './pages/InboxPage';
@@ -15,8 +18,6 @@ import { ReviewQueuePage } from './pages/ReviewQueuePage';
 import { SubmissionsPage } from './pages/SubmissionsPage';
 import { SubmitPage } from './pages/SubmitPage';
 import { errorText, useBadges, useMe } from './shared';
-
-const HIDE_SIGN_UP = { elements: { footerAction: { display: 'none' } } };
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
@@ -26,17 +27,132 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SignInPage() {
+function AuthCard({ title, lede, children }: { title: string; lede: string; children: React.ReactNode }) {
   return (
     <Centered>
-      <SignIn routing="path" path="/sign-in" fallbackRedirectUrl="/" appearance={HIDE_SIGN_UP} />
+      <section className="cb-panel w-full" style={{ maxWidth: 420 }}>
+        <Logo tone="light" size={32} />
+        <h1 className="mt-6 text-2xl font-bold">{title}</h1>
+        <p className="cb-help">{lede}</p>
+        <div className="mt-4">{children}</div>
+      </section>
     </Centered>
   );
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function SignInPage() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState(params.get('error') ? 'Sign-in did not finish. If you were not invited, ask an Admin for an invitation.' : '');
+  const [busy, setBusy] = useState(false);
+  if (isLoaded && isSignedIn) return <Navigate to="/" replace />;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!EMAIL.test(email.trim()) || !password) {
+      setError('Enter your email and password.');
+      return;
+    }
+    setBusy(true);
+    const { error: err } = await authClient.signIn.email({ email: email.trim(), password });
+    setBusy(false);
+    if (err) setError(err.status === 429 ? 'Too many attempts. Wait a minute, then try again.' : 'Email or password is incorrect.');
+    else void navigate('/', { replace: true });
+  }
+
+  return (
+    <AuthCard title="Sign in" lede="Champions intranet file transfer. Access is by invitation only.">
+      {error && <p role="alert">{error}</p>}
+      {googleSignInEnabled && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => void authClient.signIn.social({ provider: 'google', callbackURL: '/', errorCallbackURL: '/sign-in?error=google' })}
+        >
+          Continue with Google
+        </Button>
+      )}
+      <form noValidate onSubmit={(e) => void submit(e)} className="mt-4 space-y-4" aria-busy={busy}>
+        <Input id="intranet-email" label="Work email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Input id="intranet-password" label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Button type="submit" className="w-full" isLoading={busy}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+      </form>
+      <p className="cb-help mt-4">New here? Open the invite link an Admin sent you to create your account.</p>
+    </AuthCard>
+  );
+}
+
+function AcceptInvitePage() {
+  const [params] = useSearchParams();
+  const token = params.get('token') ?? '';
+  const invite = useQuery({ queryKey: ['intranet-invite', token], queryFn: () => intranetApi.lookupInvite(token), enabled: !!token, retry: false });
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (!token) {
+    return (
+      <AuthCard title="Invite link needed" lede="Open the full invite link an Admin sent you.">
+        <Link to="/sign-in" className="underline">Sign in instead</Link>
+      </AuthCard>
+    );
+  }
+  if (invite.isLoading) return <p role="status">Checking your invitation…</p>;
+  if (invite.error) {
+    return (
+      <AuthCard title="This invite cannot be used" lede={errorText(invite.error, 'The invite link is not valid.')}>
+        <Link to="/sign-in" className="underline">Go to sign in</Link>
+      </AuthCard>
+    );
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Enter your name.');
+      return;
+    }
+    if (password.length < 8) {
+      setError('Use at least 8 characters for your password.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await intranetApi.acceptInvite(token, name.trim(), password);
+      window.location.assign('/inbox');
+    } catch (err) {
+      setError(errorText(err, 'Could not create your account.'));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AuthCard title="Create your account" lede={`You were invited to ${invite.data?.organization ?? 'the intranet'} as ${invite.data?.email ?? ''}.`}>
+      {error && <p role="alert">{error}</p>}
+      <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
+        <Input id="invite-email" label="Email" type="email" value={invite.data?.email ?? ''} readOnly disabled />
+        <Input id="invite-name" label="Your name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input id="invite-password" label="Password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} helperText="At least 8 characters." />
+        <Button type="submit" className="w-full" isLoading={busy}>{busy ? 'Creating account…' : 'Create account'}</Button>
+      </form>
+    </AuthCard>
+  );
+}
+
 function SignOutButton() {
-  const { signOut } = useClerk();
-  return <Button variant="outline" onClick={() => void signOut()}>Sign out</Button>;
+  return (
+    <Button variant="outline" onClick={() => void authClient.signOut().then(() => window.location.assign('/sign-in'))}>
+      Sign out
+    </Button>
+  );
 }
 
 function NoAccess({ message }: { message: string }) {
@@ -45,7 +161,7 @@ function NoAccess({ message }: { message: string }) {
       <section className="cb-panel" style={{ maxWidth: 520 }}>
         <h1 className="text-2xl font-bold">Access needed</h1>
         <p>{message}</p>
-        <p className="cb-help">This intranet is invite-only. Ask an admin to send you an invitation, then sign in with the invited email.</p>
+        <p className="cb-help">This intranet is invite-only. Ask an admin for an invitation, then open the link they send you.</p>
         <SignOutButton />
       </section>
     </Centered>
@@ -53,28 +169,30 @@ function NoAccess({ message }: { message: string }) {
 }
 
 function OrgPicker() {
-  const { isLoaded, setActive, userMemberships } = useOrganizationList({ userMemberships: true });
+  const orgs = authClient.useListOrganizations();
   const [error, setError] = useState('');
-  const memberships = userMemberships.data ?? [];
-  const only = memberships.length === 1 ? memberships[0] : undefined;
+  const list = orgs.data ?? [];
+  const only = list.length === 1 ? list[0] : undefined;
   const tried = useRef(false);
 
   useEffect(() => {
-    if (!isLoaded || !only || tried.current) return;
+    if (orgs.isPending || !only || tried.current) return;
     tried.current = true;
-    void setActive({ organization: only.organization.id }).catch(() => setError('Could not open your organization.'));
-  }, [isLoaded, only, setActive]);
+    void authClient.organization.setActive({ organizationId: only.id }).then(({ error: err }) => {
+      if (err) setError('Could not open your organization.');
+    });
+  }, [orgs.isPending, only]);
 
-  if (!isLoaded || userMemberships.isLoading || (only && !error)) return <p role="status">Opening your organization…</p>;
-  if (!memberships.length) return <NoAccess message="Your account is not a member of any organization yet." />;
+  if (orgs.isPending || (only && !error)) return <p role="status">Opening your organization…</p>;
+  if (!list.length) return <NoAccess message="Your account is not a member of any organization yet." />;
   return (
     <Centered>
       <section className="cb-panel" style={{ maxWidth: 520 }}>
         <h1 className="text-2xl font-bold">Choose an organization</h1>
         {error && <p role="alert">{error}</p>}
         <div className="cb-actions">
-          {memberships.map((m) => (
-            <Button key={m.id} onClick={() => void setActive({ organization: m.organization.id })}>{m.organization.name}</Button>
+          {list.map((o) => (
+            <Button key={o.id} onClick={() => void authClient.organization.setActive({ organizationId: o.id })}>{o.name}</Button>
           ))}
         </div>
       </section>
@@ -92,7 +210,7 @@ interface NavItem {
 
 function Rail({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
   const location = useLocation();
-  const { user } = useUser();
+  const { user } = useAuth();
   const me = useMe();
   return (
     <div className="cb-sidebar flex h-full flex-col overflow-y-auto" style={{ background: 'var(--cb-side1)', color: '#ffffff' }}>
@@ -131,7 +249,7 @@ function Rail({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void
         })}
       </nav>
       <div className="cb-account border-t border-white/10 p-4">
-        <p><strong>{me.data?.user.full_name || user?.fullName || me.data?.user.email}</strong></p>
+        <p><strong>{me.data?.user.full_name || user?.name || me.data?.user.email}</strong></p>
         <p style={{ color: '#eee0d8' }}>
           {me.data?.organization.name}
           {me.data?.is_admin ? ' · Admin' : ''}
@@ -223,22 +341,22 @@ function Workspace() {
   );
 }
 
+function SignedIn({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return <p role="status">Loading account…</p>;
+  if (!isSignedIn) return <Navigate to="/sign-in" replace />;
+  return <>{children}</>;
+}
+
 export default function IntranetApp() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--cb-bg)' }}>
       <AnnouncementBanner />
       <Routes>
         <Route path="/sign-in/*" element={<SignInPage />} />
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/sign-up/*" element={<Navigate to="/sign-in" replace />} />
-        <Route
-          path="*"
-          element={
-            <>
-              <Show when="signed-in"><Workspace /></Show>
-              <Show when="signed-out"><Navigate to="/sign-in" replace /></Show>
-            </>
-          }
-        />
+        <Route path="*" element={<SignedIn><Workspace /></SignedIn>} />
       </Routes>
     </div>
   );

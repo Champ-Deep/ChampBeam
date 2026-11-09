@@ -27,6 +27,9 @@ vi.mock('./api', () => ({
     agentApproved: vi.fn(),
     overturn: vi.fn(),
     invites: vi.fn(),
+    invite: vi.fn(),
+    lookupInvite: vi.fn(),
+    acceptInvite: vi.fn(),
     reviewSettings: vi.fn(),
     saveReviewSettings: vi.fn(),
     benchmarks: vi.fn(),
@@ -269,6 +272,25 @@ describe('admin review settings', () => {
     await waitFor(() => expect(intranetApi.saveReviewSettings).toHaveBeenCalledWith({ agent_mode: 'local' }));
     expect(await screen.findByText('75.0%')).toBeInTheDocument();
     expect(screen.getByText('0.95 (current)')).toBeInTheDocument();
+  });
+});
+
+describe('admin invitations', () => {
+  it('creates an invite and shows its one-time link (nothing is emailed)', async () => {
+    vi.mocked(intranetApi.me).mockResolvedValue({ ...me, is_admin: true });
+    vi.mocked(intranetApi.invites).mockResolvedValue([]);
+    vi.mocked(intranetApi.reviewSettings).mockResolvedValue(me.settings);
+    vi.mocked(intranetApi.benchmarks).mockResolvedValue([]);
+    vi.mocked(intranetApi.invite).mockResolvedValue({
+      id: 'i1', email: 'new@champions.test', role: 'member', status: 'pending', created_at: null, expires_at: null,
+      invite_url: 'https://intranet.test/accept-invite?token=abc',
+    });
+    mount(<AdminPage />);
+    fireEvent.change(await screen.findByLabelText('Work email'), { target: { value: 'new@champions.test' } });
+    fireEvent.click(screen.getByLabelText('Reviewer role'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invitation' }));
+    await waitFor(() => expect(intranetApi.invite).toHaveBeenCalledWith('new@champions.test', 'member', true));
+    expect(await screen.findByLabelText('Invite link')).toHaveValue('https://intranet.test/accept-invite?token=abc');
   });
 });
 
