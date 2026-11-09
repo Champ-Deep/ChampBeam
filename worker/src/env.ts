@@ -181,6 +181,41 @@ export function buildSettings(env: Env) {
     assistantMaxTokens: int(env, "ASSISTANT_MAX_TOKENS", 700),
     assistantMaxHistory: int(env, "ASSISTANT_MAX_HISTORY", 12),
     companyIntelApiKey: str(env, "COMPANY_INTEL_API_KEY"),
+
+    // Intranet (docs/INTRANET.md): invite-only, review-gated file transfer. INTRANET_MODE=true serves only
+    // the intranet API, Better Auth, health and the SPA; every marketing and public route answers 404.
+    intranetMode: bool(env, "INTRANET_MODE", false),
+    /** Org ids or slugs allowed to use the intranet. Empty = any org in this (dedicated) database. */
+    intranetOrgIds: str(env, "INTRANET_ORG_IDS"),
+    intranetMaxFileBytes: int(env, "INTRANET_MAX_FILE_BYTES", 5 * 1024 * 1024 * 1024),
+    intranetBlockedExtensions: str(
+      env,
+      "INTRANET_BLOCKED_EXTENSIONS",
+      "exe,msi,bat,cmd,com,scr,pif,vbs,vbe,js,jse,wsf,wsh,ps1,psm1,hta,cpl,jar,dll,lnk,reg,iso,img",
+    ),
+    intranetInviteTtlDays: int(env, "INTRANET_INVITE_TTL_DAYS", 7),
+    intranetMaxExpiryDays: int(env, "INTRANET_MAX_EXPIRY_DAYS", 90),
+    intranetDownloadLeaseSeconds: int(env, "INTRANET_DOWNLOAD_LEASE_SECONDS", 300),
+    intranetScanRetrySeconds: int(env, "INTRANET_SCAN_RETRY_SECONDS", 900),
+
+    // Malware scan (SUB-5): clamd INSTREAM over a Worker TCP socket. Unset = files are flagged "not scanned".
+    clamdHost: str(env, "CLAMD_HOST"),
+    clamdPort: int(env, "CLAMD_PORT", 3310),
+    clamdTimeoutS: float(env, "CLAMD_TIMEOUT_S", 120),
+    clamdMaxStreamBytes: int(env, "CLAMD_MAX_STREAM_BYTES", 25 * 1024 * 1024),
+
+    // Review agent (AGT-1 to AGT-9). Off by default; the org setting picks the provider.
+    clefUrl: str(env, "CLEF_URL"),
+    clefToken: str(env, "CLEF_TOKEN"),
+    clefTimeoutS: float(env, "CLEF_TIMEOUT_S", 20),
+    reviewAgentAllowMock: bool(env, "REVIEW_AGENT_ALLOW_MOCK", false),
+    reviewAgentExcerptBytes: int(env, "REVIEW_AGENT_EXCERPT_BYTES", 4096),
+    reviewAgentBenchmarkMaxRows: int(env, "REVIEW_AGENT_BENCHMARK_MAX_ROWS", 500),
+    jevApiKey: str(env, "JEV_API_KEY"),
+    jevUrl: str(env, "JEV_URL", "https://openrouter.ai/api/alpha/decisions"),
+    jevModel: str(env, "JEV_MODEL", "typesafe/jev-1.13"),
+    jevTimeoutS: float(env, "JEV_TIMEOUT_S", 20),
+    jevSignoffRef: str(env, "JEV_SIGNOFF_REF"),
   };
 
   const missing = (["STORAGE_UPLOAD_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"] as const).filter((n) => !str(env, n));
@@ -242,6 +277,11 @@ export function buildSettings(env: Env) {
     })(),
     /** R2 presigned URLs available (all S3 credentials set). */
     r2PresignConfigured: !!(s.r2AccountId && s.r2AccessKeyId && s.r2SecretAccessKey && s.r2BucketName),
+    intranetOrgIdSet: new Set(splitCsv(s.intranetOrgIds)),
+    intranetBlockedExtensionSet: new Set(splitCsv(s.intranetBlockedExtensions).map((e) => e.toLowerCase().replace(/^\.+/, ""))),
+    clamdConfigured: !!s.clamdHost,
+    clefConfigured: !!s.clefUrl,
+    jevConfigured: !!s.jevApiKey,
     /** Storage is always configured on Cloudflare (the R2 binding). */
     storageConfigured: true,
     resolvedUploadSecret: s.storageUploadSecret,

@@ -45,6 +45,8 @@ export default defineConfig(async () => {
     ],
     test: {
       setupFiles: ["./test/setup.ts"],
+      // Intranet tests run with INTRANET_MODE=true: vitest.intranet.config.ts.
+      exclude: ["**/node_modules/**", "test/intranet/**"],
     },
   };
 });

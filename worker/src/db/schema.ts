@@ -76,6 +76,9 @@ export const organizationMemberships = sqliteTable("organization_memberships", {
   revokedAt: text("revoked_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+  /** Intranet (0009): app-managed Reviewer flag and immediate deactivation (ACC-4). */
+  isReviewer: bool("is_reviewer").notNull().default(false),
+  deactivatedAt: text("deactivated_at"),
 });
 
 export const MEMBERSHIP_ACTIVE = "active";

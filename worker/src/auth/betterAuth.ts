@@ -8,6 +8,7 @@
  * below gate only Better Auth's own org-management endpoints.
  */
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { verifyPassword } from "better-auth/crypto";
 import { organization } from "better-auth/plugins";
@@ -19,6 +20,7 @@ import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
+import { INTRANET_DISABLED_AUTH_PATHS, intranetAcceptInvite, intranetCheckSignup } from "../intranet/invites";
 
 /** The one org every user belongs to (Deep's ruling, 5 Nov). New sign-ups join it as `member`. */
 export const DEFAULT_ORG_SLUG = "champions-group";
@@ -35,14 +37,22 @@ const roles = {
   viewer: ac.newRole({}),
 };
 
-export function createAuth(env: Env, db: Db) {
+export interface AuthOptions {
+  /** Intranet: the invite this request redeems (intranet accept route). Only then may an email sign-up create a user. */
+  inviteEmail?: string;
+}
+
+export function createAuth(env: Env, db: Db, opts: AuthOptions = {}) {
   const settings = getSettings(env);
+  const intranet = settings.intranetMode;
   const google = settings.googleClientId && settings.googleClientSecret;
   return betterAuth({
     appName: settings.appName,
     baseURL: settings.betterAuthUrl,
     secret: settings.betterAuthSecret,
     trustedOrigins: trustedOrigins(settings),
+    // Intranet: accounts only through an invite (ACC-1 to ACC-3), membership changes only through the logged intranet API.
+    disabledPaths: intranet ? INTRANET_DISABLED_AUTH_PATHS : [],
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema: {
@@ -114,7 +124,16 @@ export function createAuth(env: Env, db: Db) {
       },
       user: {
         create: {
+          before: async (user, ctx) => {
+            if (!intranet) return;
+            const refusal = await intranetCheckSignup(env.DB, String(user.email ?? ""), ctx?.path ?? null, opts.inviteEmail ?? null);
+            if (refusal) throw new APIError("FORBIDDEN", { message: refusal });
+          },
           after: async (user) => {
+            if (intranet) {
+              await intranetAcceptInvite(env.DB, user.id, String(user.email ?? ""));
+              return;
+            }
             const org = await db
               .select({ id: schema.organizations.id })
               .from(schema.organizations)
