@@ -26,6 +26,9 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Production only: overlays do not inherit it.
+  "send_email": [{ "name": "EMAIL" }],
+
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",

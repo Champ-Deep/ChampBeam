@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './lib/authClient';
-import { SignInPage, SignUpPage } from './pages/AuthPages';
+import { ForgotPasswordPage, ResetPasswordPage, SignInPage, SignUpPage } from './pages/AuthPages';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
@@ -70,6 +70,8 @@ export default function App() {
       <Routes>
         <Route path="/sign-in/*" element={<SignInPage />} />
         <Route path="/sign-up/*" element={<SignUpPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="*" element={
           <Chrome>
             <Routes>
