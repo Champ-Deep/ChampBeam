@@ -19,6 +19,7 @@
  *   getCustomHostname(settings, customHostnameId, opts?)   -> Promise<CfResult>
  *   deleteCustomHostname(settings, customHostnameId, opts?) -> Promise<void>  (404 = success)
  *   deriveStatus(cfResult) -> [status, sslStatus | null]
+ *   txtRecords(cfResult) -> DnsRecord[]   (ownership + certificate TXT)
  *
  * `opts.fetch` is injectable for tests; it defaults to the global fetch,
  * resolved at call time (so `vi.spyOn(globalThis, "fetch")` also works).
@@ -71,12 +72,12 @@ function fetcher(opts?: CfOptions): FetchFn {
 
 const TIMEOUT_MS = 15_000;
 
-/** Register a Custom Hostname with HTTP-validated SSL. Returns the CF result (id, status, ssl). */
+/** Register a Custom Hostname with TXT-validated SSL (IT can pre-validate before switching the live CNAME). Returns the CF result (id, status, ssl). */
 export async function createCustomHostname(settings: CfSettings, hostname: string, opts?: CfOptions): Promise<CfResult> {
   const [token, zoneId] = requireConfigured(settings);
   const body = {
     hostname,
-    ssl: { method: "http", type: "dv", settings: { min_tls_version: "1.2" } },
+    ssl: { method: "txt", type: "dv", settings: { min_tls_version: "1.2" } },
   };
   const resp = await fetcher(opts)(`${API_BASE}/zones/${zoneId}/custom_hostnames`, {
     method: "POST",
@@ -108,6 +109,28 @@ export async function deleteCustomHostname(settings: CfSettings, customHostnameI
   });
   if (resp.status === 404) return;
   await unwrap(resp, `delete_custom_hostname(${customHostnameId})`);
+}
+
+export interface DnsRecord {
+  type: string;
+  name: string;
+  value: string;
+  purpose: string;
+}
+
+/** The TXT records IT must add, read from a CF custom hostname result (ownership + certificate). */
+export function txtRecords(cf: CfResult): DnsRecord[] {
+  const out: DnsRecord[] = [];
+  const own = cf?.ownership_verification;
+  if (own?.name && own?.value) {
+    out.push({ type: String(own.type || "txt").toUpperCase(), name: own.name, value: own.value, purpose: "Ownership verification" });
+  }
+  for (const v of cf?.ssl?.validation_records ?? []) {
+    if (v?.txt_name && v?.txt_value) {
+      out.push({ type: "TXT", name: v.txt_name, value: v.txt_value, purpose: "Certificate validation" });
+    }
+  }
+  return out;
 }
 
 async function unwrap(resp: Response, op: string): Promise<CfResult> {

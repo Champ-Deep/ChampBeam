@@ -21,6 +21,7 @@ import { httpError } from "../lib/errors";
 import { parseJson, parseQuery, qBool, qInt } from "../lib/validate";
 import { isoUtc, nowIso, toStored } from "../lib/time";
 import * as cloudflare from "../services/cloudflare";
+import { adoptIfOrgDefault } from "../services/orgAdoption";
 import * as registrar from "../services/cloudflareRegistrar";
 import {
   applyCfStatus,
@@ -101,6 +102,32 @@ function cnameTarget(settings: Settings): string | null {
   return settings.cloudflareCnameTarget || settings.byodCnameTarget || null;
 }
 
+/** Every DNS record IT must add: the routing CNAME, then the CF-issued ownership and certificate TXTs. */
+function dnsRecords(settings: Settings, d: DomainRow) {
+  const target = cnameTarget(settings);
+  const cname = target
+    ? [{ type: "CNAME", name: d.hostname, value: target, purpose: "Routes traffic to ChampBeam (DNS only / grey cloud, do not proxy)", dns_only: true }]
+    : [];
+  return [...cname, ...(d.cfDnsRecords ?? [])];
+}
+
+function recordsText(settings: Settings, d: DomainRow): string {
+  const recs = dnsRecords(settings, d);
+  const lines = [
+    `DNS records for ${d.hostname}`,
+    "",
+    "Add the TXT records first: they validate ownership and the certificate while the live site keeps working.",
+    "Add the CNAME only when you are ready to switch traffic. It must be DNS only (grey cloud), not proxied.",
+    "",
+  ];
+  recs.forEach((r, i) => {
+    lines.push(`${i + 1}. ${r.type} (${r.purpose})`, `   Name:  ${r.name}`, `   Value: ${r.value}`, "");
+  });
+  if (!recs.some((r) => r.type !== "CNAME")) lines.push("The TXT records are not issued yet. Refresh the domain in Settings in a minute.", "");
+  lines.push(`Current status: ${d.status}${d.sslStatus ? ` (certificate ${d.sslStatus})` : ""}`);
+  return lines.join("\n") + "\n";
+}
+
 function toResponse(settings: Settings, d: DomainRow) {
   return {
     id: d.id,
@@ -115,6 +142,7 @@ function toResponse(settings: Settings, d: DomainRow) {
     // Setup instructions, included on every response so the UI can show them
     // for any domain still in pending_cname / pending_ssl.
     cname_target: cnameTarget(settings),
+    dns_records: dnsRecords(settings, d),
     cloudflare_managed: !!d.cfCustomHostnameId,
     // Procurement metadata (NULL for bring-your-own-domain rows).
     procured: d.registrar != null,
@@ -217,6 +245,7 @@ router.post("/", async (c) => {
   let cfId: string | null = null;
   let status = DOMAIN_STATUS_PENDING_CNAME;
   let sslStatus: string | null = null;
+  let txt: cloudflare.DnsRecord[] | null = null;
 
   if (isPlatformSubdomain(hostname, settings)) {
     // Netlify-style: a subdomain of our own wildcard zone. The platform
@@ -228,6 +257,7 @@ router.post("/", async (c) => {
     try {
       const result = await cloudflare.createCustomHostname(settings, hostname);
       cfId = result.id ?? null;
+      txt = cloudflare.txtRecords(result);
       [status, sslStatus] = cloudflare.deriveStatus(result);
     } catch (err) {
       if (!(err instanceof cloudflare.CloudflareError)) throw err;
@@ -252,6 +282,7 @@ router.post("/", async (c) => {
     status,
     sslStatus,
     cfCustomHostnameId: cfId,
+    cfDnsRecords: txt,
     isPrimary: isFirst,
     createdAt: now,
     verifiedAt: status === DOMAIN_STATUS_ACTIVE ? now : null,
@@ -417,10 +448,12 @@ router.post("/purchase", async (c) => {
   let cfId: string | null = null;
   let status = DOMAIN_STATUS_PENDING_CNAME;
   let sslStatus: string | null = null;
+  let txt: cloudflare.DnsRecord[] | null = null;
   if (settings.cloudflareConfigured) {
     try {
       const ch = await cloudflare.createCustomHostname(settings, hostname);
       cfId = ch.id ?? null;
+      txt = cloudflare.txtRecords(ch);
       [status, sslStatus] = cloudflare.deriveStatus(ch);
     } catch (err) {
       if (!(err instanceof cloudflare.CloudflareError)) throw err;
@@ -447,6 +480,7 @@ router.post("/purchase", async (c) => {
     status,
     sslStatus,
     cfCustomHostnameId: cfId,
+    cfDnsRecords: txt,
     isPrimary: isFirst,
     createdAt: now,
     verifiedAt: status === DOMAIN_STATUS_ACTIVE ? now : null,
@@ -465,10 +499,26 @@ router.post("/:domain_id/refresh", async (c) => {
   const user = await requireAuth(c);
   const settings = c.var.settings;
   const domain = await getOwnedDomain(c, user);
+  const was = domain.status;
   if (domain.cfCustomHostnameId) await applyCfStatus(domain, settings);
   else await applyLocalStatus(domain, settings);
   await persistDomainStatus(c.var.db, domain);
+  if (was !== DOMAIN_STATUS_ACTIVE && domain.status === DOMAIN_STATUS_ACTIVE) {
+    await adoptIfOrgDefault(c.env.DB, domain).catch((e) => console.error("org adoption failed", e));
+  }
   return c.json(toResponse(settings, domain));
+});
+
+/** Plain-text DNS request for IT. Re-polls Cloudflare first when the TXT values have not been issued yet. */
+router.get("/:domain_id/records.txt", async (c) => {
+  const user = await requireAuth(c);
+  const settings = c.var.settings;
+  const domain = await getOwnedDomain(c, user);
+  if (domain.cfCustomHostnameId && !domain.cfDnsRecords?.length && domain.status !== DOMAIN_STATUS_ACTIVE) {
+    await applyCfStatus(domain, settings);
+    await persistDomainStatus(c.var.db, domain);
+  }
+  return c.text(recordsText(settings, domain));
 });
 
 /** Mark this domain as the user's primary (used as default for new links). */
