@@ -79,7 +79,7 @@ export function MembersPanel({ orgId, orgName }: { orgId: string; orgName: strin
           const locked = refusal(r, 'role', { me, adminCount, nextRole: 'member' });
           return <tr key={r.userId}>
             <td><div className="cb-who"><span className="cb-avatar-sm" aria-hidden="true">{r.image ? <img src={r.image} alt="" /> : initials(r.name || r.email)}</span>
-              <span className="min-w-0"><span className="cb-who-name">{r.name}{r.userId === me && <span className="cb-hint"> (you)</span>}</span><span className="cb-mono cb-hint cb-ellipsis">{r.email}</span></span></div></td>
+              <span className="min-w-0"><span className="cb-who-name">{r.name}{r.userId === me && <span className="cb-hint"> (you)</span>}</span><span className="cb-mono cb-hint cb-ellipsis" title={r.email}>{r.email}</span></span></div></td>
             <td>
               <select aria-label={`Role for ${r.name}`} value={r.role} disabled={!r.memberId} onChange={(e) => void changeRole(r, e.target.value)}>
                 {[...new Set([...ORG_ROLES, r.role])].map((x) => <option key={x} value={x}>{ROLE_LABEL[x] ?? x}</option>)}
@@ -149,7 +149,7 @@ export function MoveMemberDialog({ row, fromOrgId, fromOrgName, onClose, onMoved
         <li>{moveContent ? `Their files and links in ${fromOrgName} move to ${dest.name}.` : `Their files and links stay in ${fromOrgName}.`}</li>
         <li>{leave ? `They leave ${fromOrgName}.` : `They stay a member of ${fromOrgName} too.`}</li>
       </ul>
-      <div className="cb-form-actions"><Button type="button" variant="ghost" onClick={() => setStep('form')}>Back</Button><Button onClick={() => void run()} isLoading={busy}>Move {row.name.split(' ')[0]}</Button></div>
+      <div className="cb-form-actions"><Button type="button" variant="ghost" onClick={() => setStep('form')}>Back</Button><Button onClick={() => void run()} isLoading={busy}>Move {row.name}</Button></div>
     </div>}
     {step === 'done' && <div className="cb-form"><p role="status" className="cb-ok">{row.name} is now in {dest?.name}.</p><div className="cb-form-actions"><Button onClick={onClose}>Done</Button></div></div>}
   </Modal>;
