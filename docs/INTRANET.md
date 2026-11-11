@@ -6,6 +6,7 @@ emailed. Every step is written to an append-only, hash-chained decision log.
 
 Requirements are in `ChampBeam Intranet BRD.docx`. [INTRANET-BRD-ERRATA.md](INTRANET-BRD-ERRATA.md) lists where the
 build differs from it and records the decisions taken on the open questions.
+[INTRANET-BLOCKERS.md](INTRANET-BLOCKERS.md) lists what is still open, who owns each item, and how to clear it.
 
 **Runtime: the Cloudflare Worker** (`worker/`, Hono + D1 + R2 + Better Auth), deployed as its own Worker
 `champbeam-intranet` with `INTRANET_MODE=true`. In that mode the Worker serves only the intranet API, Better Auth,

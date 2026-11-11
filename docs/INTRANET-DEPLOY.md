@@ -7,6 +7,7 @@ Steps 1-8 below are done. The P0 acceptance checklist passes 10/10 against the l
 Admin is Harshil until IT takes over. Only the required secrets are set. The optional ones (R2 API token, clamd,
 Clef, Jev, GlitchTip DSN) are still open, so uploads are capped at 100 MB and files show "Not scanned". The commands run from
 `worker/`. To repeat the acceptance run, clear `INTRANET_ORG_IDS` first, because the run creates its own org.
+Open items and their owners are in `INTRANET-BLOCKERS.md`.
 
 ## What gets created
 
