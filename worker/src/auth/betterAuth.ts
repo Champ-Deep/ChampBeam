@@ -42,7 +42,9 @@ export function createAuth(env: Env, db: Db) {
   // An email failure must never fail the reset request that triggered it (and must not reveal which emails exist).
   const mail = async (to: string, subject: string, body: string, linkLabel: string, url: string): Promise<void> => {
     try {
-      await sendMail(env, settings, { to, subject, body, linkLabel, url });
+      const res = await sendMail(env, settings, { to, subject, body, linkLabel, url });
+      // Delivery result only (message id / recipient lists), never the link.
+      console.log(`email \"${subject}\" result`, JSON.stringify(res ?? null));
     } catch (err) {
       console.error(`email "${subject}" failed`, err);
     }
