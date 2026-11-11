@@ -1,9 +1,12 @@
 # Deploying the ChampBeam Intranet on Cloudflare
 
-Status (2026-11-10): the code is ready, and the P0 acceptance checklist passes 10/10 on a local deployment
-(`docs/INTRANET-P0-ACCEPTANCE.md`). It has not been deployed to Cloudflare yet. No Cloudflare account was available,
-and the `intranet` environment in `worker/wrangler.jsonc` still has two `TODO_` placeholders. Follow the steps below
-in order. The commands run from `worker/`.
+Status (2026-11-11): deployed to Deep's account (`deep-ae0`) at https://champbeam-intranet.deep-ae0.workers.dev.
+Steps 1-8 below are done. The P0 acceptance checklist passes 10/10 against the live Worker
+(`docs/INTRANET-P0-ACCEPTANCE-LIVE.md`) and against a local deployment (`docs/INTRANET-P0-ACCEPTANCE.md`). The org
+"Champions Group" (`6872e11a-c2e3-40b2-a404-c6b0c91fb9f2`) is seeded and set in `INTRANET_ORG_IDS`, and the first
+Admin is Harshil until IT takes over. Only the required secrets are set. The optional ones (R2 API token, clamd,
+Clef, Jev, GlitchTip DSN) are still open, so uploads are capped at 100 MB and files show "Not scanned". The commands run from
+`worker/`. To repeat the acceptance run, clear `INTRANET_ORG_IDS` first, because the run creates its own org.
 
 ## What gets created
 
@@ -43,6 +46,7 @@ in order. The commands run from `worker/`.
      Without it, files are queued and flagged "Not scanned".
    - `CLEF_URL` / `CLEF_TOKEN`: the local scorer's HTTP endpoint, needed before the review agent can be switched on.
    - `JEV_API_KEY` (and `JEV_SIGNOFF_REF`): makes Jev available. The agent stays off until an Admin turns it on.
+   - `GLITCHTIP_DSN`: the GlitchTip project DSN. Errors are then sent to GlitchTip (NFR-7, see `INTRANET.md`).
 5. **Migrate.** Run `npm run db:migrate:intranet`. It applies `0001` to `0009`, and `0009_intranet.sql` adds the
    intranet tables and the `decision_log` append-only triggers.
 6. **Deploy.** Run `npm run deploy:intranet`. It checks the overlay (refuses while any `TODO_` is left), builds the

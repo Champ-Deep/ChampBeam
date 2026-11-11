@@ -8,7 +8,7 @@
     "db:migrate:local": "wrangler d1 migrations apply champbeam --local",
     "db:migrate:remote": "wrangler d1 migrations apply champbeam --remote",
     "build:frontend:intranet": "node scripts/build-intranet-frontend.mjs",
-    "deploy:intranet": "node scripts/check-env-overlays.mjs --deployable && node scripts/build-intranet-frontend.mjs && wrangler deploy --env intranet",
+    "deploy:intranet": "node scripts/check-env-overlays.mjs --deployable --env intranet && node scripts/build-intranet-frontend.mjs && wrangler deploy --env intranet",
     "db:migrate:intranet": "wrangler d1 migrations apply DB --env intranet --remote",
     "db:migrate:intranet:local": "wrangler d1 migrations apply DB --env intranet --local",
     "dev:intranet": "wrangler dev --env intranet --port 8798 --test-scheduled",
