@@ -18,6 +18,9 @@ import { ReviewQueuePage } from './pages/ReviewQueuePage';
 import { SubmissionsPage } from './pages/SubmissionsPage';
 import { SubmitPage } from './pages/SubmitPage';
 import { errorText, useBadges, useMe } from './shared';
+import { installErrorReporting } from './errorReporting';
+
+installErrorReporting();
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (

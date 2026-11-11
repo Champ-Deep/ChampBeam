@@ -13,6 +13,7 @@ import { nowIso } from "../lib/time";
 import * as C from "./constants";
 import { commit } from "./decisionLog";
 import * as T from "./transfers";
+import { reportError } from "../lib/observability";
 
 export interface ScanResult {
   status: string;
@@ -78,7 +79,7 @@ export async function scanObject(env: Env, settings: Settings, key: string, size
     return parseReply(reply);
   } catch (err) {
     if ((err as Error).message === "timeout") return { status: C.SCAN_NOT_SCANNED, detail: "Scanner timed out." };
-    console.warn("clamd unreachable", err);
+    reportError("clamd unreachable", err, { component: "intranet.scan", level: "warning" });
     return { status: C.SCAN_NOT_SCANNED, detail: "Scanner unreachable." };
   }
 }

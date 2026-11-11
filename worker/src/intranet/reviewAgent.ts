@@ -13,6 +13,7 @@ import { nowIso } from "../lib/time";
 import * as C from "./constants";
 import { canonicalJson, commit } from "./decisionLog";
 import * as T from "./transfers";
+import { reportError } from "../lib/observability";
 
 export const PROVIDER_CLEF = "clef";
 export const PROVIDER_JEV = "jev";
@@ -213,7 +214,7 @@ export async function scoreWithFallback(scorers: ScorerFactory, chain: string[],
     } catch (err) {
       if (err instanceof ScorerError) errors.push(`${provider}: ${err.message}`);
       else {
-        console.error(`review agent: scorer ${provider} crashed`, err);
+        reportError(`review agent: scorer ${provider} crashed`, err, { component: "intranet.review_agent", tags: { provider } });
         errors.push(`${provider}: ${(err as Error)?.name ?? "Error"}`);
       }
     }
@@ -318,7 +319,7 @@ export async function runPass(env: Env, settings: Settings, scorers: ScorerFacto
         if (outcome === "approved") stats.approved++;
         else stats.escalated++;
       } catch (err) {
-        console.error(`review agent: evaluating ${t.id} failed`, err);
+        reportError(`review agent: evaluating ${t.id} failed`, err, { component: "intranet.review_agent", tags: { transfer_id: t.id } });
         stats.skipped++;
       }
     }

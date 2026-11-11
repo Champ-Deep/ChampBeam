@@ -14,6 +14,7 @@ import * as C from "./constants";
 import { append } from "./decisionLog";
 import * as A from "./reviewAgent";
 import type { TransferRow } from "./transfers";
+import { reportError } from "../lib/observability";
 
 export const THRESHOLDS = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99];
 
@@ -171,7 +172,7 @@ export async function runJob(env: Env, settings: Settings, id: string, scorers?:
   try {
     report = await run(env, settings, b.organization_id, b.provider, settings.reviewAgentBenchmarkMaxRows, scorers);
   } catch (err) {
-    console.error(`agent benchmark ${id} failed`, err);
+    reportError(`agent benchmark ${id} failed`, err, { component: "intranet.benchmark", tags: { benchmark_id: id } });
     status = "failed";
     error = String((err as Error)?.message ?? err).slice(0, 500);
   }

@@ -113,21 +113,23 @@
     // ChampBeam Intranet (docs/INTRANET.md, docs/INTRANET-DEPLOY.md): invite-only, review-gated file transfer.
     // Its own Worker, D1 database and R2 bucket; INTRANET_MODE=true serves only the intranet API, Better Auth,
     // health and the intranet SPA (built with VITE_APP_MODE=intranet into ../frontend/dist-intranet).
-    // TODO_ values are filled once the Cloudflare account exists (docs/INTRANET-DEPLOY.md steps 1-3).
+    // Deployed on Deep's account (deep-ae0) at https://champbeam-intranet.deep-ae0.workers.dev.
     // Secrets (wrangler secret put --env intranet): BETTER_AUTH_SECRET, STORAGE_UPLOAD_SECRET, and optionally
-    // R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY (uploads over 100 MB), CLAMD_HOST, CLEF_URL/CLEF_TOKEN, JEV_API_KEY.
+    // R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY (uploads over 100 MB), CLAMD_HOST, CLEF_URL/CLEF_TOKEN, JEV_API_KEY, GLITCHTIP_DSN.
     "intranet": {
       "name": "champbeam-intranet",
       "assets": { "directory": "../frontend/dist-intranet", "binding": "ASSETS", "not_found_handling": "single-page-application",
                   "run_worker_first": ["/*", "!/assets/*"] },
-      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-intranet-db", "database_id": "TODO_intranet_d1_id", "migrations_dir": "migrations" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-intranet-db", "database_id": "cb5041d5-fe37-40ac-b0de-331ce2f5b02f", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-intranet-files" }],
       // One trigger: the intranet sweeper (expiry, invites, reminders, scans, review agent, benchmarks).
       "triggers": { "crons": ["*/5 * * * *"] },
+      // NFR-7: Workers Logs (Grafana via an OTLP destination once it exists); GlitchTip via the GLITCHTIP_DSN secret.
+      "observability": { "enabled": true },
       "vars": { "ENVIRONMENT": "intranet", "DEBUG": "false", "INTRANET_MODE": "true",
-                "FRONTEND_URL": "TODO_intranet_origin", "BETTER_AUTH_URL": "TODO_intranet_origin", "REDIRECT_BASE_URL": "TODO_intranet_origin",
+                "FRONTEND_URL": "https://champbeam-intranet.deep-ae0.workers.dev", "BETTER_AUTH_URL": "https://champbeam-intranet.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-intranet.deep-ae0.workers.dev",
                 "PLATFORM_REDIRECT_HOST": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "CLERK_PUBLISHABLE_KEY": "",
-                "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-intranet-files", "INTRANET_ORG_IDS": "",
+                "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-intranet-files", "INTRANET_ORG_IDS": "6872e11a-c2e3-40b2-a404-c6b0c91fb9f2",
                 "INTRANET_MAX_FILE_BYTES": "5368709120", "MAX_BYTES_PER_USER": "5368709120", "INTRANET_INVITE_TTL_DAYS": "7",
                 "ASSISTANT_ENABLED": "false", "HTML_SANDBOX": "true" }
     }

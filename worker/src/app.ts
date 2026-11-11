@@ -40,6 +40,7 @@ import { router as system } from "./routes/system";
 import { router as assistant } from "./routes/assistant";
 import { router as intranet } from "./intranet/routes";
 import { intranetGate } from "./intranet/gate";
+import { reportError, scrubPath } from "./lib/observability";
 
 export const app = new Hono<AppEnv>({ strict: false });
 
@@ -59,7 +60,8 @@ app.onError((err, c) => {
     res = c.json({ detail: err.detail }, err.status as 400);
     for (const [k, v] of Object.entries(err.headers)) res.headers.set(k, v);
   } else {
-    console.error(`Unhandled exception on ${c.req.method} ${new URL(c.req.url).pathname}`, err);
+    const path = new URL(c.req.url).pathname;
+    reportError(`Unhandled exception on ${c.req.method} ${scrubPath(path)}`, err, { component: "http", method: c.req.method, path });
     res = c.json({ detail: "Internal server error" }, 500);
   }
   return withCors(res, requestOrigin(c.var.settings ?? getSettings(c.env), c.req.header("origin"), c.req.url));

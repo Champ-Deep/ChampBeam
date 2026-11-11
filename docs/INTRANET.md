@@ -51,6 +51,7 @@ UTM, rooms ...) answers 404.
 | `CLEF_URL` / `CLEF_TOKEN` / `CLEF_TIMEOUT_S` | Local scorer. The agent cannot be switched on until `CLEF_URL` is set |
 | `REVIEW_AGENT_EXCERPT_BYTES` | Default 4096. How much of a text file the agent sees in `content_excerpt` mode |
 | `JEV_API_KEY` / `JEV_SIGNOFF_REF` / `JEV_URL` / `JEV_MODEL` / `JEV_TIMEOUT_S` | Jev through OpenRouter |
+| `GLITCHTIP_DSN` (secret) | GlitchTip project DSN (NFR-7). If unset, errors only go to Workers Logs |
 
 ## Access (ACC-1 to ACC-5)
 
@@ -142,11 +143,29 @@ best-effort basis). The run replays human approve/reject decisions through the s
 agreement, false releases and missed approvals across a threshold sweep. No pass mark is computed: the agreement
 needed is Deep's call.
 
+## Observability (NFR-7)
+
+Errors go to two places:
+
+- **GlitchTip.** `src/lib/observability.ts` posts a Sentry-protocol envelope to the project in `GLITCHTIP_DSN`.
+  It sends unhandled API exceptions (500s), cron and sweeper step failures, review-agent scorer crashes, benchmark
+  failures, R2 blob-delete failures, failed download completions, and "clamd unreachable" (as a warning). The SPA
+  reports uncaught errors and unhandled promise rejections to `POST /api/v1/intranet/client-errors` (public, at most
+  20 per minute per IP, at most 5 per page load), and the Worker forwards them. Sending happens after the response
+  (`waitUntil`) with a 5-second timeout, so a GlitchTip outage never fails a request. Before anything leaves the
+  Worker, NFR-4 scrubbing removes query strings, emails and file names from storage keys, and replaces ids and tokens
+  in URL paths with `:id` and `:token`. Turn it on with `wrangler secret put GLITCHTIP_DSN --env intranet`. No
+  redeploy is needed.
+- **Grafana.** Every error is also a `console.error`/`console.warn` line in Workers Logs (`observability.enabled` in
+  the `intranet` env). Once the Grafana stack is up, add an OTLP destination for it in the Cloudflare dashboard
+  (Workers → Observability → Destinations, for example Grafana Cloud's OTLP endpoint for logs and traces). Then
+  reference it in `env.intranet.observability.logs.destinations` and redeploy.
+
 ## Tests
 
 ```
-cd worker && npm run test:intranet            # 48 tests: P0 (BRD section 13), P1, P2
+cd worker && npm run test:intranet            # 56 tests: P0 (BRD section 13), P1, P2, NFR-7
 cd worker && npx vitest run                   # the rest of the Worker; INTRANET_MODE off, intranet API answers 404
-cd frontend && npx vitest run src/intranet    # 13 UI tests
+cd frontend && npx vitest run src/intranet    # 16 UI tests
 node worker/scripts/intranet-acceptance.mjs --origin <url> [--local]   # BRD section 13 over HTTP against a deployment
 ```

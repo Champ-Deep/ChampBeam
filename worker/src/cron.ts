@@ -10,6 +10,7 @@ import { purgeExpiredCounters } from "./lib/ratelimit";
 import { sweepExpiredFiles } from "./services/fileExpiry";
 import { refreshPendingDomains } from "./services/domainProvisioning";
 import { runIntranetSweep } from "./intranet/sweep";
+import { reportError } from "./lib/observability";
 
 export async function runScheduled(cron: string, env: Env): Promise<void> {
   const settings = getSettings(env);
@@ -19,12 +20,12 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
     try {
       await runIntranetSweep(env, settings);
     } catch (err) {
-      console.error(`cron ${cron}: intranet sweep failed`, err);
+      reportError(`cron ${cron}: intranet sweep failed`, err, { component: "cron", tags: { cron, job: "intranet sweep" } });
     }
     try {
       await purgeExpiredCounters(env.DB);
     } catch (err) {
-      console.error(`cron ${cron}: rate counter purge failed`, err);
+      reportError(`cron ${cron}: rate counter purge failed`, err, { component: "cron", tags: { cron, job: "rate counter purge" } });
     }
     return;
   }
@@ -39,7 +40,7 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
     try {
       await job();
     } catch (err) {
-      console.error(`cron ${cron}: ${name} failed`, err);
+      reportError(`cron ${cron}: ${name} failed`, err, { component: "cron", tags: { cron, job: name } });
     }
   }
 }

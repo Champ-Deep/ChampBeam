@@ -11,6 +11,7 @@ import * as T from "./transfers";
 import { retryStuckScans } from "./scan";
 import { runPass } from "./reviewAgent";
 import { runQueued } from "./benchmark";
+import { reportError } from "../lib/observability";
 
 export async function backfillSha256(env: Env, limit = 5): Promise<number> {
   const { results } = await env.DB.prepare(
@@ -40,7 +41,7 @@ export async function runIntranetSweep(env: Env, settings: Settings): Promise<vo
     try {
       await step();
     } catch (err) {
-      console.error(`intranet sweeper: ${name} failed`, err);
+      reportError(`intranet sweeper: ${name} failed`, err, { component: "intranet.sweep", tags: { step: name } });
     }
   }
 }

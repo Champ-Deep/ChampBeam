@@ -10,6 +10,7 @@ import { HTTPError } from "../lib/errors";
 import { nowIso } from "../lib/time";
 import * as C from "./constants";
 import { commit, type AgentFields, type LogInput } from "./decisionLog";
+import { reportError } from "../lib/observability";
 
 export class TransferError extends HTTPError {
   constructor(message: string, status = 400) {
@@ -129,7 +130,7 @@ export async function deleteBlob(bucket: R2Bucket, key: string | null): Promise<
   try {
     await bucket.delete(key);
   } catch (err) {
-    console.error(`intranet: blob delete failed for key=${key}`, err);
+    reportError("intranet: blob delete failed", err, { component: "intranet.storage" });
   }
 }
 

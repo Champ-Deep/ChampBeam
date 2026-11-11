@@ -5,13 +5,14 @@
  * logged, never surfaced (same as Starlette background tasks).
  */
 import type { Context } from "hono";
+import { reportError } from "./observability";
 
 export function background(c: Context, task: () => Promise<unknown>, label = "background task"): void {
   const p = (async () => {
     try {
       await task();
     } catch (err) {
-      console.error(`${label} failed`, err);
+      reportError(`${label} failed`, err, { component: "background", tags: { task: label } });
     }
   })();
   try {

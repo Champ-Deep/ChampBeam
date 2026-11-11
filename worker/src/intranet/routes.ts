@@ -27,10 +27,12 @@ import * as T from "./transfers";
 import { TransferError, type TransferRow } from "./transfers";
 import { scanTransfer } from "./scan";
 import * as B from "./benchmark";
+import { reportError } from "../lib/observability";
 
 export const router = new Hono<AppEnv>();
 
 const RATE_LIMIT_PER_MINUTE = 60;
+const CLIENT_ERRORS_PER_MINUTE = 20;
 const HEARTBEAT_MS = 30_000;
 const TICKET_TTL_SECONDS = 60;
 const TICKET_TRANSFER_CODE = "transfer_code";
@@ -827,7 +829,7 @@ function streamObject(
       () => hooks.onEnd?.(true),
       () => hooks.onEnd?.(false),
     )
-    .catch((err) => console.error("intranet: finishing download failed", err));
+    .catch((err) => reportError("intranet: finishing download failed", err, { component: "intranet.download" }));
   try {
     c.executionCtx.waitUntil(done);
   } catch {
@@ -1168,6 +1170,24 @@ router.get("/log.csv", async (c) => {
 router.get("/log/verify", async (c) => {
   const a = await requireAuditor(c);
   return c.json(await verifyChain(c.env.DB, a.orgId));
+});
+
+const ClientErrorBody = z.object({
+  message: z.string().trim().min(1).max(2000),
+  stack: z.string().max(8000).optional(),
+  path: z.string().max(500).optional(),
+  kind: z.enum(["error", "unhandledrejection"]).default("error"),
+});
+
+router.post("/client-errors", async (c) => {
+  await enforceLimit(c.env.DB, `intranet_client_errors:${clientIp(c) ?? "unknown"}`, CLIENT_ERRORS_PER_MINUTE, 60, "Too many error reports.");
+  const body = await parseJson(c, ClientErrorBody);
+  const err = new Error(body.message);
+  err.name = "ClientError";
+  err.stack = body.stack ? `ClientError: ${body.message}
+${body.stack}` : undefined;
+  reportError(`intranet SPA: ${body.message}`, err, { component: "intranet.spa", path: body.path, tags: { kind: body.kind } });
+  return c.body(null, 204);
 });
 
 export { HTTPError, TransferError };
