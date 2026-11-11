@@ -149,7 +149,8 @@ describe('account and scoped reporting', () => {
     vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, role: 'custom', permissions: ['org.domains.manage', 'org.members.manage', 'org.viewers.grant'] });
     mount(<OrganizationSettings />);
     await screen.findByRole('heading', { name: 'Organization domains' });
-    expect(screen.getByRole('heading', { name: 'Members and teams' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Members' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Teams' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Save team assignment' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Grant read-only reporting' })).toBeInTheDocument();
   });
