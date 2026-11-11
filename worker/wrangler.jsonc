@@ -26,7 +26,7 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Production only: overlays do not inherit it.
+  // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Overlays do not inherit it: staging declares its own.
   "send_email": [{ "name": "EMAIL" }],
 
   "assets": {
@@ -108,6 +108,7 @@
                   "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "c924f4d4-85ea-4671-8c96-478ae229fe4a", "migrations_dir": "migrations" }],
       "services": [{ "binding": "OPEN_WEBHOOK", "service": "champvoice-edge" }],
+      "send_email": [{ "name": "EMAIL" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
       "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://champbeam-staging.deep-ae0.workers.dev", "BETTER_AUTH_URL": "https://champbeam-staging.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-staging.deep-ae0.workers.dev", "PLATFORM_REDIRECT_HOST": "champbeam-staging.deep-ae0.workers.dev",
