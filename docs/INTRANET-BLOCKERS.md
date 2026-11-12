@@ -1,6 +1,6 @@
 # ChampBeam Intranet: open blockers
 
-Updated 2026-11-11. The intranet is live at https://champbeam-intranet.deep-ae0.workers.dev, and the BRD section 13
+Updated 2026-11-13. The intranet is live at https://champbeam-intranet.deep-ae0.workers.dev, and the BRD section 13
 acceptance checklist passes 10/10 against it (`INTRANET-P0-ACCEPTANCE-LIVE.md`). None of the items below stops people
 from using it. Each one is a feature that stays off, or a limit that stays in place, until the owner acts. Commands run
 from `worker/`.
@@ -26,6 +26,8 @@ from `worker/`.
 |---|---|---|
 | E1 | Pull request from `feat/intranet-cloudflare` to `main` | Not opened yet. Harshil opens it |
 | E2 | Throwaway "Acceptance" orgs left in the live database by the acceptance runs | Harmless: `INTRANET_ORG_IDS` locks them out. Delete them if a clean database is wanted |
+| E3 | Smoke-test account `it.smoketest@championsmail.com` ("HK", member and Reviewer) in the live Champions Group org | Deactivate it from Administration once Nandish is in (B9) |
+| E4 | Live runs the build from `8c2d296`; `main` was merged into the branch on 2026-11-13 (`94af5a0`, password reset by email) and not redeployed | Redeploy with `npm run deploy:intranet` when convenient. The intranet env has no `send_email` binding, so reset stays off there |
 
 ## Not built in v1, by decision
 
@@ -40,3 +42,10 @@ from `worker/`.
 - Cloudflare access: wrangler logged in to Deep's account. The D1 database, R2 bucket, secrets and cron are in place.
 - First Admin seeded (Harshil). The deployment is locked to the "Champions Group" org.
 - NFR-7 built: the GlitchTip reporter and the SPA error intake. It turns on with B7 and B8.
+
+## Done on 2026-11-13
+
+- Merged `main` into `feat/intranet-cloudflare`. Intranet tests 56/56, frontend intranet and auth tests 17/17, typecheck clean.
+- Manual smoke test on the live intranet through the UI: Admin invited a test IT account as Reviewer, it accepted, a file was
+  submitted to it, reviewed, approved and released, then downloaded. The submitter saw "Opened", and "Verify chain"
+  reported the decision log intact (9 rows). Next: the same run with Nandish and a real colleague.
