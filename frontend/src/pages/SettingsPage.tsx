@@ -96,7 +96,7 @@ function PersonalSettings() {
     queryFn: async () => {
       const rows = await utmApi.listDomains();
       return Promise.all(rows.map(async (d) =>
-        d.status === 'pending_cname' || d.status === 'pending_ssl' ? utmApi.refreshDomain(d.id) : d
+        d.status === 'pending_cname' || d.status === 'pending_ssl' ? utmApi.refreshDomain(d.id).catch(() => d) : d
       ));
     },
     // Listing alone does not recheck DNS on the backend.

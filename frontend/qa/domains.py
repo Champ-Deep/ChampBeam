@@ -1,4 +1,6 @@
-"""Local fixture QA for the real Settings route. Never calls a production API."""
+"""Local fixture QA for the real Settings route. Never calls a production API.
+Run: CB_VV_SCRIPTS=<visual-verify>/scripts python3 qa/domains.py (dev server up, CB_QA_URL optional)
+"""
 import json
 import os
 from pathlib import Path
@@ -10,7 +12,9 @@ from playwright.sync_api import sync_playwright
 BASE = os.environ.get('CB_QA_URL', 'http://127.0.0.1:3206')
 OUT = Path(os.environ.get('CB_QA_OUT', '.verify/domains')).resolve()
 OUT.mkdir(parents=True, exist_ok=True)
-SCRIPT = Path('/Users/deep/champ-skills/design/skills/visual-verify/scripts')
+if not os.environ.get('CB_VV_SCRIPTS'):
+    raise SystemExit('Set CB_VV_SCRIPTS to the visual-verify scripts directory')
+SCRIPT = Path(os.environ['CB_VV_SCRIPTS'])
 AUDIT_PROBE = runpy.run_path(str(SCRIPT/'audit.py'))['PROBE']
 results = []
 

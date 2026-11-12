@@ -109,4 +109,15 @@ describe('Domain DNS handoff', () => {
     expect(refresh).toHaveBeenCalledTimes(2);
     client.clear();
   });
+
+  it('still renders the records and copy buttons when the status refresh fails', async () => {
+    vi.spyOn(systemApi, 'access').mockResolvedValue({ is_admin: false });
+    vi.spyOn(utmApi, 'getDomainsConfig').mockResolvedValue({ subdomain_enabled: false, platform_subdomain_base: null, byod_enabled: true, cname_target: null, procurement_enabled: false });
+    vi.spyOn(utmApi, 'listDomains').mockResolvedValue([domain]);
+    vi.spyOn(utmApi, 'refreshDomain').mockRejectedValue(new Error('502'));
+    const { client } = mount(<SettingsPage />);
+    expect((await screen.findAllByText('share.lakeb2b.com')).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /^Copy (CNAME|TXT) (value|name)/ }).length).toBeGreaterThanOrEqual(3);
+    client.clear();
+  });
 });
