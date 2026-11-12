@@ -4,6 +4,11 @@ import { createContext, useContext, useState } from 'react';
 const Context = createContext(null);
 export function ClerkProvider({ children }) {
   const params = new URLSearchParams(location.search);
+  const theme = params.get('theme');
+  if (theme && ['paper', 'graphite', 'lagoon', 'merlot'].includes(theme)) {
+    localStorage.setItem('champbeam_theme', theme);
+    document.documentElement.dataset.cbTheme = theme;
+  }
   const [orgId, setOrg] = useState(params.get('org') || 'fixture-a');
   const role = params.get('role') || 'member';
   const getToken = async () => `fixture:${role}:${orgId}:${params.get('state') || ''}`;

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import { CopyButton } from '../components/ui/copy-button';
+import './domain-records.css';
 import { OrganizationSettings } from '../components/OrganizationSettings';
 import { useOrgContext } from '../hooks/useOrgContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
@@ -63,6 +65,7 @@ export function SettingsPage() {
 
 function PersonalSettings() {
   const { userId } = useAuth();
+  const { orgId } = useOrgContext();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -88,16 +91,21 @@ function PersonalSettings() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: domains = [], isLoading } = useQuery<Domain[]>({
-    queryKey: ['domains'],
-    queryFn: () => utmApi.listDomains(),
-    // Poll every 15s while any row is mid-verification.
+  const { data: domains = [], isLoading, isError: domainsError, refetch: reloadDomains } = useQuery<Domain[]>({
+    queryKey: ['domains', orgId, userId],
+    queryFn: async () => {
+      const rows = await utmApi.listDomains();
+      return Promise.all(rows.map(async (d) =>
+        d.status === 'pending_cname' || d.status === 'pending_ssl' ? utmApi.refreshDomain(d.id).catch(() => d) : d
+      ));
+    },
+    // Listing alone does not recheck DNS on the backend.
     refetchInterval: (query) => {
       const data = query.state.data;
       const pending = data?.some(
         (d) => d.status === 'pending_cname' || d.status === 'pending_ssl'
       );
-      return pending ? 15_000 : false;
+      return pending ? 20_000 : false;
     },
   });
 
@@ -122,6 +130,7 @@ function PersonalSettings() {
   const refreshMutation = useMutation({
     mutationFn: (id: string) => utmApi.refreshDomain(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['domains'] }),
+    onError: (err: unknown) => toast.error(apiErrorDetail(err) ?? 'Could not check this domain. Try Refresh again.'),
   });
 
   const primaryMutation = useMutation({
@@ -154,17 +163,6 @@ function PersonalSettings() {
     },
   });
 
-  const pending = useMemo(
-    () => domains.filter((d) => d.status === 'pending_cname' || d.status === 'pending_ssl'),
-    [domains]
-  );
-
-  // Auto-refresh pending rows on mount so the UI flips quickly after DNS lands.
-  useEffect(() => {
-    pending.forEach((d) => refreshMutation.mutate(d.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const handleDelete = async (d: Domain) => {
     const confirmMsg = `Remove ${d.hostname}? Links generated with this domain will stop resolving.`;
     if (!(await confirm({ message: confirmMsg, confirmLabel: 'Remove' }))) return;
@@ -172,7 +170,7 @@ function PersonalSettings() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
+    <div className="cb-domain-settings max-w-4xl mx-auto py-8 px-4">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-slate-900">Personal settings</h2>
         <p className="text-slate-600 mt-1">
@@ -281,6 +279,7 @@ function PersonalSettings() {
 
           {config?.procurement_enabled && <BuyDomainCard />}
 
+          {domainsError && <div role="alert"><p>Could not update domain status. Check your connection and retry.</p><Button variant="secondary" onClick={() => void reloadDomains()}>Retry domains</Button></div>}
           <Card>
             <CardHeader>
               <CardTitle>Your domains</CardTitle>
@@ -456,29 +455,29 @@ interface DomainRowProps {
   refreshing: boolean;
 }
 
-function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshing }: DomainRowProps) {
+export function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshing }: DomainRowProps) {
   const isActive = domain.status === 'active';
   const isFailed = domain.status === 'failed';
 
   return (
-    <div className="px-6 py-5">
+    <div className="cb-domain-row px-6 py-5">
       <div className="flex flex-col lg:flex-row items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-sm font-medium text-slate-900 break-all">
               {domain.hostname}
             </span>
-            <Badge variant={STATUS_VARIANT[domain.status]} size="sm">
+            <Badge className="cb-domain-badge" variant={STATUS_VARIANT[domain.status]} size="sm">
               {STATUS_LABEL[domain.status]}
             </Badge>
             {domain.is_primary && (
-              <Badge variant="info" size="sm">
+              <Badge className="cb-domain-badge" variant="info" size="sm">
                 <Star className="h-3 w-3 mr-1 inline" />
                 Primary
               </Badge>
             )}
             {!domain.cloudflare_managed && (
-              <Badge variant="default" size="sm">Local mode</Badge>
+              <Badge className="cb-domain-badge" variant="default" size="sm">Local mode</Badge>
             )}
           </div>
           {domain.ssl_status && (
@@ -512,10 +511,11 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
         </div>
       </div>
 
+      <p className="cb-domain-next" role="status">{domain.status === 'pending_cname' ? 'Add the DNS records below. We check automatically every 20 seconds.' : domain.status === 'pending_ssl' ? 'DNS is being verified and the certificate is being issued. We check every 20 seconds.' : isFailed ? 'Review the verification error, correct your DNS records, then Refresh to retry.' : 'DNS and certificate are ready.'}</p>
       {!isActive && <SetupInstructions domain={domain} config={config} />}
 
       {isFailed && domain.verification_errors && (
-        <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-start gap-2">
+        <div className="cb-domain-error mt-3 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-medium">Verification failed</p>
@@ -527,7 +527,7 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
       )}
 
       {isActive && (
-        <div className="mt-3 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800 flex items-center gap-2">
+        <div className="cb-domain-ready mt-3 p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800 flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4" />
           Ready: pick this domain when generating a link.
         </div>
@@ -536,95 +536,48 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
   );
 }
 
-function SetupInstructions({
-  domain,
-  config,
-}: {
-  domain: Domain;
-  config: DomainsConfig | undefined;
-}) {
-  // Prefer the domain-level target, then the platform config target. As long
-  // as a target is configured, show real setup steps -- the local-mode
-  // reachability check verifies the domain regardless of whether Cloudflare
-  // certificate automation is on.
-  const cname = domain.cname_target || config?.cname_target;
-  if (!cname) {
-    return (
-      <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
-        <p className="font-medium mb-1">Pending verification</p>
-        <p>
-          No CNAME target is configured on this environment. Point this domain at the
-          backend host, then click "Refresh". It is only marked Live once it actually
-          routes here.
-        </p>
-      </div>
-    );
-  }
-  // The subdomain label ("beam" for beam.acme.com) -- registrar dashboards ask
-  // for the host/name field without the root domain.
-  const label = domain.hostname.split('.').slice(0, -2).join('.') || '@';
-  const records = domain.dns_records ?? [];
-  const txts = records.filter((r) => r.type !== 'CNAME');
-  const forIt = [
-    `DNS records for ${domain.hostname}`,
-    'Add the TXT records first; they validate the certificate while the live site keeps working.',
-    'Add the CNAME when ready to switch traffic. It must be DNS only (grey cloud), not proxied.',
-    ...(records.length ? records : [{ type: 'CNAME', name: domain.hostname, value: cname, purpose: '' }]).map(
-      (r) => `${r.type}  ${r.name}  ${r.value}`,
-    ),
-  ].join('\n');
-  return (
-    <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700">
-      <div className="flex items-center justify-between mb-2">
-        <p className="font-medium text-slate-900">Setup steps</p>
-        <button
-          type="button"
-          className="text-xs text-slate-600 hover:text-slate-900 inline-flex items-center gap-1"
-          onClick={() => {
-            void navigator.clipboard.writeText(forIt);
-            toast.success('Copied all records');
-          }}
-        >
-          <Copy className="h-3.5 w-3.5" /> Copy all for IT
-        </button>
-      </div>
-      <ol className="list-decimal list-inside space-y-2">
-        {txts.length > 0 && (
-          <li>
-            Add these TXT records first. They prove ownership and validate the certificate before you
-            switch any traffic:
-            {txts.map((r) => (
-              <div key={r.name + r.value} className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <CopyableField label="Name" value={r.name} />
-                <CopyableField label="Value" value={r.value} />
-                <p className="sm:col-span-2 text-xs text-slate-500">{r.type} · {r.purpose}</p>
-              </div>
-            ))}
-          </li>
-        )}
-        <li>
-          In your DNS provider, add a CNAME record from{' '}
-          <code className="font-mono text-slate-900">{domain.hostname}</code> to{' '}
-          <code className="font-mono text-slate-900">{cname}</code>. Set it to{' '}
-          <span className="font-medium">DNS only (grey cloud)</span>:
-          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <CopyableField label="Name" value={domain.hostname} />
-            <CopyableField label="Value" value={cname} />
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            Where to add it: <span className="font-medium">Namecheap</span>: Domain List
-            &rarr; Manage &rarr; Advanced DNS &rarr; Add New Record (Type: CNAME, Host:{' '}
-            <code className="font-mono">{label}</code>, Value: the target above).{' '}
-            <span className="font-medium">GoDaddy</span>: DNS &rarr; Add &rarr; CNAME.{' '}
-            <span className="font-medium">Cloudflare</span>: DNS &rarr; Add record (set
-            it to "DNS only" while verifying).
-          </p>
-        </li>
-        <li>Wait 1 to 5 minutes for DNS to propagate, then click "Refresh".</li>
-        <li>We issue a TLS certificate; the status flips to Active automatically.</li>
-      </ol>
+function SetupInstructions({ domain, config }: { domain: Domain; config: DomainsConfig | undefined }) {
+  const target = domain.cname_target || config?.cname_target;
+  const records = domain.dns_records ?? (target ? [{
+    type: 'CNAME', name: domain.hostname, value: target, purpose: 'Routes traffic to ChampBeam',
+  }] : []);
+  const [notice, setNotice] = useState('');
+  const handoff = useMutation({
+    mutationFn: async (download: boolean) => {
+      const text = await utmApi.domainRecordsText(domain.id);
+      if (download) {
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = `${domain.hostname}-dns-records.txt`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      } else await navigator.clipboard.writeText(text);
+      return download;
+    },
+    onMutate: () => setNotice(''),
+    onSuccess: (download) => setNotice(download ? 'DNS records downloaded.' : 'Copied all records for IT.'),
+    onError: () => setNotice('Could not prepare the DNS handoff. Check your connection or clipboard permission and try again.'),
+  });
+  return <Card className="cb-dns-records mt-4" padding="sm">
+    <h4>DNS records for IT</h4>
+    <p>Add TXT records first to validate ownership and the certificate. Add the CNAME only when ready to switch traffic.</p>
+    {records.length ? <table>
+      <caption className="sr-only">DNS records for {domain.hostname}</caption>
+      <thead><tr><th scope="col">Type</th><th scope="col">Name</th><th scope="col">Value</th><th scope="col">Purpose</th></tr></thead>
+      <tbody>{records.map((r) => <tr key={`${r.type}:${r.name}:${r.value}`}>
+        <td data-label="Type"><code>{r.type}</code></td>
+        <td data-label="Name"><div className="cb-dns-value"><code>{r.name}</code><CopyButton text={r.name} aria-label={`Copy ${r.type} name`} /></div></td>
+        <td data-label="Value"><div className="cb-dns-value"><code>{r.value}</code><CopyButton text={r.value} aria-label={`Copy ${r.type} value`} /></div></td>
+        <td data-label="Purpose">{r.purpose}{r.type === 'CNAME' && <Badge className="cb-domain-badge" variant="default" size="sm">DNS only (grey cloud)</Badge>}</td>
+      </tr>)}</tbody>
+    </table> : <p role="status">DNS records are not available yet. Refresh to request them again.</p>}
+    {!records.some((r) => r.type === 'TXT') && domain.cloudflare_managed && <p>TXT records have not been issued yet. We will check again automatically.</p>}
+    <div className="cb-dns-actions">
+      <Button variant="secondary" onClick={() => handoff.mutate(false)} isLoading={handoff.isPending && handoff.variables === false}>Copy all for IT</Button>
+      <Button variant="ghost" onClick={() => handoff.mutate(true)} isLoading={handoff.isPending && handoff.variables === true}>Download .txt</Button>
     </div>
-  );
+    <p role={handoff.isError ? 'alert' : 'status'}>{notice}</p>
+  </Card>;
 }
 
 function BuyDomainCard() {
@@ -740,25 +693,5 @@ function BuyDomainCard() {
         </div>
       )}
     </Card>
-  );
-}
-
-function CopyableField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2 bg-white border border-slate-200 rounded px-2 py-1">
-      <span className="text-xs text-slate-500 w-12 flex-shrink-0">{label}</span>
-      <code className="text-xs font-mono text-slate-900 break-all flex-1">{value}</code>
-      <button
-        type="button"
-        className="text-slate-400 hover:text-slate-700"
-        onClick={() => {
-          navigator.clipboard.writeText(value);
-          toast.success('Copied');
-        }}
-        aria-label={`Copy ${label}`}
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </button>
-    </div>
   );
 }
