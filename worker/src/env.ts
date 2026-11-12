@@ -17,6 +17,8 @@ export interface Env {
   ASSETS?: Fetcher;
   /** Service binding to the webhook receiver. workers.dev -> workers.dev fetches in one account 404 (error 1042). */
   OPEN_WEBHOOK?: Fetcher;
+  /** Cloudflare Email Service (`send_email` binding). Unbound = no email is sent anywhere. */
+  EMAIL?: SendEmail;
   [key: string]: unknown;
 }
 
@@ -88,6 +90,8 @@ export function buildSettings(env: Env) {
     /** Google sign-in is on only when both are set. */
     googleClientId: str(env, "GOOGLE_CLIENT_ID"),
     googleClientSecret: str(env, "GOOGLE_CLIENT_SECRET"),
+    emailEnabled: !!env.EMAIL,
+    emailFrom: "ChampBeam <no-reply@champbeam.com>",
 
     // Clerk (inert since Better Auth; removed after the rollback window, PRD section 7 step 9)
     clerkSecretKey: str(env, "CLERK_SECRET_KEY"),

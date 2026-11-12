@@ -504,7 +504,7 @@ router.post("/invites/accept", async (c) => {
   const inv = await liveInviteByToken(c, data.token);
   const user = await c.env.DB.prepare("SELECT 1 FROM users WHERE lower(email) = ?1").bind(inv.email).first();
   if (user) httpError(409, "An account with this email already exists. Sign in instead.");
-  const auth = createAuth(c.env, c.var.db, { inviteEmail: inv.email });
+  const auth = createAuth(c.env, c.var.db, undefined, { inviteEmail: inv.email });
   const res = await auth.api.signUpEmail({
     body: { email: inv.email, password: data.password, name: data.name },
     headers: c.req.raw.headers,

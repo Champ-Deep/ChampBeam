@@ -23,6 +23,8 @@ function serverErrors(err: AuthError): Errors {
     case 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL': return { email: 'An account with this email already exists. Sign in instead.' };
     case 'PASSWORD_TOO_SHORT': return { password: 'Use at least 8 characters.' };
     case 'PASSWORD_TOO_LONG': return { password: 'Use 128 characters or fewer.' };
+    case 'INVALID_TOKEN': return { form: 'This link has expired or was already used. Request a new one.' };
+    case 'RESET_PASSWORD_DISABLED': return { form: 'Password reset is not available right now. Try again later.' };
     default: return { form: 'Something went wrong. Check your connection and try again.' };
   }
 }
@@ -70,6 +72,8 @@ export function SignInPage() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>(params.get('error') ? { form: 'Google sign-in did not finish. Try again.' } : {});
   const [busy, setBusy] = useState(false);
+  const [rejected, setRejected] = useState(false);
+  const forgot = `/forgot-password${EMAIL.test(email.trim()) ? `?email=${encodeURIComponent(email.trim())}` : ''}`;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -81,17 +85,21 @@ export function SignInPage() {
     setBusy(true);
     const { error } = await authClient.signIn.email({ email: email.trim(), password });
     setBusy(false);
+    setRejected(error?.code === 'INVALID_EMAIL_OR_PASSWORD');
     if (error) setErrors(serverErrors(error));
     else void navigate('/', { replace: true });
   }
 
   return <AuthShell title="Sign in" lede="Welcome back. Sign in to your workspace." footer={<>No account? <Link to="/sign-up" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Create one</Link></>}>
-    <FormAlert text={errors.form} />
+    <FormAlert text={errors.form ?? (params.get('reset') ? 'Password updated. Sign in with your new password.' : undefined)} />
+    {/* Same line for every rejected sign-in, so it never reveals which emails have an account. */}
+    {rejected && <p role="status" className="mb-4 rounded-lg border px-3 py-2 text-[14px]" style={{ borderColor: 'var(--cb-accent)', color: 'var(--cb-ink)', background: 'var(--cb-bg)' }}>Had an account before November 2026? <Link to={forgot} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Set a new password</Link> and your files will be right where you left them.</p>}
     <GoogleButton onError={(form) => setErrors({ form })} />
     <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
       <Input id="sign-in-email" label="Email" type="email" autoComplete="email" className="h-11 text-base!" value={email} onChange={(e) => setEmail(e.target.value)} error={errors.email} />
       <Input id="sign-in-password" label="Password" type="password" autoComplete="current-password" className="h-11 text-base!" value={password} onChange={(e) => setPassword(e.target.value)} error={errors.password} />
       <Button type="submit" size="lg" className="w-full" isLoading={busy}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+      <p className="text-center text-[14px]"><Link to={forgot} className="underline" style={{ color: 'var(--cb-accent)' }}>Forgot password?</Link></p>
     </form>
   </AuthShell>;
 }
@@ -128,5 +136,65 @@ export function SignUpPage() {
       <Input id="sign-up-password" label="Password" type="password" autoComplete="new-password" className="h-11 text-base!" value={password} onChange={(e) => setPassword(e.target.value)} error={errors.password} helperText="At least 8 characters." />
       <Button type="submit" size="lg" className="w-full" isLoading={busy}>{busy ? 'Creating account…' : 'Create account'}</Button>
     </form>
+  </AuthShell>;
+}
+
+const backToSignIn = <><Link to="/sign-in" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Back to sign in</Link></>;
+
+export function ForgotPasswordPage() {
+  const [params] = useSearchParams();
+  const [email, setEmail] = useState(params.get('email') ?? '');
+  const [errors, setErrors] = useState<Errors>({});
+  const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState('');
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!EMAIL.test(email.trim())) return setErrors({ email: 'Enter a valid email address.' });
+    setErrors({});
+    setBusy(true);
+    const { error } = await authClient.requestPasswordReset({ email: email.trim(), redirectTo: `${window.location.origin}/reset-password` });
+    setBusy(false);
+    if (error) setErrors(serverErrors(error));
+    else setSentTo(email.trim());
+  }
+
+  return <AuthShell title="Set a new password" lede="Enter the email you use for ChampBeam. We will send you a link." footer={backToSignIn}>
+    <FormAlert text={errors.form} />
+    {sentTo
+      ? <p role="status" className="text-[15px]" style={{ color: 'var(--cb-ink)' }}>If <span className="font-mono">{sentTo}</span> has an account, a link is on its way. It works for one hour. Check your junk folder too.</p>
+      : <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
+          <Input id="forgot-email" label="Email" type="email" autoComplete="email" className="h-11 text-base!" value={email} onChange={(e) => setEmail(e.target.value)} error={errors.email} />
+          <Button type="submit" size="lg" className="w-full" isLoading={busy}>{busy ? 'Sending…' : 'Email me a link'}</Button>
+        </form>}
+  </AuthShell>;
+}
+
+export function ResetPasswordPage() {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const token = params.get('token');
+  const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState<Errors>(token && !params.get('error') ? {} : serverErrors({ code: 'INVALID_TOKEN' }));
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) return setErrors({ password: 'Use at least 8 characters.' });
+    setBusy(true);
+    const { error } = await authClient.resetPassword({ newPassword: password, token: token ?? '' });
+    setBusy(false);
+    if (error) setErrors(serverErrors(error));
+    else void navigate('/sign-in?reset=1', { replace: true });
+  }
+
+  return <AuthShell title="Choose a new password" lede="Your files, pages and links stay exactly as they were." footer={backToSignIn}>
+    <FormAlert text={errors.form} />
+    {token && !params.get('error')
+      ? <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
+          <Input id="reset-password" label="New password" type="password" autoComplete="new-password" className="h-11 text-base!" value={password} onChange={(e) => setPassword(e.target.value)} error={errors.password} />
+          <Button type="submit" size="lg" className="w-full" isLoading={busy}>{busy ? 'Saving…' : 'Save password'}</Button>
+        </form>
+      : <p className="text-[15px]"><Link to="/forgot-password" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Request a new link</Link></p>}
   </AuthShell>;
 }
