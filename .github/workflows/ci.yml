@@ -1,13 +1,11 @@
 # ChampBeam CI gate.
 #
 # Runs on every pull request and on every push to `staging` and `main`.
-# Deploys are owned by the platforms, gated by this workflow:
-#   * Railway (backend, prod and Testing): enable "Wait for CI" on the service
-#     (Settings -> Deploy -> Check Suites) so a red run blocks the deploy.
-#   * Vercel (frontend): production builds come from `main`, behind branch
-#     protection that requires the `gate` check.
-# No deploy secrets are needed here. Coolify deploy job removed 2026-10-17;
-# the compose files under deploy/coolify stay as reference only.
+# This workflow does not deploy. Production is the Cloudflare Worker in
+# worker/ (https://champbeam.com). Deploy is `npm run deploy` from worker/,
+# or Workers Builds with that directory as the root.
+# The backend and image jobs cover the legacy FastAPI app in backend/.
+# They are not the production runtime. No deploy secrets are needed here.
 
 name: ci
 

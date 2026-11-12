@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c9b2f7a4-champbeam-public-api",
     "name": "ChampBeam API",
-    "description": "# ChampBeam API\n\nCreate **trackable short links** (with QR codes), host files behind trackable links, and read click analytics — from any application, under your own domain.\n\n## Authentication\n\nCreate an API key in the ChampBeam app under **Settings → API keys**, then send it on every request in the `X-API-Key` header (an `Authorization: Bearer cb_live_...` header also works). The key acts as your user: links it creates belong to you, use your custom domains, and show up in your dashboard.\n\n```\nX-API-Key: cb_live_...\n```\n\nSet the `api_key` variable in your Postman environment and every request in this collection is ready to run.\n\n## Quick start: send a trackable link\n\n`POST {{base_url}}/api/v1/utm/generate` with `{\"base_url\": \"https://your-site.com/offer\"}` → the response's `short_url` is ready to share. Every visit is tracked (geo, device, company intent) and visible in analytics.\n\n## Bring your own domain\n\n1. `POST /api/v1/domains` with your hostname (e.g. `links.acme.com`).\n2. Point a DNS **CNAME** for that hostname at the target shown in `GET /api/v1/domains/config` (`cname_target`).\n3. ChampBeam verifies DNS and issues the SSL certificate automatically — the domain flips to `active` within ~2 minutes (poll `POST /api/v1/domains/{id}/refresh` or just wait).\n4. Pass the domain's `id` as `domain_id` when generating links (or set it primary — it becomes the default), and your short links are served from **your** hostname.\n\n## Rate limits\n\n120 requests/minute per API key (429 when exceeded), plus a general 100 requests/minute per source IP.\n\n## Idempotency\n\n`POST /utm/generate` deduplicates: an identical (destination URL + UTM set + domain) for the same user returns the **existing** link rather than minting a duplicate — safe to retry.",
+    "description": "# ChampBeam API\n\nCreate trackable short links (with QR codes), host files behind trackable links, and read click analytics, from any application, on https://champbeam.com or your own domain. ChampUTM is the UTM builder on `/api/v1/utm`.\n\n## Authentication\n\nCreate an API key in the ChampBeam app under **Settings, API keys**, then send it on every request in the `X-API-Key` header (an `Authorization: Bearer cb_live_...` header also works). The key acts as your user: links it creates belong to you, use your custom domains, and show up in your dashboard.\n\n```\nX-API-Key: cb_live_...\n```\n\nSet the `api_key` variable in your Postman environment and every request in this collection is ready to run. Default `base_url` is https://champbeam.com (the Cloudflare Worker).\n\n## Quick start: send a trackable link\n\n`POST {{base_url}}/api/v1/utm/generate` with `{\"base_url\": \"https://your-site.com/offer\"}`. The response `short_url` is ready to share. Every visit is tracked (geo, device, company intent) and visible in analytics.\n\n## Bring your own domain\n\n1. `POST /api/v1/domains` with your hostname (e.g. `links.example.com`).\n2. Point a DNS **CNAME** for that hostname at the target shown in `GET /api/v1/domains/config` (`cname_target`).\n3. A cron job rechecks every 5 minutes, and `POST /api/v1/domains/{id}/refresh` checks on demand. The domain flips to `active` once DNS resolves and the certificate is issued.\n4. Pass the domain's `id` as `domain_id` when generating links (or set it primary and it becomes the default), and your short links are served from that hostname.\n\n## Rate limits\n\n120 requests/minute per API key (429 when exceeded), plus a general 100 requests/minute per source IP.\n\n## Idempotency\n\n`POST /utm/generate` deduplicates: an identical (destination URL + UTM set + domain) for the same user returns the existing link rather than minting a duplicate, so a retry is safe.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -28,7 +28,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "https://champbeam-api.64.227.154.215.sslip.io"
+      "value": "https://champbeam.com"
     }
   ],
   "item": [
@@ -131,7 +131,7 @@
                 "generate"
               ]
             },
-            "description": "The core endpoint. Give it a destination `base_url` plus optional UTM parameters (`utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`), and optionally `project_id` (folder), `preset_id` (saved UTM defaults) or `domain_id` (serve from your own domain).\n\nResponse fields:\n- `short_url` — the shareable link (`https://<host>/s/<code>`)\n- `redirect_url` — same link on the `/r/` path\n- `tracked_url` — the destination with UTM parameters appended\n- `link_id` — use for analytics and management calls\n\nWithout a `domain_id`, links use your primary active domain, falling back to the platform host. Identical URL+UTM+domain combos return the existing link (idempotent)."
+            "description": "The core endpoint. Give it a destination `base_url` plus optional UTM parameters (`utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`), and optionally `project_id` (folder), `preset_id` (saved UTM defaults) or `domain_id` (serve from your own domain).\n\nResponse fields:\n- `short_url`, the shareable link (`https://<host>/s/<code>`)\n- `redirect_url`, same link on the `/r/` path\n- `tracked_url`, the destination with UTM parameters appended\n- `link_id`, use for analytics and management calls\n\nWithout a `domain_id`, links use your primary active domain, falling back to the platform host. Identical URL+UTM+domain combos return the existing link (idempotent)."
           },
           "event": [
             {
@@ -179,7 +179,7 @@
                 "generate"
               ]
             },
-            "description": "Same as Generate, but pins the link to one of your **active** custom domains — the returned `short_url` is served from that hostname. Returns 404 `Active domain not found` if the domain isn't yours or isn't active yet.\n\nSet the `domain_id` environment variable to one of your active domain ids (see Domains → List domains); this request is skipped in automated runs when it's unset."
+            "description": "Same as Generate, but pins the link to one of your **active** custom domains, the returned `short_url` is served from that hostname. Returns 404 `Active domain not found` if the domain isn't yours or isn't active yet.\n\nSet the `domain_id` environment variable to one of your active domain ids (see Domains → List domains); this request is skipped in automated runs when it's unset."
           },
           "event": [
             {
@@ -276,7 +276,7 @@
                 "access"
               ]
             },
-            "description": "Security console for a link. Only fields you send are applied:\n- `expires_in_hours` — self-destruct timer (0 clears)\n- `max_views` — view cap (0 clears)\n- `require_email` — email gate before redirecting (captured leads: see Get link leads)\n- `block_vpn` — refuse VPN/anonymizer visitors\n- `revoked` — kill switch (true/false)"
+            "description": "Security console for a link. Only fields you send are applied:\n- `expires_in_hours`, self-destruct timer (0 clears)\n- `max_views`, view cap (0 clears)\n- `require_email`, email gate before redirecting (captured leads: see Get link leads)\n- `block_vpn`, refuse VPN/anonymizer visitors\n- `revoked`, kill switch (true/false)"
           },
           "event": [
             {
@@ -439,7 +439,7 @@
     },
     {
       "name": "Domains (bring your own)",
-      "description": "Attach your own hostname so short links are served from your domain. Flow: add → point CNAME at `cname_target` (from Config) → ChampBeam auto-verifies DNS and issues the SSL certificate → status `active` → pass its id as `domain_id` when generating links.\n\nStatuses: `pending_cname` (waiting for your DNS) → `pending_ssl` (DNS verified, certificate being issued — usually under 2 minutes) → `active`. `failed` after repeated certificate failures.",
+      "description": "Attach your own hostname so short links are served from your domain. Flow: add → point CNAME at `cname_target` (from Config) → ChampBeam auto-verifies DNS and issues the SSL certificate → status `active` → pass its id as `domain_id` when generating links.\n\nStatuses: `pending_cname` (waiting for your DNS) → `pending_ssl` (DNS verified, certificate being issued) → `active`. A cron job rechecks every 5 minutes, and refresh checks on demand. `failed` after repeated certificate failures.",
       "item": [
         {
           "name": "Config (CNAME target)",
@@ -457,7 +457,7 @@
                 "config"
               ]
             },
-            "description": "Which domain features this deployment offers, and — crucially — `cname_target`: the hostname your customers point their CNAME records at."
+            "description": "Which domain features this deployment offers, and, crucially, `cname_target`: the hostname your customers point their CNAME records at."
           },
           "event": [
             {
@@ -566,7 +566,7 @@
                 "refresh"
               ]
             },
-            "description": "Re-runs verification now (DNS check → certificate → reachability). Optional — ChampBeam re-checks pending domains every minute on its own; this exists so a UI can offer a manual refresh."
+            "description": "Re-runs verification now (DNS check, then certificate, then reachability). Optional. ChampBeam rechecks pending domains every 5 minutes. This exists so a UI can offer a manual refresh."
           },
           "event": [
             {
@@ -778,7 +778,7 @@
     },
     {
       "name": "Files",
-      "description": "Host a file (PDF, HTML, image, video…) behind a trackable short link — ideal for sending decks and creative plans. Three-step upload:\n\n1. **Init** — `POST /api/v1/files` with filename/type/size → returns `file_id`, `short_code` and an upload URL.\n2. **Upload bytes** — `PUT` the raw bytes to the upload URL (no auth header; the URL is pre-signed).\n3. **Finalize** — `POST /api/v1/files/{file_id}/finalize` → returns the shareable `serve_url`.\n\nLike links, file views are tracked (geo, device, per-page reading time for documents) and files support the same access controls (email gate, view caps, expiry, revoke).",
+      "description": "Host a file (PDF, HTML, image, video…) behind a trackable short link, ideal for sending decks and creative plans. Three-step upload:\n\n1. **Init**, `POST /api/v1/files` with filename/type/size → returns `file_id`, `short_code` and an upload URL.\n2. **Upload bytes**, `PUT` the raw bytes to the upload URL (no auth header; the URL is pre-signed).\n3. **Finalize**, `POST /api/v1/files/{file_id}/finalize` → returns the shareable `serve_url`.\n\nLike links, file views are tracked (geo, device, per-page reading time for documents) and files support the same access controls (email gate, view caps, expiry, revoke).",
       "item": [
         {
           "name": "1. Init upload",
@@ -921,7 +921,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "Hello again — updated by the ChampBeam API docs (v2)"
+              "raw": "Hello again, updated by the ChampBeam API docs (v2)"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/files/{{file_id}}/content",
@@ -944,7 +944,7 @@
                 }
               ]
             },
-            "description": "Replace a file's bytes while keeping its link: `short_code`, serve URL and QR code stay **exactly the same**, so a link you've already emailed now serves the new version. Send the new bytes as the raw body with the correct `Content-Type`. The swap is atomic — the old version keeps serving until the new bytes have fully landed — and view history is preserved.\n\nPerfect for pages/documents you revise on a schedule (weekly plan, live dashboard, price sheet)."
+            "description": "Replace a file's bytes while keeping its link: `short_code`, serve URL and QR code stay **exactly the same**, so a link you've already emailed now serves the new version. Send the new bytes as the raw body with the correct `Content-Type`. The swap is atomic, the old version keeps serving until the new bytes have fully landed, and view history is preserved.\n\nPerfect for pages/documents you revise on a schedule (weekly plan, live dashboard, price sheet)."
           },
           "event": [
             {
@@ -1259,7 +1259,7 @@
                 "{{page_id}}"
               ]
             },
-            "description": "Any subset of: `slug` (409 if taken), `title`, `enabled` (false = 410 kill switch), `domain_id`, `access_code` (4–8 digits, null clears).",
+            "description": "Any subset of: `slug` (409 if taken), `title`, `enabled` (false = 410 kill switch), `domain_id`, `access_code` (4-8 digits, null clears).",
             "header": [
               {
                 "key": "Content-Type",
@@ -1553,7 +1553,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"author\": \"Deep\", \"body\": \"Looks good — ship it.\"}"
+              "raw": "{\"author\": \"reviewer\", \"body\": \"Looks good, ship it.\"}"
             },
             "auth": {
               "type": "noauth"
@@ -1671,7 +1671,7 @@
     },
     {
       "name": "Analytics",
-      "description": "Everything a click or file view records — geography (city/country), device, referrer, UTM attribution, company intent — queryable per link, per campaign, or account-wide. All time windows accept `days` (default 30) or explicit `start_date`/`end_date` (ISO 8601).",
+      "description": "Everything a click or file view records, geography (city/country), device, referrer, UTM attribution, company intent, queryable per link, per campaign, or account-wide. All time windows accept `days` (default 30) or explicit `start_date`/`end_date` (ISO 8601).",
       "item": [
         {
           "name": "Overview",
@@ -1775,7 +1775,7 @@
                 }
               ]
             },
-            "description": "Every tracked link with click and unique-visitor counts — also the way to enumerate your links and their `link_id`s."
+            "description": "Every tracked link with click and unique-visitor counts, also the way to enumerate your links and their `link_id`s."
           },
           "event": [
             {
@@ -2026,7 +2026,7 @@
                 }
               ]
             },
-            "description": "Renders an SVG QR code for any URL — point it at a `short_url` and scans are tracked exactly like clicks (there is no separate QR tracking; the QR simply encodes the permanent short link, so it never breaks). Hotlinkable, no auth."
+            "description": "Renders an SVG QR code for any URL, point it at a `short_url` and scans are tracked exactly like clicks (there is no separate QR tracking; the QR simply encodes the permanent short link, so it never breaks). Hotlinkable, no auth."
           },
           "event": [
             {
@@ -2046,8 +2046,8 @@
       ]
     },
     {
-      "name": "API key management (Clerk session only)",
-      "description": "Managing keys requires an interactive sign-in (Clerk session Bearer token) — **API keys cannot mint or revoke keys** (403), so a leaked key can't escalate. Normally you do this in the app UI (Settings → API keys); these endpoints exist for completeness. To try them here, set `clerk_session_token` (grab one from the app: DevTools → `await window.Clerk.session.getToken()`). Note Clerk session tokens expire after ~1 minute.",
+      "name": "API key management (interactive session only)",
+      "description": "Managing keys requires a signed-in session. API keys cannot mint or revoke keys (403), so a leaked key cannot escalate. Do this in the app (Settings, API keys). Production sign-in is a Better Auth cookie on the Worker, not a bearer token. The `clerk_session_token` variable is the legacy bearer shape. These requests skip themselves when it is unset, and a Clerk bearer does not sign you in to the Worker.",
       "auth": {
         "type": "bearer",
         "bearer": [
@@ -2122,7 +2122,7 @@
                 "api-keys"
               ]
             },
-            "description": "Returns the full `api_key` (`cb_live_...`) **once** — store it in your secret manager. Limit: 10 active keys."
+            "description": "Returns the full `api_key` (`cb_live_...`) **once**, store it in your secret manager. Limit: 10 active keys."
           },
           "event": [
             {
@@ -2186,7 +2186,7 @@
     },
     {
       "name": "Public link behavior (reference)",
-      "description": "What recipients hit when they open your links. No auth — these are the public serving paths. `/s/` and `/r/` redirect to the destination and record the click; `/f/` streams a hosted file and records the view. All are Host-aware: on a custom domain, only that owner's codes resolve.",
+      "description": "What recipients hit when they open your links. No auth, these are the public serving paths. `/s/` and `/r/` redirect to the destination and record the click; `/f/` streams a hosted file and records the view. All are Host-aware: on a custom domain, only that owner's codes resolve.",
       "item": [
         {
           "name": "Short link redirect (/s/)",

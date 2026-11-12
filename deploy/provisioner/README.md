@@ -1,5 +1,7 @@
 # ChampBeam BYOD provisioner (VPS host side)
 
+Legacy only. Production custom hostnames are Cloudflare for SaaS on the Worker (`CLOUDFLARE_*` in [CLOUDFLARE_DEPLOY.md](../../CLOUDFLARE_DEPLOY.md)), not this timer.
+
 Makes bring-your-own-domain fully self-serve on the self-hosted deployment:
 customer adds a domain in Settings → points their CNAME at
 `BYOD_CNAME_TARGET` → the backend's DNS pre-check advances the domain to
@@ -27,7 +29,7 @@ Requires `jq` on the host (`apt-get install -y jq`).
 ## Backend configuration (Coolify env on the app)
 
 - `PLATFORM_IPV4=64.227.154.215`
-- `BYOD_CNAME_TARGET=<a DNS-only hostname resolving to that IP>` — must be
+- `BYOD_CNAME_TARGET=<a DNS-only hostname resolving to that IP>`, must be
   grey-cloud/unproxied, otherwise customers' CNAMEs resolve to Cloudflare edge
   IPs and the DNS pre-check never passes.
 - `PROVISIONER_TOKEN=<same token as step 2>`
@@ -36,7 +38,7 @@ Requires `jq` on the host (`apt-get install -y jq`).
 
 - The work list only ever contains hostnames a user registered through the app
   (format-validated, platform hosts rejected) whose DNS already resolves to
-  this VPS — the daemon cannot be steered into issuing certs for arbitrary
+  this VPS, the daemon cannot be steered into issuing certs for arbitrary
   names.
 - Max 3 provisioning attempts per domain, then it parks in `failed` (caps
   Let's Encrypt rate-limit exposure).
