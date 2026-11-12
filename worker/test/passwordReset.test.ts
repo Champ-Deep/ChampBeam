@@ -2,11 +2,13 @@
  * Password reset for migrated Clerk users: a users row with no account row gets its first credential
  * through the emailed link and stays the same user (so every file and link stays attached).
  */
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { BASE, addMember, api, createOrg, env, json } from "./helpers";
 import type { Env } from "../src/env";
 import { createAuth } from "../src/auth/betterAuth";
 import { getDb } from "../src/db/client";
+import worker from "../src/index";
 
 const sent: { to: string; text: string }[] = [];
 const pending: Promise<unknown>[] = [];
@@ -92,5 +94,32 @@ describe("password reset for a migrated user with no credential", () => {
     await Promise.all(pending);
     sendDelayMs = 0;
     expect(sent.slice(before).map((m) => m.to)).toEqual([email]);
+  });
+
+  // Goes through the Worker entry so routing and authOf's waitUntil wiring run (the tests above hand createAuth a handler).
+  it("through the Worker entry, a slow mailer still does not show in the response time", async () => {
+    const email = "route-reset@championsmail.com";
+    await migratedUser(email);
+    const routed: string[] = [];
+    const slowEnv = { ...env, EMAIL: { send: async (m: { to: string }) => { await new Promise((r) => setTimeout(r, 400)); routed.push(m.to); } } } as unknown as Env;
+    const ask = async (to: string) => {
+      const ctx = createExecutionContext();
+      const t = performance.now();
+      const res = await worker.fetch(new Request(`${BASE}/api/auth/request-password-reset`, {
+        method: "POST",
+        headers: { "content-type": "application/json", Origin: BASE, "cf-connecting-ip": `198.51.102.${++ipSeq}` },
+        body: JSON.stringify({ email: to, redirectTo: `${BASE}/reset-password` }),
+      }), slowEnv, ctx);
+      const ms = performance.now() - t;
+      await waitOnExecutionContext(ctx);
+      return { res, ms };
+    };
+    const known = await ask(email);
+    const unknown = await ask("nobody-routed@championsmail.com");
+    expect(known.res.status).toBe(200);
+    expect(unknown.res.status).toBe(known.res.status);
+    expect(await unknown.res.text()).toBe(await known.res.text());
+    expect(Math.abs(known.ms - unknown.ms)).toBeLessThan(150);
+    expect(routed).toEqual([email]);
   });
 });
