@@ -3,7 +3,7 @@
  * through the emailed link and stays the same user (so every file and link stays attached).
  */
 import { describe, expect, it } from "vitest";
-import { BASE, env } from "./helpers";
+import { BASE, addMember, api, createOrg, env, json } from "./helpers";
 import type { Env } from "../src/env";
 import { createAuth } from "../src/auth/betterAuth";
 import { getDb } from "../src/db/client";
@@ -32,6 +32,11 @@ describe("password reset for a migrated user with no credential", () => {
   it("emails a link, sets the first credential, keeps the same users.id, and the link works once", async () => {
     const email = "returning@championsmail.com";
     const id = await migratedUser(email);
+    const org = await createOrg();
+    await addMember(org.id, id);
+    const fileId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO file_assets (id, user_id, short_code, filename, kind, mime_type, size_bytes, storage_key, status, serve_mode, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .bind(fileId, id, `r${fileId.slice(0, 6)}`, "kept.pdf", "pdf", "application/pdf", 1, "k", "active", "stream", new Date().toISOString()).run();
     expect(await accounts(id)).toEqual([]);
 
     const asked = await post("/request-password-reset", { email, redirectTo: `${BASE}/reset-password` });
@@ -49,6 +54,13 @@ describe("password reset for a migrated user with no credential", () => {
     expect(signIn.status).toBe(200);
     expect(((await signIn.json()) as { user: { id: string } }).user.id).toBe(id);
     expect((await env.DB.prepare("SELECT count(*) n FROM users WHERE lower(email) = ?").bind(email).first<{ n: number }>())!.n).toBe(1);
+
+    // The session starts in their own org and their file is still listed.
+    const cookie = signIn.headers.get("set-cookie")!.split(";")[0]!;
+    const session = await env.DB.prepare("SELECT active_organization_id a FROM session WHERE user_id = ? ORDER BY created_at DESC").bind(id).first<{ a: string | null }>();
+    expect(session!.a).toBe(org.id);
+    const files = await json<{ id: string }[]>(await api("/api/v1/files", { headers: { Cookie: cookie, Origin: BASE } }));
+    expect(files.map((f) => f.id)).toEqual([fileId]);
 
     expect((await post("/reset-password", { token, newPassword: "another-password-1" })).status).toBe(400);
   });
