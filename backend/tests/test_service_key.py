@@ -9,6 +9,8 @@ import pytest
 from app.core.config import settings
 from app.models.org import Organization, OrganizationMembership
 from app.models.user import User
+from app.services.pages_service import VISITOR_COOKIE
+from tests.served_html import document_body
 
 SERVICE_KEY = "sk_beam_test_key_0123456789abcdef0123456789abcdef"
 HEADERS = {"X-Service-Key": SERVICE_KEY, "Content-Type": "application/json"}
@@ -154,8 +156,12 @@ async def test_pages_publish_and_update(app_client, service_key_env, tmp_path, m
     assert upd.status_code == 200, upd.text
     assert upd.json()["short_code"] == page["short_code"]
 
-    served2 = await app_client.get(f"/f/{page['short_code']}")
-    assert "Checklist v2" in served2.text and "v1" not in served2.text
+    served2 = await app_client.get(
+        f"/f/{page['short_code']}", cookies={VISITOR_COOKIE: "WWKB52KB63v1A"}
+    )
+    assert "WWKB52KB63v1A" in served2.text
+    body = document_body(served2.text)
+    assert "Checklist v2" in body and "v1" not in body
 
     # GET on pages does not exist and the service key must not unlock file reads.
     denied = await app_client.get(

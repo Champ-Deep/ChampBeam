@@ -9,6 +9,7 @@ import pytest
 
 from app.core.config import settings
 from app.services import pages_service
+from tests.served_html import document_body
 
 HTML = "<!doctype html><html><head><title>T</title></head><body><p>hello</p><script>localStorage.x=1</script></body></html>"
 
@@ -69,6 +70,21 @@ async def test_stored_blob_is_byte_identical(app_client, local_storage):
     files = [p for p in local_storage.rglob("*.html")]
     assert len(files) == 1
     assert files[0].read_bytes() == HTML.encode()
+
+
+def test_document_body_ignores_tracking_visitor_id():
+    """A visitor id that contains a version marker must not look like page content."""
+    vid = "WWKB52KB63v1A"
+    snippet = pages_service.tracking_snippet(
+        visitor_id=vid,
+        page_id="02f9f476-5bff-4570-8bff-ecae894e1441",
+        beacon_url="/f/3IH7jXWV/page-events",
+        extra_js="var t='tokv1';",
+    )
+    raw = "<html><body>v2 updated weekly</body></html>"
+    served = pages_service.inject_snippet(raw.encode(), snippet).decode()
+    assert vid in served
+    assert document_body(served) == "v2 updated weekly"
 
 
 def test_injection_placement():
@@ -269,8 +285,12 @@ async def test_versions_rollback_and_prune(app_client, local_storage, monkeypatc
 
     rb = await app_client.post(f"/api/v1/pages/{pid}/versions/1/rollback", headers=headers)
     assert rb.status_code == 200 and rb.json()["current_version"] == 5
-    served = await app_client.get(f"/p/{slug}")
-    assert "hello" in served.text and "v4" not in served.text
+    served = await app_client.get(
+        f"/p/{slug}", cookies={pages_service.VISITOR_COOKIE: "visMarkerv4xxxxxx"}
+    )
+    assert "visMarkerv4xxxxxx" in served.text
+    body = document_body(served.text)
+    assert "hello" in body and "v4" not in body
 
     monkeypatch.setattr(settings, "pages_versions_keep", 2)
     await app_client.put(f"/api/v1/pages/{pid}", json={"html": "<html><head></head><body>v6</body></html>"}, headers=headers)
@@ -325,5 +345,9 @@ async def test_legacy_upload_gets_slug_and_keeps_original_rollbackable(app_clien
 
     rb = await app_client.post(f"/api/v1/pages/{pid}/versions/1/rollback", headers=headers)
     assert rb.status_code == 200 and rb.json()["current_version"] == 3
-    served = await app_client.get("/p/pallab-north-star")
-    assert "hello" in served.text and "v2" not in served.text
+    served = await app_client.get(
+        "/p/pallab-north-star", cookies={pages_service.VISITOR_COOKIE: "visMarkerv2xxxxxx"}
+    )
+    assert "visMarkerv2xxxxxx" in served.text
+    body = document_body(served.text)
+    assert "hello" in body and "v2" not in body
