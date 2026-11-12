@@ -26,6 +26,9 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Overlays do not inherit it: staging declares its own.
+  "send_email": [{ "name": "EMAIL" }],
+
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
@@ -101,13 +104,16 @@
     // Real Cloudflare staging: managed D1/R2, real cron, sign-in with NON-production identities.
     "staging": {
       "name": "champbeam-staging",
+      // Reset links must carry a champbeam.com host: Microsoft/relay drop mail whose reset link is on workers.dev.
+      "routes": [{ "pattern": "staging.champbeam.com", "custom_domain": true }],
       "assets": { "directory": "../frontend/dist", "binding": "ASSETS", "not_found_handling": "single-page-application",
                   "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-staging", "database_id": "c924f4d4-85ea-4671-8c96-478ae229fe4a", "migrations_dir": "migrations" }],
       "services": [{ "binding": "OPEN_WEBHOOK", "service": "champvoice-edge" }],
+      "send_email": [{ "name": "EMAIL" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
-      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://champbeam-staging.deep-ae0.workers.dev", "BETTER_AUTH_URL": "https://champbeam-staging.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-staging.deep-ae0.workers.dev", "PLATFORM_REDIRECT_HOST": "champbeam-staging.deep-ae0.workers.dev",
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://staging.champbeam.com", "BETTER_AUTH_URL": "https://staging.champbeam.com", "REDIRECT_BASE_URL": "https://staging.champbeam.com", "PLATFORM_REDIRECT_HOST": "staging.champbeam.com",
                 "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
     }
   }

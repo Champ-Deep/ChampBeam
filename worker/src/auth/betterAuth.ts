@@ -19,6 +19,7 @@ import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
+import { sendMail } from "../lib/email";
 
 /** The one org every user belongs to (Deep's ruling, 5 Nov). New sign-ups join it as `member`. */
 export const DEFAULT_ORG_SLUG = "champions-group";
@@ -35,9 +36,19 @@ const roles = {
   viewer: ac.newRole({}),
 };
 
-export function createAuth(env: Env, db: Db) {
+export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) => void) {
   const settings = getSettings(env);
   const google = settings.googleClientId && settings.googleClientSecret;
+  // An email failure must never fail the reset request that triggered it (and must not reveal which emails exist).
+  const mail = async (to: string, subject: string, body: string, linkLabel: string, url: string): Promise<void> => {
+    try {
+      const res = await sendMail(env, settings, { to, subject, body, linkLabel, url });
+      // Delivery result only (message id / recipient lists), never the link.
+      console.log(`email \"${subject}\" result`, JSON.stringify(res ?? null));
+    } catch (err) {
+      console.error(`email "${subject}" failed`, err);
+    }
+  };
   return betterAuth({
     appName: settings.appName,
     baseURL: settings.betterAuthUrl,
@@ -76,6 +87,10 @@ export function createAuth(env: Env, db: Db) {
     },
     emailAndPassword: {
       enabled: true,
+      // Reset only exists when the Email binding does. Migrated Clerk users have no credential row: a reset gives them one.
+      sendResetPassword: settings.emailEnabled
+        ? async ({ user, url }) => mail(user.email, "Reset your ChampBeam password", "Use this link to choose a new password. It expires in one hour.", "Reset password", url)
+        : undefined,
       // No email sender at launch (D2 = B): no reset or verification mail.
       password: {
         // Imported Clerk hashes are bcrypt; everything Better Auth writes is its default scrypt.
@@ -92,6 +107,8 @@ export function createAuth(env: Env, db: Db) {
     },
     advanced: {
       cookiePrefix: "champbeam",
+      // Send mail after the response: awaiting it would make a known address slower than an unknown one.
+      ...(waitUntil ? { backgroundTasks: { handler: waitUntil } } : {}),
       // Same check in tests as in production (Better Auth skips it under NODE_ENV=test).
       disableOriginCheck: false,
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
