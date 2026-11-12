@@ -8,6 +8,8 @@ import { InviteSheet } from './InviteSheet';
 import { MembersPanel } from './MembersPanel';
 import { DnsRecordsCard } from './DnsRecords';
 import { OrgSwitcher } from '../OrgSwitcher';
+import { OnboardingChecklist } from './OnboardingChecklist';
+import { CreateOrgEntry } from '../../pages/SettingsPage';
 import { dnsRecordsFor, nextPath, recordsForIt, refusal } from '../../lib/selfServeRules';
 import type { AppConfig } from '../../api/selfServe';
 
@@ -20,7 +22,9 @@ vi.mock('../../api/selfServe', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   selfServeApi: { invite: fx.invite, pendingInvitations: fx.pending, adminOrgs: vi.fn(async () => []) },
 }));
-vi.mock('../../api/org', () => ({ orgApi: { listMembers: vi.fn(async () => []) } }));
+vi.mock('../../api/org', () => ({ orgApi: { listMembers: vi.fn(async () => []), getContext: vi.fn(async () => ({ member_count: 1 })) } }));
+vi.mock('../../hooks/useOrgContext', () => ({ useOrgContext: () => ({ inOrg: false, isAdmin: false, permissions: [], isLoading: false, error: null }) }));
+vi.mock('../../hooks/useShareLists', () => ({ useShareLists: () => ({ files: { data: [] }, pages: { data: [] }, links: { data: [] } }) }));
 vi.mock('../../lib/authClient', () => ({
   useAuth: () => ({ isLoaded: true, isSignedIn: true, userId: 'u-me', orgId: 'org-1', user: { id: 'u-me', email: 'me@acme.test' } }),
   authClient: {
@@ -122,5 +126,23 @@ describe('org switcher', () => {
     expect(screen.getByRole('menuitem', { name: /All organizations/ })).toHaveAttribute('href', '/admin/orgs');
     expect(screen.getByRole('menuitem', { name: /Create organization/ })).toBeVisible();
     expect(await screen.findAllByText('Admin')).not.toHaveLength(0);
+  });
+});
+
+describe('create organization entry points', () => {
+  it('a user without can_create_org sees no create entry in the switcher, Settings or the checklist', async () => {
+    mount(<><OrgSwitcher /><CreateOrgEntry /><OnboardingChecklist /></>);
+    expect(await screen.findByText('Share your first link')).toBeVisible();
+    expect(screen.queryByText('Create an organization')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Create organization/ })).toBeNull();
+    fireEvent.keyDown(screen.getByRole('button', { name: /Switch workspace/ }), { key: 'Enter' });
+    await screen.findAllByRole('menuitem');
+    expect(screen.queryByRole('menuitem', { name: /Create organization/ })).toBeNull();
+  });
+  it('shows the Settings button and the checklist step when can_create_org is on', async () => {
+    fx.config = { ...fx.config, can_create_org: true };
+    mount(<><CreateOrgEntry /><OnboardingChecklist /></>);
+    expect(await screen.findByText('Create an organization')).toBeVisible();
+    expect(screen.getAllByRole('button', { name: /Create organization/ }).length).toBeGreaterThan(0); // the checklist hides its button once an org exists
   });
 });

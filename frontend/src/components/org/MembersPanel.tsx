@@ -71,7 +71,7 @@ export function MembersPanel({ orgId, orgName }: { orgId: string; orgName: strin
     <label className="cb-search"><Search className="h-4 w-4" aria-hidden="true" /><span className="sr-only">Search members</span><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or email" /></label>
     {members.isLoading && <p role="status" className="cb-hint">Loading members</p>}
     {members.isError && <p role="alert" className="cb-refusal">Members could not load. <button type="button" className="cb-text-btn" onClick={() => void members.refetch()}>Retry</button></p>}
-    {members.data && <div className="cb-table-scroll"><table className="cb-ledger">
+    {members.data && <div className="cb-table-scroll cb-stack"><table className="cb-ledger cb-ledger-members">
       <thead><tr><th scope="col">Member</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Joined</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {shown.map((r) => {
@@ -87,8 +87,8 @@ export function MembersPanel({ orgId, orgName }: { orgId: string; orgName: strin
               {n && <p role={n.kind === 'refusal' ? 'alert' : 'status'} className={n.kind === 'refusal' ? 'cb-refusal' : 'cb-ok'}>{n.text}</p>}
               {!n && locked && isAdmin(r.role) && adminCount <= 1 && <p className="cb-hint">Only admin. Promote someone before changing this.</p>}
             </td>
-            <td>Active</td>
-            <td className="cb-hint">{fmtDate(r.joinedAt)}</td>
+            <td data-label="Status">Active</td>
+            <td data-label="Joined" className="cb-hint">{fmtDate(r.joinedAt)}</td>
             <td className="cb-cell-menu">
               <DropdownMenu>
                 <DropdownMenuTrigger className="cb-icon-btn" aria-label={`Actions for ${r.name}`}><MoreHorizontal className="h-4 w-4" aria-hidden="true" /></DropdownMenuTrigger>

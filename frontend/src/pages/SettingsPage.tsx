@@ -66,7 +66,7 @@ export function SettingsPage() {
 }
 
 /** Settings entry point for creating an organization; only accounts allowed to create one see it. */
-function CreateOrgEntry() {
+export function CreateOrgEntry() {
   const { data: config } = useAppConfig();
   const [open, setOpen] = useState(false);
   if (!config?.can_create_org) return null;
@@ -311,8 +311,11 @@ function PersonalSettings() {
               <div className="py-8 text-center text-sm text-slate-500">Loading.</div>
             ) : domains.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-500">
-                No custom domains yet. Claim a subdomain or add your own above to start
-                sharing branded short links.
+                {customDomains
+                  ? 'No custom domains yet. Claim a subdomain or add your own above to start sharing branded short links.'
+                  : config?.subdomain_enabled && config.platform_subdomain_base
+                    ? 'No domains yet. Claim a subdomain above to start sharing branded short links.'
+                    : `No domains yet. Your links use ${appConfig?.platform_host ?? 'the ChampBeam address'} for now.`}
               </div>
             ) : (
               <div className="divide-y divide-slate-100 -mx-6 -mb-6">

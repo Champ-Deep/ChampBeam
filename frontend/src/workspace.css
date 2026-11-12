@@ -54,7 +54,8 @@ button[aria-label="Open menu"], button[aria-label="Close menu"] { min-width: 44p
 .cb-totals dd { font-size:28px; font-weight:600; }
 /* A fieldset defaults to min-content width, which pushed wide tables past a 375px viewport. */
 .cb-workspace fieldset { min-width:0; }
-.cb-table-scroll { overflow-x:auto; margin:20px 0; }
+/* position:relative clips absolutely positioned cells (sr-only labels) to the scroller; without it they widen the page. */
+.cb-table-scroll { position:relative; overflow-x:auto; margin:20px 0; }
 .cb-table-scroll table { width:100%; border-collapse:collapse; text-align:left; }
 .cb-table-scroll th, .cb-table-scroll td { border-bottom:1px solid var(--cb-border); padding:12px; }
 .cb-table-scroll tbody th, .cb-table-scroll td:first-child { overflow-wrap:anywhere; }

@@ -42,7 +42,7 @@ export function AdminOrgsPage() {
     {orgs.isLoading && <p role="status" className="cb-hint">Loading organizations</p>}
     {orgs.isError && <p role="alert" className="cb-refusal">Organizations could not load. <button type="button" className="cb-text-btn" onClick={() => void orgs.refetch()}>Retry</button></p>}
     {orgs.data?.length === 0 && <p className="cb-hint">No organizations yet. Create the first one.</p>}
-    {!!orgs.data?.length && <div className="cb-table-scroll"><table className="cb-ledger">
+    {!!orgs.data?.length && <div className="cb-table-scroll cb-stack"><table className="cb-ledger cb-ledger-orgs">
       <thead><tr><th scope="col">Organization</th><th scope="col" className="cb-num">Members</th><th scope="col" className="cb-num">Files</th><th scope="col" className="cb-num">Links</th><th scope="col">Created</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>{orgs.data.map((o) => <OrgRow key={o.id} org={o} expanded={openRow === o.id} onToggle={() => setOpenRow(openRow === o.id ? null : o.id)} onOpen={() => void open(o)} />)}</tbody>
     </table></div>}
@@ -74,8 +74,8 @@ function OrgRow({ org, expanded, onToggle, onOpen }: { org: AdminOrg; expanded: 
   return <>
     <tr>
       <td><span className="cb-who-name">{org.name}</span><span className="cb-mono cb-hint">{org.slug}</span></td>
-      <td className="cb-num">{org.members}</td><td className="cb-num">{org.files}</td><td className="cb-num">{org.links}</td>
-      <td className="cb-hint">{fmtDate(org.created_at)}</td>
+      <td data-label="Members" className="cb-num">{org.members}</td><td data-label="Files" className="cb-num">{org.files}</td><td data-label="Links" className="cb-num">{org.links}</td>
+      <td data-label="Created" className="cb-hint">{fmtDate(org.created_at)}</td>
       <td className="cb-row-actions"><button type="button" className="cb-text-btn" aria-expanded={expanded} onClick={onToggle}>Add member</button><button type="button" className="cb-text-btn" onClick={onOpen}>Open</button></td>
     </tr>
     {expanded && <tr className="cb-subrow"><td colSpan={6}>
