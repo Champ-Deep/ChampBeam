@@ -1,7 +1,6 @@
+import { TableSkeleton } from './v-skeleton-7';
+
+// Lists load as skeleton rows of the same shape, never a full-page spinner.
 export function LoadingSpinner() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-purple" />
-    </div>
-  );
+  return <TableSkeleton rows={5} />;
 }

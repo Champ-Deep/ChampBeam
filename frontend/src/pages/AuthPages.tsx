@@ -33,14 +33,15 @@ function AuthShell({ title, lede, children, footer }: { title: string; lede: str
   const { isLoaded, isSignedIn } = useAuth();
   if (isLoaded && isSignedIn) return <Navigate to="/" replace />;
   return (
-    <main className="flex min-h-screen items-center justify-center p-4" style={{ background: 'var(--cb-bg)' }}>
-      <Card padding="lg" className="w-full max-w-[400px]">
+    <main className="cb-auth flex min-h-screen flex-col items-center justify-center gap-6 p-4" style={{ background: 'var(--cb-bg)' }}>
+      <Card padding="lg" className="w-full max-w-[420px] rounded-2xl border-[var(--cb-border)] shadow-[0_1px_2px_rgb(36_28_20/4%),0_24px_48px_-24px_rgb(36_28_20/22%)]">
         <Logo tone="light" size={32} />
-        <h1 className="mt-6 font-display text-[28px] font-bold leading-tight" style={{ color: 'var(--cb-ink)' }}>{title}</h1>
-        <p className="mt-1 text-[14px]" style={{ color: 'var(--cb-muted)' }}>{lede}</p>
-        <div className="mt-6">{children}</div>
-        <p className="mt-6 text-[14px]" style={{ color: 'var(--cb-text)' }}>{footer}</p>
+        <h1 className="mt-7 font-display text-[28px] font-bold leading-tight tracking-[-0.02em]" style={{ color: 'var(--cb-ink)' }}>{title}</h1>
+        <p className="mt-1.5 text-[15px]" style={{ color: 'var(--cb-text-mid)' }}>{lede}</p>
+        <div className="mt-7">{children}</div>
+        <p className="mt-7 border-t pt-5 text-center text-[14px]" style={{ color: 'var(--cb-text)', borderColor: 'var(--cb-divider)' }}>{footer}</p>
       </Card>
+      <p className="text-center text-[12px]" style={{ color: 'var(--cb-muted)' }}>Files to download. Pages to view. Links to track.</p>
     </main>
   );
 }
@@ -54,15 +55,16 @@ function GoogleButton({ onError }: { onError: (msg: string) => void }) {
     if (error) { setBusy(false); onError('Google sign-in could not start. Try again.'); }
   }
   return <>
-    <Button type="button" variant="outline" size="lg" className="w-full" isLoading={busy} onClick={() => void go()}>
+    <Button type="button" variant="outline" size="lg" className="w-full gap-2.5" isLoading={busy} onClick={() => void go()}
+      leftIcon={busy ? undefined : <img src="/google-g.svg" alt="" width={18} height={18} />}>
       {busy ? 'Opening Google…' : 'Continue with Google'}
     </Button>
-    <p className="my-4 text-center text-[13px]" style={{ color: 'var(--cb-muted)' }}>or use your email</p>
+    <p className="my-5 flex items-center gap-3 text-[13px] before:h-px before:flex-1 before:bg-[var(--cb-border)] after:h-px after:flex-1 after:bg-[var(--cb-border)]" style={{ color: 'var(--cb-muted)' }}>or use your email</p>
   </>;
 }
 
 function FormAlert({ text }: { text?: string }) {
-  return text ? <p role="alert" className="mb-4 rounded-lg border px-3 py-2 text-[14px]" style={{ borderColor: 'var(--cb-border-strong)', color: 'var(--cb-ink)', background: 'var(--cb-bg)' }}>{text}</p> : null;
+  return text ? <p role="alert" className="mb-4 rounded-lg border px-3 py-2.5 text-[14px]" style={{ borderColor: 'color-mix(in srgb, var(--cb-danger) 25%, transparent)', color: 'var(--cb-danger)', background: 'var(--cb-danger-soft)' }}>{text}</p> : null;
 }
 
 export function SignInPage() {

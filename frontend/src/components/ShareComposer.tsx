@@ -104,7 +104,7 @@ export function ShareComposer() {
         <ComposerInput text={text} onText={changeText} onFiles={selectFiles} busy={busy}
           received={file && <div className="cb-received"><p role="status"><strong>{file.name}</strong><span>{file.type || 'File'} · {formatBytes(file.size)}</span></p><button type="button" onClick={() => { reset(); setFile(null); setText(''); }}>Remove file</button></div>} />
       </Suspense>
-      <p className="cb-help">{UPLOAD_HINT}</p>
+      <ul className="cb-limits" aria-label="Upload limits">{UPLOAD_HINT.split(' · ').map((t) => <li key={t}>{t}</li>)}</ul>
       {externalUrl ? <div className="cb-actions"><Link className="cb-action" to={`/links?tab=utm&url=${encodeURIComponent(externalUrl)}`}>Track external URL</Link><p>Creates a redirect, not a hosted copy.</p></div> : (file || html) ? <>
         <Suspense fallback={<p role="status">Loading recipient options…</p>}><IntentControl value={intent} canHost={canHost} onChange={(next) => { setIntent(next); setError(''); setResult(null); }} /></Suspense>
         {intent === 'host' && <div className="cb-host-preview"><p className="cb-address">{validHost ? `https://${host}/${slug}` : 'No active share domain available.'}</p><button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? 'Close address editor' : 'Edit address'}</button></div>}

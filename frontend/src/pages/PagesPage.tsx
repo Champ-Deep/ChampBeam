@@ -45,6 +45,7 @@ import type { Domain } from '../api/utm';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 import { PAGE_ACCEPT, PAGE_CAP_MB, PAGE_HINT, PAGE_LABEL } from '../config/uploadLimits';
 import { formatBytes, formatDwell, formatRelative } from '../lib/format';
+import { PageHeader } from '../components/ui/PageHeader';
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 const BEAM_STATE_DOCS_URL = 'https://github.com/Champ-Deep/ChampUTM/blob/main/docs/API.md#pages';
@@ -142,12 +143,7 @@ export function PagesPage() {
 
   return (
     <div className="cb-workspace max-w-5xl mx-auto py-8 px-4">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-slate-900">Pages</h1>
-        <p className="text-slate-600 mt-1">
-          Hosted HTML, images, video and PDFs. Download-only shares belong in Files. Existing addresses stay valid.
-        </p>
-      </div>
+      <PageHeader title="Pages" lede="Hosted HTML, images, video and PDFs. Download-only shares belong in Files. Existing addresses stay valid." />
 
       {canShare && <ShareComposer />}
       {canShare && <details><summary>Advanced HTML publishing</summary><PublishCard
@@ -408,8 +404,8 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
               <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{formatDwell(avgDwell)} avg</span>
               <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Updated {formatRelative(page.updated_at)}</span>
             </div>
-            <div className="mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-              <code className="text-xs font-mono text-slate-900 [overflow-wrap:anywhere] flex-1">{breakAfterPathSlash(page.url)}</code>
+            <div className="mt-2 flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-1 py-1">
+              <code className="text-xs font-mono text-slate-700 [overflow-wrap:anywhere] flex-1">{breakAfterPathSlash(page.url)}</code>
               <button type="button" onClick={onCopy} className="min-w-11 inline-flex items-center justify-center text-slate-400 hover:text-slate-700" aria-label="Copy link">
                 <Copy className="h-3.5 w-3.5" />
               </button>

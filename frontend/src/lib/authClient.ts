@@ -7,11 +7,16 @@ export const authClient = createAuthClient({ plugins: [organizationClient()] });
 // Google shows only when the build carries the public client id the Worker is configured with.
 export const googleSignInEnabled = Boolean((import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim());
 
+// Better Auth 1.7.18 sets isPending back to true for a guest on every focus or reconnect refetch,
+// so latch the first load: a background refetch must never unmount the tree and wipe a typed form.
+let sessionLoaded = false;
+
 /** The session fields the app reads. orgId is null in the personal workspace. */
 export function useAuth() {
   const { data, isPending } = authClient.useSession();
+  if (!isPending) sessionLoaded = true;
   return {
-    isLoaded: !isPending,
+    isLoaded: sessionLoaded,
     isSignedIn: !!data,
     userId: data?.user.id ?? null,
     orgId: data?.session.activeOrganizationId ?? null,

@@ -47,6 +47,7 @@ import { downloadLink, formatBytes } from '../lib/format';
 import { utmApi } from '../api/utm';
 import type { Domain, Project, ProjectCreate } from '../api/utm';
 import { apiErrorDetail } from '../api/_shared';
+import { PageHeader } from '../components/ui/PageHeader';
 
 const KIND_ICON: Record<FileKind, typeof FileText> = {
   pdf: FileText,
@@ -449,12 +450,7 @@ function ManageFiles() {
 
   return (
     <div className="cb-workspace cb-share-list max-w-7xl mx-auto py-8 px-4">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Files</h1>
-        <p className="text-slate-600 mt-1">
-          Download-only shares. Hosted HTML, images, video and PDFs are in Pages. Drag files onto a folder to file them.
-        </p>
-      </div>
+      <PageHeader title="Files" lede="Download-only shares. Hosted HTML, images, video and PDFs are in Pages. Drag files onto a folder to file them." />
 
       {listError && <div role="alert"><p>{apiErrorDetail(listError) ?? 'Files could not load. No empty list is inferred.'}</p><Button onClick={() => void refetch()}>Retry files</Button></div>}
       <Card className="mb-6">
@@ -821,8 +817,8 @@ function FileRow({
                 {file.serve_mode === 'redirect' ? 'Redirect serve' : 'Stream serve'}
               </span>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded px-2 py-1">
-              <code className="text-xs font-mono text-slate-900 break-all min-w-0 basis-full sm:basis-auto sm:flex-1">
+            <div className="mt-2 flex flex-wrap sm:flex-nowrap items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-1 py-1">
+              <code className="text-xs font-mono text-slate-700 truncate min-w-0 flex-1 basis-full sm:basis-auto py-1 sm:py-0" title={file.serve_url}>
                 {file.serve_url}
               </code>
               <button
