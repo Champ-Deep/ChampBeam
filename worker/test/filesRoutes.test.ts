@@ -462,11 +462,20 @@ describe("manage", () => {
       detail: "Invalid date format. Use ISO 8601 (YYYY-MM-DD).",
     });
 
+    await env.DB.prepare("UPDATE click_events SET company_name = ?, company_domain = ?, company_type = ? WHERE file_id = ? AND ip_address = ?")
+      .bind("Initech", "initech.example", "business", fid, "2.2.2.2")
+      .run();
     const events = await json(await api(`/api/v1/files/${fid}/events`, { headers }));
     expect(events).toHaveLength(3);
     expect(Object.keys(events[0]).sort()).toEqual(
-      ["asn_org", "browser", "city", "clicked_at", "country", "country_code", "device_type", "id", "ip_address", "is_vpn", "os", "referrer", "region"].sort(),
+      ["asn_org", "browser", "city", "clicked_at", "company_domain", "company_name", "company_type", "country", "country_code", "device_type", "id", "ip_address", "is_vpn", "os", "referrer", "region"].sort(),
     );
+    expect(events.find((e: { ip_address: string }) => e.ip_address === "2.2.2.2")).toMatchObject({
+      company_name: "Initech",
+      company_domain: "initech.example",
+      company_type: "business",
+    });
+    expect(events.find((e: { ip_address: string }) => e.ip_address === "1.1.1.1").company_name).toBeNull();
     expect(events[0].is_vpn).toBe(false);
 
     expect(await json(await api(`/api/v1/files/${fid}/geo`, { headers }))).toEqual([

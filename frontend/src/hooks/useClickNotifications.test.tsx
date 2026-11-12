@@ -9,7 +9,8 @@ import { useClickNotifications } from './useClickNotifications';
 const item = (id: string): RecentClick => ({
   id, type: 'file', filename: 'Brief.pdf', original_url: null,
   clicked_at: new Date().toISOString(), country: null, region: null,
-  device_type: null, browser: null, short_code: null, utm_campaign: null, utm_source: null,
+  device_type: null, browser: null, ip_address: null, company_name: null,
+  short_code: null, utm_campaign: null, utm_source: null,
 });
 
 afterEach(() => vi.restoreAllMocks());

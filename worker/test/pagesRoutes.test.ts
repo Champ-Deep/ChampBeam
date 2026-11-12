@@ -425,12 +425,19 @@ describe("analytics, Beam State admin, timeline", () => {
     await env.DB.prepare("INSERT INTO page_events (id, page_id, event_type, ref, visitor_id, ip, created_at) VALUES (?,?,?,?,?,?,?)")
       .bind(crypto.randomUUID(), pid, "comment_added", "c1", "vid-bbbbbbbb", "2.2.2.2", new Date(now - 500).toISOString())
       .run();
+    await env.DB.prepare("UPDATE click_events SET company_name = ?, company_domain = ? WHERE file_id = ? AND ip_address = ?")
+      .bind("Initech", "initech.example", pid, "2.2.2.2")
+      .run();
     const timeline = await json(await api(`/api/v1/pages/${pid}/events`, { headers }));
     expect(timeline.map((e: any) => e.type)).toEqual(["comment_added", "view", "revisit", "view", "view"]);
-    expect(timeline[0]).toMatchObject({ ref: "c1", country: null, is_vpn: false });
+    expect(timeline[0]).toMatchObject({ ref: "c1", country: null, is_vpn: false, company_name: null, company_domain: null });
     expect(Object.keys(timeline[1]).sort()).toEqual(
-      ["browser", "city", "country", "device_type", "ip", "is_vpn", "os", "ref", "ts", "type", "visitor_id"].sort(),
+      ["browser", "city", "company_domain", "company_name", "country", "device_type", "ip", "is_vpn", "os", "ref", "ts", "type", "visitor_id"].sort(),
     );
+    expect(timeline.find((e: { ip: string; type: string }) => e.ip === "2.2.2.2" && e.type === "view")).toMatchObject({
+      company_name: "Initech",
+      company_domain: "initech.example",
+    });
     expect(await json(await api(`/api/v1/pages/${pid}/events?limit=2`, { headers }))).toHaveLength(2);
   });
 

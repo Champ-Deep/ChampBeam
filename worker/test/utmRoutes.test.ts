@@ -515,7 +515,20 @@ describe("analytics: per-link", () => {
   it("events, geo levels, devices; 404 for foreign links", async () => {
     const { user, headers } = await authedUser();
     const link = await seedLink(user.id);
-    await seedEvent({ link_id: link, country: "India", country_code: "IN", region: "KA", city: "Bengaluru", device_type: "mobile", browser: "Chrome", clicked_at: iso(1000) });
+    await seedEvent({
+      link_id: link,
+      ip_address: "203.0.113.10",
+      country: "India",
+      country_code: "IN",
+      region: "KA",
+      city: "Bengaluru",
+      device_type: "mobile",
+      browser: "Chrome",
+      company_name: "Initech",
+      company_domain: "initech.example",
+      company_type: "business",
+      clicked_at: iso(1000),
+    });
     await seedEvent({ link_id: link, country: "India", country_code: "IN", region: "MH", city: "Mumbai", device_type: "mobile", browser: "Safari", is_vpn: 1 });
     await seedEvent({ link_id: link, country: "France", country_code: "FR", device_type: "desktop", browser: "Chrome" });
     await seedEvent({ link_id: link, country: "France", country_code: "FR", clicked_at: iso(60 * DAY) });
@@ -524,9 +537,17 @@ describe("analytics: per-link", () => {
     expect(events.length).toBe(3);
     expect(Object.keys(events[0])).toEqual([
       "id", "ip_address", "device_type", "browser", "os", "country", "country_code", "region", "city", "referrer", "is_vpn", "asn_org", "clicked_at",
+      "company_name", "company_domain", "company_type",
     ]);
     expect(events.filter((e) => e.is_vpn).length).toBe(1);
     expect(events[2].city).toBe("Bengaluru"); // oldest last
+    expect(events[2]).toMatchObject({
+      ip_address: "203.0.113.10",
+      company_name: "Initech",
+      company_domain: "initech.example",
+      company_type: "business",
+    });
+    expect(events[0].company_name).toBeNull();
 
     expect(await json(await api(`${U}/analytics/links/${link}/geo`, { headers }))).toEqual([
       { country: "India", country_code: "IN", clicks: 2 },
@@ -673,17 +694,24 @@ describe("analytics: exports", () => {
     const { user, headers } = await authedUser();
     const link = await seedLink(user.id, { original_url: "https://a.com/x,y", short_code: "SHORT01", utm_campaign: "c1" });
     await seedEvent({ link_id: link, ip_address: "1.1.1.1", country: "India", clicked_at: "2099-01-01T00:00:00.000Z" });
-    await seedEvent({ link_id: link, is_vpn: 1, asn_org: "Acme", clicked_at: iso(1000) });
+    await seedEvent({
+      link_id: link,
+      is_vpn: 1,
+      asn_org: "Acme",
+      company_name: "Initech",
+      company_domain: "initech.example",
+      clicked_at: iso(1000),
+    });
     const res = await api(`${U}/analytics/export/events?start_date=2000-01-01&end_date=2100-01-01`, { headers });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/csv; charset=utf-8");
     expect(res.headers.get("content-disposition")).toBe("attachment; filename=click_events.csv");
     const lines = (await res.text()).split("\r\n");
     expect(lines[0]).toBe(
-      "clicked_at,original_url,short_code,utm_source,utm_medium,utm_campaign,utm_content,utm_term,ip_address,country,region,city,device_type,browser,os,referrer,is_vpn,asn_org",
+      "clicked_at,original_url,short_code,utm_source,utm_medium,utm_campaign,utm_content,utm_term,ip_address,country,region,city,device_type,browser,os,referrer,is_vpn,asn_org,company_name,company_domain",
     );
-    expect(lines[1]).toBe('2099-01-01T00:00:00.000Z,"https://a.com/x,y",SHORT01,,,c1,,,1.1.1.1,India,,,,,,,false,');
-    expect(lines[2]).toMatch(/,true,Acme$/);
+    expect(lines[1]).toBe('2099-01-01T00:00:00.000Z,"https://a.com/x,y",SHORT01,,,c1,,,1.1.1.1,India,,,,,,,false,,,');
+    expect(lines[2]).toMatch(/,true,Acme,Initech,initech\.example$/);
     expect(lines[3]).toBe("");
   });
 
@@ -722,7 +750,7 @@ describe("analytics: recent clicks feed", () => {
     const { user, headers } = await authedUser();
     const link = await seedLink(user.id, { utm_campaign: "c", short_code: "LINK001" });
     const file = await seedFile(user.id, "deck.pdf");
-    await seedEvent({ link_id: link, clicked_at: iso(1000), country: "India" });
+    await seedEvent({ link_id: link, clicked_at: iso(1000), country: "India", ip_address: "203.0.113.9", company_name: "Initech" });
     await seedEvent({ file_id: file, clicked_at: iso(2000) });
     await seedEvent({ link_id: link, clicked_at: iso(10 * 60_000) }); // outside default 5 min
     const other = await authedUser();
@@ -730,7 +758,16 @@ describe("analytics: recent clicks feed", () => {
 
     const rows = await json<any[]>(await api(`${U}/analytics/clicks/recent`, { headers }));
     expect(rows.map((r) => r.type)).toEqual(["link", "file"]);
-    expect(rows[0]).toMatchObject({ link_id: link, file_id: null, filename: null, short_code: "LINK001", utm_campaign: "c", country: "India" });
+    expect(rows[0]).toMatchObject({
+      link_id: link,
+      file_id: null,
+      filename: null,
+      short_code: "LINK001",
+      utm_campaign: "c",
+      country: "India",
+      ip_address: "203.0.113.9",
+      company_name: "Initech",
+    });
     expect(rows[1]).toMatchObject({ link_id: null, file_id: file, filename: "deck.pdf", original_url: null });
     expect(rows[1].short_code).toMatch(/^f/);
 

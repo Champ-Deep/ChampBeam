@@ -780,6 +780,8 @@ router.get("/:page_id/events", async (c) => {
       browser: e.browser,
       os: e.os,
       is_vpn: !!e.isVpn,
+      company_name: e.companyName ?? null,
+      company_domain: e.companyDomain ?? null,
     })),
     ...others.map((p) => ({
       _sort: isoUtc(p.createdAt) ?? "",
@@ -794,6 +796,8 @@ router.get("/:page_id/events", async (c) => {
       browser: null,
       os: null,
       is_vpn: false,
+      company_name: null,
+      company_domain: null,
     })),
   ];
   // Stable sort, newest first (canonical ISO text sorts chronologically).

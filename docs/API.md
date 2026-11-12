@@ -114,6 +114,10 @@ Every touch one visitor made across your links and files, oldest first, with loc
 - `dwell_ms` is the sum of page engagement time on that file, attached to the touch it followed; `null` for links and files with no engagement.
 - Clicks without a visitor id cannot form a journey and are left out; their number is `meta.unattributed`. IP address and user agent are never returned.
 
+### Who opened it
+
+Link events (`GET /api/v1/utm/analytics/links/{id}/events`), file events (`GET /api/v1/files/{id}/events`), page timeline views (`GET /api/v1/pages/{id}/events`), the recent-opens feed, and the events CSV return the visitor IP already stored on the click (`ip_address`, or `ip` on the page timeline). Those same owner-only responses include `company_name` and `company_domain` when background company enrichment stored them, plus `company_type` on link and file events. The dashboard shows the IP and company on each row. MaxMind and IPinfo do not return a person's name or email. The IP is stored in full (no hash); it is not added to journeys.
+
 ## Pages: hosted, tracked HTML pages (Beam Pages)
 
 Publish a single-file HTML page (a checklist, dashboard, proposal microsite) behind a **permanent trackable link** — one call, no upload dance:
