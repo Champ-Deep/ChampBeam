@@ -172,9 +172,7 @@ export function Sidebar() {
                       {(click.filename || click.original_url || 'Link open').slice(0, 34)}
                     </p>
                     <p className="mt-0.5 text-xs" style={{ color: 'var(--cb-muted)' }}>
-                      {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}
-                      {' · '}
-                      {click.device_type || 'Unknown device'}
+                      {[click.company_name, click.ip_address, [click.country, click.region].filter(Boolean).join(', ') || 'Unknown location', click.device_type || 'Unknown device'].filter(Boolean).join(' · ')}
                     </p>
                   </div>
                 ))

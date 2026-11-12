@@ -623,6 +623,9 @@ router.get("/:file_id/events", async (c) => {
       is_vpn: !!e.isVpn,
       asn_org: e.asnOrg,
       clicked_at: isoUtc(e.clickedAt),
+      company_name: e.companyName ?? null,
+      company_domain: e.companyDomain ?? null,
+      company_type: e.companyType ?? null,
     })),
   );
 });
