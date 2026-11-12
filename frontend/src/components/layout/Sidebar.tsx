@@ -35,15 +35,16 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       to={item.to}
       onClick={onClick}
       className={clsx(
-        'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
-        active ? 'text-white' : 'text-[#eee0d8] hover:text-white hover:bg-white/5'
+        'group relative flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors',
+        active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
       )}
-      style={active ? { background: 'var(--cb-side3)' } : undefined}
+      aria-current={active ? 'page' : undefined}
     >
-      <Icon className="h-[18px] w-[18px] flex-shrink-0" />
+      {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-sidebar-primary" />}
+      <Icon className={clsx('h-[18px] w-[18px] flex-shrink-0', active ? 'text-sidebar-primary' : 'opacity-80 group-hover:opacity-100')} />
       <span className="flex-1">{item.label}</span>
       {typeof item.count === 'number' && item.count > 0 && (
-        <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10.5px] font-bold text-white/80">
+        <span className={clsx('min-w-6 rounded-full px-2 py-0.5 text-center text-[11px] font-semibold tabular-nums', active ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-sidebar-accent text-sidebar-foreground')}>
           {item.count}
         </span>
       )}
@@ -113,31 +114,32 @@ export function Sidebar() {
     it.end ? location.pathname === it.to : location.pathname.startsWith(it.to);
 
   const railInner = (
-    <div className="cb-sidebar flex h-full flex-col overflow-y-auto" style={{ background: 'var(--cb-side1)', color: '#ffffff' }}>
-      <div className="flex items-center justify-between px-5 pb-4 pt-5">
+    <div className="cb-sidebar flex h-full flex-col overflow-y-auto bg-sidebar text-sidebar-foreground" style={{ backgroundImage: 'linear-gradient(180deg, var(--cb-side2), var(--cb-side1) 40%)' }}>
+      <div className="flex items-center justify-between px-5 pb-5 pt-6">
         <Link to="/" className="flex items-center">
           <Logo tone="dark" />
         </Link>
         <button
           onClick={() => setMobileOpen(false)}
-          className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white md:hidden"
+          className="rounded-lg p-1 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:hidden"
           aria-label="Close menu"
         >
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 px-3">
+      <p className="px-6 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/60">Workspace</p>
+      <nav className="flex flex-1 flex-col gap-0.5 px-3" aria-label="Workspace">
         {visible.map((it) => (
           <NavRow key={it.to} item={it} active={isActive(it)} onClick={() => setMobileOpen(false)} />
         ))}
       </nav>
 
-      <div className="space-y-3 border-t border-white/10 p-3">
+      <div className="space-y-1 border-t border-sidebar-border p-3">
         <div ref={bellRef} className="relative">
           <button
             onClick={() => setShowBell((v) => !v)}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+            className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
             title="Recent opens"
           >
             <span className="relative">
@@ -153,13 +155,13 @@ export function Sidebar() {
           </button>
           {showBell && (
             <div
-              className="absolute bottom-14 left-0 z-50 max-h-96 w-72 overflow-y-auto rounded-2xl bg-white p-1 shadow-2xl"
+              className="absolute bottom-14 left-0 z-50 max-h-96 w-72 overflow-y-auto rounded-2xl bg-card p-1 shadow-2xl"
               style={{ border: '1px solid var(--cb-border-strong)' }}
             >
-              <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--cb-divider)' }}>
+              <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid var(--cb-divider)' }}>
                 <p className="text-sm font-semibold" style={{ color: 'var(--cb-ink)' }}>Recent opens</p>
                 {recentClicks.length > 0 && <button type="button" onClick={() => void clearAll()}
-                  className="text-xs text-brand-purple hover:underline">Clear All</button>}
+                  className="text-xs font-medium text-cb-accent hover:underline">Clear all</button>}
               </div>
               {recentClicks.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm" style={{ color: 'var(--cb-muted)' }}>
@@ -171,10 +173,9 @@ export function Sidebar() {
                     <p className="truncate text-sm" style={{ color: 'var(--cb-ink)' }} title={click.filename || click.original_url || undefined}>
                       {(click.filename || click.original_url || 'Link open').slice(0, 34)}
                     </p>
-                    <p className="mt-0.5 text-xs" style={{ color: 'var(--cb-muted)' }}>
-                      {[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}
-                      {' · '}
-                      {click.device_type || 'Unknown device'}
+                    <p className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                      <span className="rounded-full bg-cb-chip px-2 py-0.5 text-cb-text">{[click.country, click.region].filter(Boolean).join(', ') || 'Unknown location'}</span>
+                      <span className="rounded-full bg-cb-chip px-2 py-0.5 text-cb-text">{click.device_type || 'Unknown device'}</span>
                     </p>
                   </div>
                 ))
@@ -199,8 +200,7 @@ export function Sidebar() {
 
       {/* Mobile top bar */}
       <div
-        className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 md:hidden"
-        style={{ background: 'var(--cb-side1)', color: '#ffffff' }}
+        className="sticky top-0 z-40 flex items-center justify-between bg-sidebar px-4 py-2 text-sidebar-foreground md:hidden"
       >
         <Link to="/" className="flex items-center">
           <Logo tone="dark" size={30} />
@@ -208,7 +208,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setMobileOpen(true)}
-            className="rounded-lg p-2 text-white/70 hover:bg-white/10 hover:text-white"
+            className="rounded-lg p-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-label="Open menu"
           >
             <Menu className="h-6 w-6" />

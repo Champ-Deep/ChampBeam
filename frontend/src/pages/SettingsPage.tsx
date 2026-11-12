@@ -16,6 +16,7 @@ import { SystemSettings } from '../components/SystemSettings';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 import { systemApi } from '../api/system';
 import { useAuth } from '../lib/authClient';
+import { PageHeader } from '../components/ui/PageHeader';
 
 type SettingsTab = 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
 
@@ -58,7 +59,7 @@ export function SettingsPage() {
   if (params.get('tab') === 'presets' || params.get('tab') === 'utm') return <Navigate to="/links?tab=utm&panel=presets" replace />;
   if (isLoading) return <p role="status">Loading workspace settings…</p>;
   if (error) return <p role="alert">Could not verify workspace access. Reload or sign in again.</p>;
-  return <div className="cb-workspace"><h1>Settings</h1>{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
+  return <div className="cb-workspace"><PageHeader title="Settings" lede="Domains, keys, appearance and notifications for this workspace." />{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
 }
 
 function PersonalSettings() {

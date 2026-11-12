@@ -15,6 +15,7 @@ import { Card, Button, Input, Badge, LoadingSpinner, EmptyState, QrButton, Folde
 import { UtmUrlBuilder } from '../components/UtmUrlBuilder';
 import { utmApi } from '../api/utm';
 import type { Project, ProjectCreate } from '../api/utm';
+import { PageHeader } from '../components/ui/PageHeader';
 
 const EMPTY_FORM: ProjectCreate = { name: '', description: '' };
 
@@ -352,20 +353,14 @@ export function LinksPage() {
   // Render
   // ---------------------------------------------------------------
 
-  if (params.get('tab') === 'utm') return <div className="cb-workspace"><h1>Links</h1><nav className="cb-actions"><Link to="/links">Tracked links</Link><Link className="min-w-11" to="/links?tab=utm" aria-current="page">UTM</Link></nav><LinkGenerator />{canShare && <details open={params.get('panel') === 'presets'}><summary>Saved UTM presets</summary><PresetsManager /></details>}<UtmUrlBuilder onClose={() => navigate('/links')} /></div>;
+  if (params.get('tab') === 'utm') return <div className="cb-workspace"><PageHeader title="Links" lede="Build UTM links, manage saved presets and import a bulk CSV."><nav className="cb-subnav" aria-label="Links views"><Link to="/links">Tracked links</Link><Link className="min-w-11" to="/links?tab=utm" aria-current="page">UTM, presets and bulk CSV</Link></nav></PageHeader><LinkGenerator />{canShare && <details open={params.get('panel') === 'presets'}><summary>Saved UTM presets</summary><PresetsManager /></details>}<UtmUrlBuilder onClose={() => navigate('/links')} /></div>;
 
   return (
     <div className="cb-workspace cb-share-list max-w-7xl mx-auto py-8 px-4">
-      <nav className="cb-actions"><Link to="/links" aria-current="page">Tracked links</Link><Link to="/links?tab=utm">UTM, presets and bulk CSV</Link></nav>
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">Links</h1>
-          <p className="text-slate-600 mt-1">
-            Tracked links from the last 365 days, using the same view as the sidebar and recent shares.
-          </p>
-        </div>
-        <Button
+      <PageHeader
+        title="Links"
+        lede="Tracked links from the last 365 days, using the same view as the sidebar and recent shares."
+        actions={<Button
           variant="outline"
           size="sm"
           onClick={() => setShowUtmBuilder(true)}
@@ -373,8 +368,10 @@ export function LinksPage() {
           title="Append UTM parameters without shortening or tracking"
         >
           Add UTM parameters to your links
-        </Button>
-      </div>
+        </Button>}
+      >
+        <nav className="cb-subnav" aria-label="Links views"><Link to="/links" aria-current="page">Tracked links</Link><Link to="/links?tab=utm">UTM, presets and bulk CSV</Link></nav>
+      </PageHeader>
 
       {/* Append-only UTM builder (no short link, no tracking). */}
       {showUtmBuilder && (

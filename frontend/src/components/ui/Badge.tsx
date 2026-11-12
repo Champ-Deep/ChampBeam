@@ -9,11 +9,11 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
   ({ className, variant = 'default', size = 'md', children, ...props }, ref) => {
     const variants = {
-      default: 'bg-slate-100 text-slate-700',
-      success: 'bg-green-100 text-green-700',
-      warning: 'bg-yellow-100 text-yellow-700',
-      danger: 'bg-red-100 text-red-700',
-      info: 'bg-brand-purple/10 text-brand-purple',
+      default: 'bg-cb-chip text-cb-ink',
+      success: 'bg-success-soft text-success',
+      warning: 'bg-warning-soft text-warning',
+      danger: 'bg-danger-soft text-danger',
+      info: 'bg-cb-accent-soft text-cb-accent',
     };
 
     const sizes = {
@@ -25,7 +25,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span
         ref={ref}
         className={clsx(
-          'inline-flex items-center font-medium rounded-full',
+          'inline-flex items-center gap-1.5 font-medium rounded-full whitespace-nowrap before:size-1.5 before:shrink-0 before:rounded-full before:bg-current',
           variants[variant],
           sizes[size],
           className

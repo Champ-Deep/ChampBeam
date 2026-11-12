@@ -27,12 +27,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           aria-invalid={error ? true : undefined}
           aria-describedby={error || helperText ? `${inputId}-hint` : undefined}
           className={clsx(
-            'w-full h-10 px-3 rounded-lg border bg-white text-sm outline-none transition-colors',
+            'w-full h-10 px-3 rounded-[10px] border bg-surface text-sm text-cb-ink outline-none transition-colors placeholder:text-cb-muted',
             'placeholder:text-slate-400',
             'focus:ring-2 focus:ring-offset-0',
             error
               ? 'border-red-300 focus:border-red-500 focus:ring-red-200'
-              : 'border-slate-300 focus:border-brand-purple focus:ring-brand-purple/20',
+              : 'border-cb-icon/70 focus:border-cb-accent focus:ring-2 focus:ring-cb-accent/20',
             'disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed',
             className
           )}

@@ -26,11 +26,12 @@ export function OrgSwitcher() {
 
   return <div className="cb-org-switcher" ref={(el) => setDialog(el?.closest('dialog') ?? null)}>
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-[14px] text-white hover:bg-white/5" aria-label={`Workspace: ${active.name}. Switch workspace`}>
-        <span className="min-w-0 flex-1 truncate">{active.name}</span>
-        <ChevronsUpDown className="h-4 w-4 flex-shrink-0 text-white/70" aria-hidden="true" />
+      <DropdownMenuTrigger className="mb-2 flex min-h-11 w-full items-center gap-2.5 rounded-[10px] border border-sidebar-border bg-sidebar-accent/50 px-2.5 text-left text-[14px] text-sidebar-accent-foreground hover:bg-sidebar-accent" aria-label={`Workspace: ${active.name}. Switch workspace`}>
+        <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-[12px] font-bold text-sidebar-primary-foreground">{active.name.slice(0, 1).toUpperCase()}</span>
+        <span className="min-w-0 flex-1 truncate font-medium">{active.name}</span>
+        <ChevronsUpDown className="h-4 w-4 flex-shrink-0 opacity-70" aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent container={dialog} align="start" className="w-64 rounded-xl border-[var(--cb-border-strong)] bg-white p-1 text-[var(--cb-ink)]">
+      <DropdownMenuContent container={dialog} align="start" className="w-64 rounded-xl border-[var(--cb-border)] bg-card p-1 text-[var(--cb-ink)] shadow-xl">
         <DropdownMenuLabel className="px-3 text-[12px] font-medium text-[var(--cb-muted)]">Switch workspace</DropdownMenuLabel>
         {entries.map((e) => <DropdownMenuItem key={e.id ?? 'personal'} className={item} onSelect={() => void select(e.id)} aria-current={e.id === orgId ? 'true' : undefined}>
           <span className="min-w-0 flex-1 truncate">{e.name}</span>
