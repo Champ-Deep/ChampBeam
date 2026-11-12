@@ -464,9 +464,8 @@ router.get("/", async (c) => {
     .from(fileAssets)
     .where(and(eq(fileAssets.userId, user.userId), ne(fileAssets.status, FILE_STATUS_DELETED)))
     .orderBy(desc(fileAssets.createdAt));
-  const out = [];
-  for (const a of rows) out.push(await fileResponse(c.var.db, c.var.settings, a));
-  return c.json(out);
+  // Per-row reads run concurrently (sequential took 6.9 s on production D1); Promise.all keeps the order.
+  return c.json(await Promise.all(rows.map((a) => fileResponse(c.var.db, c.var.settings, a))));
 });
 
 /** Update a file's mutable fields. Currently: assign it to a project (folder). */

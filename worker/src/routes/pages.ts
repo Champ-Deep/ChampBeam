@@ -377,9 +377,8 @@ router.get("/", async (c) => {
     .orderBy(desc(fileAssets.createdAt));
   // Pre-Beam-Pages uploads get a slug on first sight (persisted by ensureSlug).
   for (const a of rows) await pagesService.ensureSlug(db, a, titleFromFilename(a.filename));
-  const out = [];
-  for (const a of rows) out.push(await pageResponse(c, a));
-  return c.json(out);
+  // Per-row reads run concurrently: sequentially, 65 pages took 15.8 s on production D1.
+  return c.json(await Promise.all(rows.map((a) => pageResponse(c, a))));
 });
 
 /** Lazy per-item blob check for the UI: missing vs forbidden vs storage outage. */
