@@ -9,7 +9,14 @@ import { createAuth } from "../src/auth/betterAuth";
 import { getDb } from "../src/db/client";
 
 const sent: { to: string; text: string }[] = [];
-const auth = () => createAuth({ ...env, EMAIL: { send: async (m: { to: string; text: string }) => void sent.push(m) } } as unknown as Env, getDb(env.DB));
+const pending: Promise<unknown>[] = [];
+let sendDelayMs = 0;
+const auth = () =>
+  createAuth(
+    { ...env, EMAIL: { send: async (m: { to: string; text: string }) => { await new Promise((r) => setTimeout(r, sendDelayMs)); sent.push(m); } } } as unknown as Env,
+    getDb(env.DB),
+    (p) => void pending.push(p),
+  );
 let ipSeq = 0;
 const post = (path: string, body: unknown) =>
   auth().handler(new Request(`${BASE}/api/auth${path}`, {
@@ -41,6 +48,7 @@ describe("password reset for a migrated user with no credential", () => {
 
     const asked = await post("/request-password-reset", { email, redirectTo: `${BASE}/reset-password` });
     expect(asked.status).toBe(200);
+    await Promise.all(pending); // the mail is sent after the response
     const mail = sent.at(-1)!;
     expect(mail.to).toBe(email);
     const token = /\/reset-password\/([^?\s]+)\?callbackURL=/.exec(mail.text)?.[1];
@@ -65,12 +73,24 @@ describe("password reset for a migrated user with no credential", () => {
     expect((await post("/reset-password", { token, newPassword: "another-password-1" })).status).toBe(400);
   });
 
-  it("answers an unknown email exactly like a known one and sends nothing", async () => {
-    const known = await post("/request-password-reset", { email: "returning@championsmail.com", redirectTo: `${BASE}/reset-password` });
+  it("answers an unknown email exactly like a known one, as fast, and only mails the known one", async () => {
+    const email = "known-reset@championsmail.com";
+    await migratedUser(email);
+    const ask = async (to: string) => {
+      const t = performance.now();
+      const res = await post("/request-password-reset", { email: to, redirectTo: `${BASE}/reset-password` });
+      return { res, ms: performance.now() - t };
+    };
+    sendDelayMs = 400; // a slow mailer must not show in the response time
+    await Promise.all(pending);
     const before = sent.length;
-    const unknown = await post("/request-password-reset", { email: "nobody@championsmail.com", redirectTo: `${BASE}/reset-password` });
-    expect(unknown.status).toBe(known.status);
-    expect(await unknown.text()).toBe(await known.text());
-    expect(sent.length).toBe(before);
+    const known = await ask(email);
+    const unknown = await ask("nobody-here@championsmail.com");
+    expect(unknown.res.status).toBe(known.res.status);
+    expect(await unknown.res.text()).toBe(await known.res.text());
+    expect(Math.abs(known.ms - unknown.ms)).toBeLessThan(150);
+    await Promise.all(pending);
+    sendDelayMs = 0;
+    expect(sent.slice(before).map((m) => m.to)).toEqual([email]);
   });
 });

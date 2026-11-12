@@ -50,7 +50,10 @@ export const isOrgLeader = (u: TokenData): boolean => !!u.orgId && (u.orgRole ??
 export function authOf(c: Ctx): Auth {
   let auth = c.get("auth");
   if (!auth) {
-    auth = createAuth(c.env, c.var.db);
+    // No execution context outside the Workers runtime (unit tests): Better Auth then awaits background work.
+    let ctx: Ctx["executionCtx"] | undefined;
+    try { ctx = c.executionCtx; } catch { /* none */ }
+    auth = createAuth(c.env, c.var.db, ctx && ((p) => ctx.waitUntil(p)));
     c.set("auth", auth);
   }
   return auth;

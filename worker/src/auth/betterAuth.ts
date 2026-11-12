@@ -36,7 +36,7 @@ const roles = {
   viewer: ac.newRole({}),
 };
 
-export function createAuth(env: Env, db: Db) {
+export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) => void) {
   const settings = getSettings(env);
   const google = settings.googleClientId && settings.googleClientSecret;
   // An email failure must never fail the reset request that triggered it (and must not reveal which emails exist).
@@ -107,6 +107,8 @@ export function createAuth(env: Env, db: Db) {
     },
     advanced: {
       cookiePrefix: "champbeam",
+      // Send mail after the response: awaiting it would make a known address slower than an unknown one.
+      ...(waitUntil ? { backgroundTasks: { handler: waitUntil } } : {}),
       // Same check in tests as in production (Better Auth skips it under NODE_ENV=test).
       disableOriginCheck: false,
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },

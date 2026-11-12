@@ -93,7 +93,7 @@ export function SignInPage() {
   return <AuthShell title="Sign in" lede="Welcome back. Sign in to your workspace." footer={<>No account? <Link to="/sign-up" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Create one</Link></>}>
     <FormAlert text={errors.form ?? (params.get('reset') ? 'Password updated. Sign in with your new password.' : undefined)} />
     {/* Same line for every rejected sign-in, so it never reveals which emails have an account. */}
-    {rejected && <p role="status" className="mb-4 rounded-lg border px-3 py-2 text-[14px]" style={{ borderColor: 'var(--cb-accent)', color: 'var(--cb-ink)', background: 'var(--cb-bg)' }}>Had an account before November 2026? We moved to a new sign-in system and old passwords did not come with us. <Link to={forgot} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Set a new password</Link> and your files will be right where you left them.</p>}
+    {rejected && <p role="status" className="mb-4 rounded-lg border px-3 py-2 text-[14px]" style={{ borderColor: 'var(--cb-accent)', color: 'var(--cb-ink)', background: 'var(--cb-bg)' }}>Had an account before November 2026? <Link to={forgot} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Set a new password</Link> and your files will be right where you left them.</p>}
     <GoogleButton onError={(form) => setErrors({ form })} />
     <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
       <Input id="sign-in-email" label="Email" type="email" autoComplete="email" className="h-11 text-base!" value={email} onChange={(e) => setEmail(e.target.value)} error={errors.email} />

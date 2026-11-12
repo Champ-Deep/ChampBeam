@@ -28,5 +28,8 @@ describe('sign-in page', () => {
     expect(await screen.findByText('Email or password is incorrect.')).toBeVisible();
     expect(signInEmail).toHaveBeenCalledWith({ email: 'a@example.invalid', password: 'wrong-password' });
     expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true');
+    // The fixed returning-user line, identical for every rejected email, linking to Forgot password.
+    expect(screen.getByRole('status')).toHaveTextContent('Had an account before November 2026? Set a new password and your files will be right where you left them.');
+    expect(screen.getByRole('link', { name: 'Set a new password' })).toHaveAttribute('href', expect.stringContaining('/forgot-password'));
   });
 });
