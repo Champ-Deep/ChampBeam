@@ -98,7 +98,11 @@ describe('members', () => {
 describe('domain DNS card', () => {
   it('copies the exact record values, one by one and all for IT', async () => {
     const records = dnsRecordsFor('share.acme.com', 'cname.champbeam.com');
-    mount(<DnsRecordsCard hostname="share.acme.com" records={records} />);
+    const { container } = mount(<DnsRecordsCard hostname="share.acme.com" records={records} />);
+    // Break points sit only after "." or "-", and the rendered text stays exact.
+    const values = [...container.querySelectorAll('.cb-dns-value')];
+    expect(values.map((v) => v.textContent)).toEqual(['share.acme.com', 'cname.champbeam.com']);
+    expect(values[1].querySelectorAll('wbr')).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Copy CNAME value' }));
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('cname.champbeam.com'));
     fireEvent.click(screen.getByRole('button', { name: 'Copy CNAME name' }));

@@ -105,6 +105,17 @@
 .cb-dns .cb-table-scroll { margin:8px 0 0; background:#fff; border:1px solid var(--cb-border); border-radius:8px; }
 .cb-table-scroll .cb-dns-table td { padding:6px 10px; vertical-align:middle; }
 .cb-dns-cell { display:flex; align-items:center; justify-content:space-between; gap:4px; min-width:0; }
+.cb-dns { container-type:inline-size; }
+.cb-dns-value { overflow-wrap:break-word; min-width:0; }
+/* Narrow column: stack each record as type, name, value, each value full width beside its copy button. */
+@container (max-width:599px) {
+  .cb-dns-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .cb-dns-table, .cb-dns-table tbody, .cb-dns-table tr, .cb-table-scroll .cb-dns-table td { display:block; }
+  .cb-dns-table tr { padding:10px 12px; border-bottom:1px solid var(--cb-border); }
+  .cb-dns-table tr:last-child { border-bottom:0; }
+  .cb-table-scroll .cb-dns-table td { padding:2px 0; border:0; }
+  .cb-dns-table td[data-label="Name"]::before, .cb-dns-table td[data-label="Value"]::before { content:attr(data-label); display:block; margin-top:6px; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--cb-muted); }
+}
 .cb-notice { padding:16px 18px; border-radius:10px; background:var(--cb-accent2-soft); color:var(--cb-text); }
 .cb-notice p { margin:0; max-width:65ch; font-size:14.5px; }
 .cb-notice .cb-notice-title { font:600 16px 'Space Grotesk', sans-serif; color:var(--cb-ink); margin-bottom:4px; }
