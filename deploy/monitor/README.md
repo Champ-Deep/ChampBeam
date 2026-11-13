@@ -1,6 +1,8 @@
 # Champ fleet health monitor
 
-One monitor for every deployed Champ tool. Runs on the VPS (DeependHQ-Hermes)
+This monitor runs on the retired VPS. It is not how https://champbeam.com is checked. The Worker health URL is `GET /health` on that host. The script below is the old box-level check.
+
+One monitor for the tools that used to run on that VPS. It runs on the VPS
 every 2 minutes and pages your phone through the same ntfy sink `hermes-guard`
 already uses, so there is exactly one place that knows how to reach you.
 
@@ -10,7 +12,7 @@ already uses, so there is exactly one place that knows how to reach you.
 |---|---|
 | Each tool's public URL (status + a required string in the body) | A 200 that serves the wrong build is still an outage |
 | TLS certificate expiry (< 14 days) | Certs die quietly on a weekend |
-| Root disk, available RAM, swap pressure | The box is 2 vCPU / 3.8 GB — it fills up |
+| Root disk, available RAM, swap pressure | The box is 2 vCPU / 3.8 GB, it fills up |
 | Unhealthy / exited containers | Coolify restarts things; sometimes they stay down |
 | MaxMind credit balance, burn rate, run-out date | Geo enrichment stops silently when credits hit zero |
 
@@ -40,7 +42,7 @@ ssh root@64.227.154.215 'chmod +x /root/champ-health.sh && systemctl daemon-relo
 
 Copy `champ-health.env.example` to `/root/champ-health.env` (chmod 600) and put a
 `cb_live_` API key in it. The key must exist in the database of whichever
-ChampBeam you point `CHAMPBEAM_API` at — Railway and the VPS have separate databases.
+ChampBeam you point `CHAMPBEAM_API` at, Railway and the VPS have separate databases.
 
 ## Commands
 
