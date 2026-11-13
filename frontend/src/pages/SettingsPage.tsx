@@ -4,7 +4,7 @@ import { OrganizationSettings } from '../components/OrganizationSettings';
 import { useOrgContext } from '../hooks/useOrgContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Trash2, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
@@ -16,6 +16,10 @@ import { SystemSettings } from '../components/SystemSettings';
 import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 import { systemApi } from '../api/system';
 import { useAuth } from '../lib/authClient';
+import { useAppConfig } from '../hooks/useAppConfig';
+import { CreateOrgDialog } from '../components/org/CreateOrgDialog';
+import { DnsRecordsCard } from '../components/org/DnsRecords';
+import { dnsRecordsFor } from '../lib/selfServeRules';
 
 type SettingsTab = 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
 
@@ -26,10 +30,10 @@ function initialTab(param: string | null): SettingsTab {
 }
 
 const STATUS_LABEL: Record<DomainStatus, string> = {
-  pending_cname: 'Waiting on CNAME',
-  pending_ssl: 'Issuing certificate',
+  pending_cname: 'Pending',
+  pending_ssl: 'Verifying',
   active: 'Active',
-  failed: 'Failed',
+  failed: 'Error',
 };
 
 const STATUS_VARIANT: Record<DomainStatus, 'default' | 'warning' | 'info' | 'success' | 'danger'> = {
@@ -58,11 +62,22 @@ export function SettingsPage() {
   if (params.get('tab') === 'presets' || params.get('tab') === 'utm') return <Navigate to="/links?tab=utm&panel=presets" replace />;
   if (isLoading) return <p role="status">Loading workspace settings…</p>;
   if (error) return <p role="alert">Could not verify workspace access. Reload or sign in again.</p>;
-  return <div className="cb-workspace"><h1>Settings</h1>{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
+  return <div className="cb-workspace"><div className="cb-section-head"><h1>Settings</h1><CreateOrgEntry /></div>{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
+}
+
+/** Settings entry point for creating an organization; only accounts allowed to create one see it. */
+export function CreateOrgEntry() {
+  const { data: config } = useAppConfig();
+  const [open, setOpen] = useState(false);
+  if (!config?.can_create_org) return null;
+  return <><Button variant="outline" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>Create organization</Button>
+    <CreateOrgDialog open={open} onOpenChange={setOpen} platformHost={config.platform_host} /></>;
 }
 
 function PersonalSettings() {
   const { userId } = useAuth();
+  const { data: appConfig } = useAppConfig();
+  const customDomains = !!appConfig?.custom_domains_enabled;
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -127,7 +142,7 @@ function PersonalSettings() {
   const primaryMutation = useMutation({
     mutationFn: (id: string) => utmApi.setPrimaryDomain(id),
     onSuccess: () => {
-      toast.success('Primary domain updated.');
+      toast.success('Default domain updated. New links use it.');
       queryClient.invalidateQueries({ queryKey: ['domains'] });
     },
     onError: (err: unknown) => {
@@ -273,13 +288,20 @@ function PersonalSettings() {
             />
           )}
 
-          <AddOwnDomainCard
-            config={config}
-            onAdd={(hostname) => createMutation.mutate(hostname)}
-            submitting={createMutation.isPending}
-          />
+          {customDomains ? (
+            <AddOwnDomainCard
+              config={config}
+              onAdd={(hostname) => createMutation.mutate(hostname)}
+              submitting={createMutation.isPending}
+            />
+          ) : appConfig && (
+            <div className="cb-notice mb-6" role="note">
+              <p className="cb-notice-title">Custom domains are being set up</p>
+              <p>Soon you can share from your own domain, such as share.yourcompany.com. Links you make now keep working when it arrives.</p>
+            </div>
+          )}
 
-          {config?.procurement_enabled && <BuyDomainCard />}
+          {customDomains && config?.procurement_enabled && <BuyDomainCard />}
 
           <Card>
             <CardHeader>
@@ -289,8 +311,11 @@ function PersonalSettings() {
               <div className="py-8 text-center text-sm text-slate-500">Loading.</div>
             ) : domains.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-500">
-                No custom domains yet. Claim a subdomain or add your own above to start
-                sharing branded short links.
+                {customDomains
+                  ? 'No custom domains yet. Claim a subdomain or add your own above to start sharing branded short links.'
+                  : config?.subdomain_enabled && config.platform_subdomain_base
+                    ? 'No domains yet. Claim a subdomain above to start sharing branded short links.'
+                    : `No domains yet. Your links use ${appConfig?.platform_host ?? 'the ChampBeam address'} for now.`}
               </div>
             ) : (
               <div className="divide-y divide-slate-100 -mx-6 -mb-6">
@@ -471,12 +496,6 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
             <Badge variant={STATUS_VARIANT[domain.status]} size="sm">
               {STATUS_LABEL[domain.status]}
             </Badge>
-            {domain.is_primary && (
-              <Badge variant="info" size="sm">
-                <Star className="h-3 w-3 mr-1 inline" />
-                Primary
-              </Badge>
-            )}
             {!domain.cloudflare_managed && (
               <Badge variant="default" size="sm">Local mode</Badge>
             )}
@@ -493,13 +512,9 @@ function DomainRow({ domain, config, onRefresh, onSetPrimary, onDelete, refreshi
             disabled={refreshing}
             leftIcon={<RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />}
           >
-            {refreshing ? 'Checking' : 'Refresh'}
+            {refreshing ? 'Checking' : 'Recheck'}
           </Button>
-          {isActive && !domain.is_primary && (
-            <Button variant="outline" size="sm" onClick={onSetPrimary} leftIcon={<Star className="h-4 w-4" />}>
-              Set primary
-            </Button>
-          )}
+          <DefaultToggle domain={domain} onSetPrimary={onSetPrimary} />
           <Button
             variant="ghost"
             size="sm"
@@ -568,13 +583,8 @@ function SetupInstructions({
       <p className="font-medium text-slate-900 mb-2">Setup steps</p>
       <ol className="list-decimal list-inside space-y-2">
         <li>
-          In your DNS provider, add a CNAME record from{' '}
-          <code className="font-mono text-slate-900">{domain.hostname}</code> to{' '}
-          <code className="font-mono text-slate-900">{cname}</code>:
-          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <CopyableField label="Name" value={domain.hostname} />
-            <CopyableField label="Value" value={cname} />
-          </div>
+          In your DNS provider, add the record below, or send it to your IT team:
+          <DnsRecordsCard hostname={domain.hostname} records={dnsRecordsFor(domain.hostname, cname)} />
           <p className="mt-2 text-xs text-slate-500">
             Where to add it: <span className="font-medium">Namecheap</span>: Domain List
             &rarr; Manage &rarr; Advanced DNS &rarr; Add New Record (Type: CNAME, Host:{' '}
@@ -584,7 +594,7 @@ function SetupInstructions({
             it to "DNS only" while verifying).
           </p>
         </li>
-        <li>Wait 1 to 5 minutes for DNS to propagate, then click "Refresh".</li>
+        <li>Wait 1 to 5 minutes for DNS to propagate, then click "Recheck".</li>
         <li>We issue a TLS certificate; the status flips to Active automatically.</li>
       </ol>
     </div>
@@ -707,22 +717,15 @@ function BuyDomainCard() {
   );
 }
 
-function CopyableField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2 bg-white border border-slate-200 rounded px-2 py-1">
-      <span className="text-xs text-slate-500 w-12 flex-shrink-0">{label}</span>
-      <code className="text-xs font-mono text-slate-900 break-all flex-1">{value}</code>
-      <button
-        type="button"
-        className="text-slate-400 hover:text-slate-700"
-        onClick={() => {
-          navigator.clipboard.writeText(value);
-          toast.success('Copied');
-        }}
-        aria-label={`Copy ${label}`}
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
+/** "Use as default for new links". There is no unset call, so the default is changed by picking another domain. */
+function DefaultToggle({ domain, onSetPrimary }: { domain: Domain; onSetPrimary: () => void }) {
+  const why = domain.is_primary ? 'This is your default. Turn it on for another domain to change it.'
+    : domain.status !== 'active' ? 'Available once the domain is active.' : '';
+  return <span className="cb-switch-wrap">
+    <label className="cb-switch">
+      <input type="checkbox" role="switch" checked={domain.is_primary} disabled={domain.is_primary || domain.status !== 'active'} onChange={onSetPrimary} aria-describedby={why ? `why-${domain.id}` : undefined} />
+      <span>Use as default for new links</span>
+    </label>
+    {why && <span id={`why-${domain.id}`} className="cb-hint">{why}</span>}
+  </span>;
 }

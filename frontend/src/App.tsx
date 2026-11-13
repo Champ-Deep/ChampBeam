@@ -20,6 +20,8 @@ import { PageAnalyticsPage } from './pages/PageAnalyticsPage';
 import { ContentLibraryPage } from './pages/ContentLibraryPage';
 import { TeamAnalyticsPage } from './pages/TeamAnalyticsPage';
 import { VaultPage } from './pages/VaultPage';
+import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
+import { AdminOrgsPage } from './pages/AdminOrgsPage';
 import { useOrgContext } from './hooks/useOrgContext';
 
 
@@ -97,6 +99,8 @@ export default function App() {
                 <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><OrgRoute team><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+                <Route path="/admin/orgs" element={<ProtectedRoute><AdminOrgsPage /></ProtectedRoute>} />
+                <Route path="/accept-invitation/:id" element={<AcceptInvitationPage />} />
             </Routes>
           </Chrome>
         } />

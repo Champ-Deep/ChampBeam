@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { nextPath } from '../lib/selfServeRules';
 import { authClient, googleSignInEnabled, useAuth } from '../lib/authClient';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -29,7 +30,8 @@ function serverErrors(err: AuthError): Errors {
 
 function AuthShell({ title, lede, children, footer }: { title: string; lede: string; children: ReactNode; footer: ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
-  if (isLoaded && isSignedIn) return <Navigate to="/" replace />;
+  const [params] = useSearchParams();
+  if (isLoaded && isSignedIn) return <Navigate to={nextPath(params)} replace />;
   return (
     <main className="flex min-h-screen items-center justify-center p-4" style={{ background: 'var(--cb-bg)' }}>
       <Card padding="lg" className="w-full max-w-[400px]">
@@ -66,7 +68,7 @@ function FormAlert({ text }: { text?: string }) {
 export function SignInPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>(params.get('error') ? { form: 'Google sign-in did not finish. Try again.' } : {});
   const [busy, setBusy] = useState(false);
@@ -82,10 +84,10 @@ export function SignInPage() {
     const { error } = await authClient.signIn.email({ email: email.trim(), password });
     setBusy(false);
     if (error) setErrors(serverErrors(error));
-    else void navigate('/', { replace: true });
+    else void navigate(nextPath(params), { replace: true });
   }
 
-  return <AuthShell title="Sign in" lede="Welcome back. Sign in to your workspace." footer={<>No account? <Link to="/sign-up" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Create one</Link></>}>
+  return <AuthShell title="Sign in" lede="Welcome back. Sign in to your workspace." footer={<>No account? <Link to={`/sign-up${params.size ? `?${params.toString()}` : ''}`} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Create one</Link></>}>
     <FormAlert text={errors.form} />
     <GoogleButton onError={(form) => setErrors({ form })} />
     <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
@@ -98,8 +100,9 @@ export function SignInPage() {
 
 export function SignUpPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
@@ -116,10 +119,10 @@ export function SignUpPage() {
     const { error } = await authClient.signUp.email({ name: name.trim(), email: email.trim(), password });
     setBusy(false);
     if (error) setErrors(serverErrors(error));
-    else void navigate('/', { replace: true });
+    else void navigate(nextPath(params), { replace: true });
   }
 
-  return <AuthShell title="Create your account" lede="Share files, pages and links, and see who opens them." footer={<>Already have an account? <Link to="/sign-in" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Sign in</Link></>}>
+  return <AuthShell title="Create your account" lede="Share files, pages and links, and see who opens them." footer={<>Already have an account? <Link to={`/sign-in${params.size ? `?${params.toString()}` : ''}`} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Sign in</Link></>}>
     <FormAlert text={errors.form} />
     <GoogleButton onError={(form) => setErrors({ form })} />
     <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>
