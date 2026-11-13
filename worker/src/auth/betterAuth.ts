@@ -88,7 +88,7 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
     },
     account: {
       // Links a Google sign-in to an existing users row only when Google says the email is verified.
-      accountLinking: { enabled: true },
+      accountLinking: { enabled: true, requireLocalEmailVerified: true },
     },
     emailAndPassword: {
       enabled: true,
@@ -163,6 +163,8 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         roles,
         creatorRole: "admin",
         allowUserToCreateOrganization: false,
+        // Explicit, not a side effect of the custom generateId: an unverified sign-up must not accept an invitation addressed to someone else.
+        requireEmailVerificationOnInvitation: true,
         organizationHooks: {
           // Removing a member deletes the row; also end their reporting grants, as the Clerk revoke did.
           afterRemoveMember: async ({ member }) => {

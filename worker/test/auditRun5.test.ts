@@ -46,7 +46,7 @@ describe("open sign-up does not reach the shared org", () => {
     expect(up.status).toBe(200);
     const inn = await POST("/api/auth/sign-in/email", { ...ORIGIN, ...ip() }, { email, password: "long enough pw" });
     const cookie = { Cookie: inn.headers.getSetCookie().find((c) => c.includes("session_token="))!.split(";")[0]!, Origin: BASE };
-    const members = await POST("/api/auth/organization/list-members", cookie, { organizationId: orgId });
+    const members = await api(`/api/auth/organization/list-members?organizationId=${orgId}`, { headers: cookie });
     expect(members.status).not.toBe(200);
     expect(await members.text()).not.toContain("admin-roster@example.com");
     const full = await api(`/api/auth/organization/get-full-organization?organizationId=${orgId}`, { headers: cookie });
@@ -102,10 +102,37 @@ describe("Better Auth organization plugin honours ChampBeam membership rules", (
     const h = await sessionHeaders(t.admin.id, t.orgId);
     expect((await promote(h, t)).status).toBe(403);
     expect(await roleOf(t.targetMember)).toBe("member");
-    expect((await POST("/api/auth/organization/list-members", h, { organizationId: t.orgId })).status).toBe(403);
+    expect((await api(`/api/auth/organization/list-members?organizationId=${t.orgId}`, { headers: h })).status).toBe(403);
+    expect((await api(`/api/auth/organization/get-active-member-role?organizationId=${t.orgId}`, { headers: h })).status).toBe(403);
     // Naming the org by slug (no organizationId) must not dodge the check.
     const slug = (await env.DB.prepare("SELECT slug FROM organizations WHERE id = ?").bind(t.orgId).first<{ slug: string }>())!.slug;
     expect((await api(`/api/auth/organization/get-full-organization?organizationSlug=${slug}`, { headers: h })).status).toBe(403);
+  });
+
+  it("the guard checks every way the plugin can name the org: empty id, decoy query, slug, invitation id", async () => {
+    const t = await tenant();
+    const other = await createOrg(); // the same user stays an active admin here, so a decoy naming it is accepted by Better Auth
+    await addMember(other.id, t.admin.id, "admin");
+    await env.DB.prepare("UPDATE organization_memberships SET status = 'revoked' WHERE organization_id = ? AND user_id = ?").bind(t.orgId, t.admin.id).run();
+    const inA = await sessionHeaders(t.admin.id, t.orgId);
+    const slugA = (await env.DB.prepare("SELECT slug FROM organizations WHERE id = ?").bind(t.orgId).first<{ slug: string }>())!.slug;
+    const role = { memberId: t.targetMember, role: "admin" };
+    // empty organizationId falls back to the active (revoked) org inside Better Auth
+    expect((await POST("/api/auth/organization/update-member-role", inA, { ...role, organizationId: "" })).status).toBe(403);
+    // a decoy ?organizationId on a POST that names no org in its body
+    expect((await POST(`/api/auth/organization/update-member-role?organizationId=${other.id}`, inA, role)).status).toBe(403);
+    // an id for the org the caller still holds, plus the slug of the revoked one
+    expect((await api(`/api/auth/organization/get-full-organization?organizationId=${other.id}&organizationSlug=${slugA}`, { headers: inA })).status).toBe(403);
+    expect((await api(`/api/auth/organization/list-members?organizationId=${other.id}&organizationSlug=${slugA}`, { headers: inA })).status).toBe(403);
+    expect(await roleOf(t.targetMember)).toBe("member");
+    // the invitation id names the org (session active org is the one the caller still belongs to)
+    const inv = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO invitation (id, organization_id, email, role, status, expires_at, created_at, inviter_id) VALUES (?,?,?,?,?,?,?,?)")
+      .bind(inv, t.orgId, "invitee@example.com", "member", "pending", Date.now() + 86_400_000, Date.now(), t.target.id).run();
+    const inB = await sessionHeaders(t.admin.id, other.id);
+    expect((await POST("/api/auth/organization/cancel-invitation", inB, { invitationId: inv })).status).toBe(403);
+    const st = await env.DB.prepare("SELECT status FROM invitation WHERE id = ?").bind(inv).first<{ status: string }>();
+    expect(st?.status).toBe("pending");
   });
 
   it("a deactivated admin is a 401 on the plugin routes", async () => {

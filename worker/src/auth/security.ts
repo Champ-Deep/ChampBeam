@@ -11,11 +11,11 @@
  *   Depends(require_org_admin)           -> await requireOrgAdmin(c)
  *   Depends(require_org_leader_or_admin) -> await requireOrgLeaderOrAdmin(c)
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv, Ctx } from "../env";
 import { trustedOrigins } from "../lib/cors";
-import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, organizationMemberships, organizations, reportingGrants, users } from "../db/schema";
+import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, invitation, organizationMemberships, organizations, reportingGrants, users } from "../db/schema";
 import { HTTPError } from "../lib/errors";
 import { enforceLimit } from "../lib/ratelimit";
 import { sha256Hex } from "../lib/crypto";
@@ -78,38 +78,36 @@ export const crossSiteGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
 /**
  * Better Auth's organization plugin authorizes from the raw membership row, so apply ChampBeam's own rules
  * first: a deactivated account has no session, and a revoked membership (tombstone) grants nothing in that org.
+ * The plugin names the org in several ways (body or query id, slug, the active org, an invitation id) and falls
+ * back between them with its own precedence, so EVERY candidate is checked and any revoked one refuses the call.
  */
 export const orgPluginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   const session = await authOf(c).api.getSession({ headers: c.req.raw.headers });
-  if (session) {
-    if (session.user.isActive === false) throw new HTTPError(401, "Account is deactivated");
-    const body: unknown = c.req.method === "POST" ? await c.req.raw.clone().json().catch(() => null) : null;
-    const named = (body && typeof body === "object" ? (body as Record<string, unknown>).organizationId : undefined) ?? c.req.query("organizationId");
-    const slug = (body && typeof body === "object" ? (body as Record<string, unknown>).organizationSlug : undefined) ?? c.req.query("organizationSlug");
-    const db = c.var.db;
-    const orgId =
-      typeof named === "string" ? named
-      : typeof slug === "string" ? (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).get())?.id
-      : session.session.activeOrganizationId;
-    if (orgId) {
-      const m = await db
-        .select({ status: organizationMemberships.status })
-        .from(organizationMemberships)
-        .where(and(eq(organizationMemberships.organizationId, orgId), eq(organizationMemberships.userId, session.user.id)))
-        .get();
-      if (m && m.status !== MEMBERSHIP_ACTIVE) throw new HTTPError(403, "Your membership of this organization was revoked");
-      // /leave deletes the row without running organizationHooks.afterRemoveMember: end the leaver's reporting grants here.
-      if (m && c.req.path.endsWith("/organization/leave")) {
-        await next();
-        if (c.res.ok) {
-          await db.update(reportingGrants).set({ revokedAt: nowIso() })
-            .where(and(eq(reportingGrants.organizationId, orgId), eq(reportingGrants.userId, session.user.id), isNull(reportingGrants.revokedAt)));
-        }
-        return;
-      }
-    }
+  if (!session) return next();
+  if (session.user.isActive === false) throw new HTTPError(401, "Account is deactivated");
+  const body = (c.req.method === "POST" ? await c.req.raw.clone().json().catch(() => null) : null) as Record<string, unknown> | null;
+  const strs = (...v: unknown[]) => v.filter((x): x is string => typeof x === "string" && x !== "");
+  const bodyOrg = strs(body?.organizationId)[0];
+  const db = c.var.db;
+  const slugs = strs(body?.organizationSlug, c.req.query("organizationSlug"));
+  const invitations = strs(body?.invitationId, c.req.query("id"));
+  const orgIds = new Set(strs(body?.organizationId, c.req.query("organizationId"), session.session.activeOrganizationId));
+  if (slugs.length) for (const o of await db.select({ id: organizations.id }).from(organizations).where(inArray(organizations.slug, slugs))) orgIds.add(o.id);
+  if (invitations.length) for (const i of await db.select({ id: invitation.organizationId }).from(invitation).where(inArray(invitation.id, invitations))) orgIds.add(i.id);
+  if (orgIds.size) {
+    const revoked = await db
+      .select({ id: organizationMemberships.id })
+      .from(organizationMemberships)
+      .where(and(inArray(organizationMemberships.organizationId, [...orgIds]), eq(organizationMemberships.userId, session.user.id), ne(organizationMemberships.status, MEMBERSHIP_ACTIVE)))
+      .get();
+    if (revoked) throw new HTTPError(403, "Your membership of this organization was revoked");
   }
+  // /leave deletes the row without running organizationHooks.afterRemoveMember: end the leaver's reporting grants (the org it names in the body).
   await next();
+  if (bodyOrg && c.req.path.endsWith("/organization/leave") && c.res.ok) {
+    await db.update(reportingGrants).set({ revokedAt: nowIso() })
+      .where(and(eq(reportingGrants.organizationId, bodyOrg), eq(reportingGrants.userId, session.user.id), isNull(reportingGrants.revokedAt)));
+  }
 };
 
 async function resolveSession(c: Ctx): Promise<TokenData | null> {
