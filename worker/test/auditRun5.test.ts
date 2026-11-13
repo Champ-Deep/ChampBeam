@@ -68,6 +68,9 @@ describe("password reset ends existing sessions", () => {
     const inn = await post("/sign-in/email", { email, password: "first long password" });
     const old = { Cookie: inn.headers.getSetCookie().find((c) => c.includes("session_token="))!.split(";")[0]!, Origin: BASE };
     expect((await api("/api/v1/auth/me", { headers: old })).status).toBe(200);
+    const uid = (await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first<{ id: string }>())!.id;
+    const key = await createApiKey(uid);
+    expect((await api("/api/v1/pages", { headers: { "X-API-Key": key } })).status).toBe(200);
 
     expect((await post("/request-password-reset", { email, redirectTo: `${BASE}/reset-password` })).status).toBe(200);
     await Promise.all(pending);
@@ -75,6 +78,7 @@ describe("password reset ends existing sessions", () => {
     expect(token).toBeTruthy();
     expect((await post("/reset-password", { token, newPassword: "second long password" })).status).toBe(200);
     expect((await api("/api/v1/auth/me", { headers: old })).status).toBe(401);
+    expect((await api("/api/v1/pages", { headers: { "X-API-Key": key } })).status).toBe(401);
   });
 });
 

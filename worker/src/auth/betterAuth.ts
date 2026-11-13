@@ -98,6 +98,11 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         : undefined,
       // A reset must end every session opened before it (a pre-registered or stolen session must not survive recovery).
       revokeSessionsOnPasswordReset: true,
+      // Recovery also ends the user's API keys: a key minted from a stolen session must not outlive the reset.
+      onPasswordReset: async ({ user }) => {
+        await db.update(schema.apiKeys).set({ revokedAt: new Date().toISOString() })
+          .where(and(eq(schema.apiKeys.userId, user.id), isNull(schema.apiKeys.revokedAt)));
+      },
       password: {
         // Imported Clerk hashes are bcrypt; everything Better Auth writes is its default scrypt.
         verify: ({ hash, password }) => (hash.startsWith("$2") ? bcrypt.compare(password, hash) : verifyPassword({ hash, password })),
