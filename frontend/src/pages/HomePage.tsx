@@ -4,7 +4,6 @@ import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../lib/authClient';
 import { ShareComposer } from '../components/ShareComposer';
 import { useShareLists } from '../hooks/useShareLists';
-import { PageHeader } from '../components/ui/PageHeader';
 import { Skeleton } from '../components/ui/skeleton';
 import { formatRelative } from '../lib/format';
 
@@ -23,14 +22,13 @@ export function HomePage() {
       rows: links.data?.slice(0, 3).map((l) => ({ id: l.link_id, title: hostOf(l.original_url), sub: l.original_url, when: l.created_at })) },
   ];
   return <div className="cb-workspace">
-    <PageHeader title="Share" lede="Files to download. Pages to view. Links to track." />
-    <ShareComposer />
+      <div className="beam-share-hero"><p className="beam-eyebrow">Send something worth opening</p><h1>Your next share starts here.</h1><p className="beam-share-lede">A file to keep. A page to explore. One link to see what happens next.</p><ShareComposer /></div>
     {isSignedIn && <section aria-labelledby="recent-heading" className="mt-10">
       <h2 id="recent-heading" className="!mb-1">Recent shares</h2>
-      <p className="cb-help !mt-0 !mb-4">Links and their count use the same last-365-days view.</p>
-      <div className="cb-recents">{recent.map((s) => {
+      <p className="cb-help !mt-0 !mb-4">Pick up where you left off with your files and pages.</p>
+      <div className="cb-recents beam-recents">{recent.map((s) => {
         const Icon = s.icon;
-        return <div key={s.name} className="cb-recent-card">
+        return <div key={s.name} className={`cb-recent-card ${s.name === 'Links' ? 'beam-recent-links' : ''}`}>
           <Link to={s.path} className="cb-recent-head">
             <span className="cb-recent-icon"><Icon aria-hidden className="size-4" /></span>
             <span className="flex-1 font-display text-[15px] font-semibold">{s.name}</span>

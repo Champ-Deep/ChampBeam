@@ -33,7 +33,7 @@ export function DateRangePicker({ onRangeChange, defaultDays = 30 }: DateRangePi
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {PRESETS.map((p) => (
         <Button
           key={p.days}
@@ -53,9 +53,10 @@ export function DateRangePicker({ onRangeChange, defaultDays = 30 }: DateRangePi
         Custom
       </Button>
       {showCustom && (
-        <div className="flex items-center gap-2 ml-1">
+        <div className="flex flex-wrap items-center gap-2 ml-1">
           <input
             type="date"
+            aria-label="Start date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
@@ -63,6 +64,7 @@ export function DateRangePicker({ onRangeChange, defaultDays = 30 }: DateRangePi
           <span className="text-slate-400 text-sm">to</span>
           <input
             type="date"
+            aria-label="End date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"

@@ -8,6 +8,7 @@ import App from './App'
 import { initTheme } from './hooks/useTheme'
 import './index.css'
 import './workspace.css'
+import './product-refresh.css'
 
 const hostname = window.location.hostname
 if (hostname === 'lakeb2b.com' || hostname.endsWith('.lakeb2b.com')) {

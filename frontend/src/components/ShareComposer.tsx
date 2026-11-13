@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Button, QrButton } from './ui';
@@ -10,8 +10,7 @@ import { invalidateAssets } from '../lib/assetCache';
 import { PAGE_CAP_MB, UPLOAD_CAPS_MB, UPLOAD_HINT } from '../config/uploadLimits';
 import { formatBytes } from '../lib/format';
 
-const ComposerInput = lazy(() => import('./ComposerControls').then((module) => ({ default: module.ComposerInput })));
-const IntentControl = lazy(() => import('./ComposerControls').then((module) => ({ default: module.IntentControl })));
+import { ComposerInput, IntentControl } from './ComposerControls';
 const KINDS: Record<string, keyof typeof UPLOAD_CAPS_MB> = { 'text/html': 'html', 'application/pdf': 'pdf', 'image/jpeg': 'image', 'image/png': 'image', 'image/webp': 'image', 'video/mp4': 'video', 'video/webm': 'video' };
 
 export function ShareComposer() {
@@ -100,13 +99,13 @@ export function ShareComposer() {
     <h2 id={headingId}>Drop a file or paste a link</h2>
     <p>Send a download or host a page. Nothing publishes until you confirm.</p>
     <fieldset disabled={busy}>
-      <Suspense fallback={<p role="status">Loading composer…</p>}>
+      <>
         <ComposerInput text={text} onText={changeText} onFiles={selectFiles} busy={busy}
           received={file && <div className="cb-received"><p role="status"><strong>{file.name}</strong><span>{file.type || 'File'} · {formatBytes(file.size)}</span></p><button type="button" onClick={() => { reset(); setFile(null); setText(''); }}>Remove file</button></div>} />
-      </Suspense>
+      </>
       <ul className="cb-limits" aria-label="Upload limits">{UPLOAD_HINT.split(' · ').map((t) => <li key={t}>{t}</li>)}</ul>
       {externalUrl ? <div className="cb-actions"><Link className="cb-action" to={`/links?tab=utm&url=${encodeURIComponent(externalUrl)}`}>Track external URL</Link><p>Creates a redirect, not a hosted copy.</p></div> : (file || html) ? <>
-        <Suspense fallback={<p role="status">Loading recipient options…</p>}><IntentControl value={intent} canHost={canHost} onChange={(next) => { setIntent(next); setError(''); setResult(null); }} /></Suspense>
+        <><IntentControl value={intent} canHost={canHost} onChange={(next) => { setIntent(next); setError(''); setResult(null); }} /></>
         {intent === 'host' && <div className="cb-host-preview"><p className="cb-address">{validHost ? `https://${host}/${slug}` : 'No active share domain available.'}</p><button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? 'Close address editor' : 'Edit address'}</button></div>}
         <div className="cb-form-grid">
           <label>Share domain<select aria-label="Share domain" aria-invalid={!validHost} aria-describedby={!validHost ? `${headingId}-domain-error` : undefined} value={domain} onChange={(event) => { setChosenDomain(event.target.value); setEditedSlug(null); setResult(null); setCopied(false); setError(''); }}>

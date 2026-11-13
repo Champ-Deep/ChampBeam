@@ -4,6 +4,7 @@ import { ForgotPasswordPage, ResetPasswordPage, SignInPage, SignUpPage } from '.
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
+import { AssistantLauncher } from './components/AssistantDrawer';
 
 import { HomePage } from './pages/HomePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -52,6 +53,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar />
         <main id="main-content" className="min-w-0 flex-1">{children}</main>
+        <AssistantLauncher isAuthenticated />
       </div>
     );
   }

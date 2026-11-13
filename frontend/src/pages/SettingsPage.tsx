@@ -18,12 +18,12 @@ import { systemApi } from '../api/system';
 import { useAuth } from '../lib/authClient';
 import { PageHeader } from '../components/ui/PageHeader';
 
-type SettingsTab = 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
+type SettingsTab = 'organization' | 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
 
 function initialTab(param: string | null): SettingsTab {
-  if (param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system' || param === 'assistant')
+  if (param === 'organization' || param === 'domains' || param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system' || param === 'assistant')
     return param;
-  return 'domains';
+  return 'appearance';
 }
 
 const STATUS_LABEL: Record<DomainStatus, string> = {
@@ -55,15 +55,17 @@ function validateSlug(slug: string): string | null {
 
 export function SettingsPage() {
   const [params] = useSearchParams();
-  const { inOrg, permissions, isLoading, error } = useOrgContext();
+  const { isLoading, error } = useOrgContext();
   if (params.get('tab') === 'presets' || params.get('tab') === 'utm') return <Navigate to="/links?tab=utm&panel=presets" replace />;
   if (isLoading) return <p role="status">Loading workspace settings…</p>;
   if (error) return <p role="alert">Could not verify workspace access. Reload or sign in again.</p>;
-  return <div className="cb-workspace"><PageHeader title="Settings" lede="Domains, keys, appearance and notifications for this workspace." />{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
+  return <div className="cb-workspace"><PageHeader title="Settings" lede="Your account preferences and workspace administration, kept separate." /><PersonalSettings /></div>;
 }
 
 function PersonalSettings() {
   const { userId } = useAuth();
+  const { inOrg, permissions } = useOrgContext();
+  const canManageDomains = !inOrg || permissions.includes('org.domains.manage');
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -173,17 +175,18 @@ function PersonalSettings() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
+    <div className="beam-settings">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-900">Personal settings</h2>
+        <h2 className="text-2xl font-bold text-slate-900">Account and workspace</h2>
         <p className="text-slate-600 mt-1">
           Manage your domains and account preferences. UTM presets live in Links.
         </p>
       </div>
 
       {/* Sub-tab bar */}
-      <div className="border-b border-slate-200 mb-6">
+      <div className="beam-settings-nav" aria-label="Settings sections">
         <div className="flex flex-wrap gap-x-6 gap-y-2">
+          {inOrg && <button onClick={() => setTab('organization')} aria-pressed={tab === 'organization'}>Workspace administration</button>}
           <button
             onClick={() => setTab('domains')}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
@@ -211,7 +214,7 @@ function PersonalSettings() {
             }`}
           >
             <KeyRound className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            API keys
+            API keys and agents
           </button>
           <button
             onClick={() => setTab('appearance')}
@@ -248,11 +251,12 @@ function PersonalSettings() {
             }`}
           >
             <Bot className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Assistant
+            Assistant settings
           </button>
         </div>
       </div>
 
+      {tab === 'organization' && inOrg && <OrganizationSettings />}
       {tab === 'appearance' && <AppearanceSettings />}
       {tab === 'notifications' && <Card>
         <CardHeader><CardTitle>Recent opens</CardTitle></CardHeader>
@@ -264,7 +268,8 @@ function PersonalSettings() {
 
       {tab === 'assistant' && <AssistantSettings />}
 
-      {tab === 'domains' && (
+      {tab === 'domains' && !canManageDomains && <p>Domain changes require workspace administrator access. Your API keys and personal preferences remain available.</p>}
+      {tab === 'domains' && canManageDomains && (
         <>
           {config?.subdomain_enabled && config.platform_subdomain_base && (
             <ClaimSubdomainCard

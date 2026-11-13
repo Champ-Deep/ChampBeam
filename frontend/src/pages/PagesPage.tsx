@@ -46,6 +46,7 @@ import { apiErrorDetail, apiErrorStatus } from '../api/_shared';
 import { PAGE_ACCEPT, PAGE_CAP_MB, PAGE_HINT, PAGE_LABEL } from '../config/uploadLimits';
 import { formatBytes, formatDwell, formatRelative } from '../lib/format';
 import { PageHeader } from '../components/ui/PageHeader';
+import { api } from '../api/client';
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 const BEAM_STATE_DOCS_URL = 'https://github.com/Champ-Deep/ChampUTM/blob/main/docs/API.md#pages';
@@ -247,8 +248,9 @@ function PublishCard({ domains, isPublishing, onPublish }: PublishCardProps) {
     <button
       type="button"
       onClick={() => setMode(value)}
+      aria-label={label}
       className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-        mode === value ? 'bg-brand-purple/10 text-brand-purple' : 'text-slate-500 hover:text-slate-700'
+        mode === value ? 'bg-cb-accent-soft text-cb-ink' : 'text-slate-500 hover:text-slate-700'
       }`}
     >
       <Icon className="h-4 w-4" />
@@ -382,14 +384,14 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
 
   return (
     <div className="px-6 py-4 hover:bg-gray-50 transition-colors">
-      <div className="flex flex-col xl:flex-row items-start justify-between gap-4">
+      <div className="beam-page-row">
         <div className="flex items-start gap-3 min-w-0 w-full xl:w-auto flex-1">
           <div className="h-10 w-10 rounded-lg bg-brand-purple/10 flex items-center justify-center flex-shrink-0">
             <Globe className="h-5 w-5 text-brand-purple" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm text-slate-900 truncate">{page.title}</span>
+              <span className="font-semibold text-base text-slate-900 truncate">{page.title}</span>
               {statusBadge(page)}
               <Badge variant="default" size="sm">{page.kind ? page.kind.toUpperCase() : 'Type unavailable'}</Badge>
               {page.current_version > 0 && (
@@ -406,7 +408,7 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
             </div>
             <div className="mt-2 flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-1 py-1">
               <code className="text-xs font-mono text-slate-700 [overflow-wrap:anywhere] flex-1">{breakAfterPathSlash(page.url)}</code>
-              <button type="button" onClick={onCopy} className="min-w-11 inline-flex items-center justify-center text-slate-400 hover:text-slate-700" aria-label="Copy link">
+              <button type="button" onClick={onCopy} className="min-w-11 inline-flex items-center justify-center text-cb-muted hover:text-slate-700" aria-label="Copy link">
                 <Copy className="h-3.5 w-3.5" />
               </button>
               <QrButton value={page.url} filename={`${page.slug ?? page.short_code}.svg`} />
@@ -428,10 +430,8 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
           </div>
         </div>
 
-        <div className="flex items-center gap-1 max-w-full flex-wrap">
-          <Button variant="ghost" size="sm" onClick={() => toggle('availability')} aria-expanded={panel.mode === 'availability'}>
-            Check storage
-          </Button>
+        {page.kind === 'html' && <div className="beam-page-preview" aria-label={`Preview of ${page.title}`}><iframe title={`Preview of ${page.title}`} src={api.getUri({ url: `/pages/${page.page_id}/preview` })} sandbox="" loading="lazy" tabIndex={-1} referrerPolicy="no-referrer" /><span>Static preview · no tracking</span></div>}
+        <div className="beam-page-actions">
           <Button variant="ghost" size="sm" onClick={onAnalytics} className="text-brand-purple hover:bg-brand-purple/10" leftIcon={<BarChart3 className="h-4 w-4" />}>
             Analytics
           </Button>
@@ -448,13 +448,13 @@ function PageRow({ page, onCopy, onAnalytics, onReplace, onPatch, onDelete, onRo
           {canShare && page.kind === 'html' && <Button variant="ghost" size="sm" onClick={() => toggle('versions')} leftIcon={<History className="h-4 w-4" />}>
             Versions
           </Button>}
-          {canShare && <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 hover:bg-red-50" leftIcon={<Trash2 className="h-4 w-4" />}>
+          {canShare && <Button variant="danger" size="sm" onClick={onDelete} className="beam-remove" leftIcon={<Trash2 className="h-4 w-4" />}>
             Remove
           </Button>}
         </div>
       </div>
 
-      {panel.mode === 'availability' && <PageAvailability page={page} />}
+      <details className="beam-page-diagnostics"><summary>Advanced: content diagnostics</summary><p>Check whether the stored file is available. This does not open the public page or add a view.</p><Button variant="ghost" size="sm" onClick={() => toggle('availability')} aria-expanded={panel.mode === 'availability'}>Check storage</Button>{panel.mode === 'availability' && <PageAvailability page={page} />}</details>
       {panel.mode === 'edit' && (
         <EditPanel page={page} onPatch={onPatch} onDone={() => setPanel({ mode: 'idle' })} />
       )}
@@ -578,7 +578,7 @@ function EditPanel({ page, onPatch, onDone }: { page: BeamPage; onPatch: PageRow
               <KeyRound className="h-4 w-4 text-brand-purple" />
               Code set
               <Button variant="ghost" size="sm" onClick={() => setClearCode(true)}>Clear</Button>
-              <span className="text-slate-400">or</span>
+              <span className="text-cb-muted">or</span>
             </div>
           ) : null}
           {clearCode ? (
@@ -710,7 +710,7 @@ function BatchPublishCard({
                 <button
                   type="button"
                   onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
-                  className="text-slate-400 hover:text-slate-700"
+                  className="text-cb-muted hover:text-slate-700"
                   aria-label={`Remove ${f.name}`}
                 >
                   <Upload className="h-3 w-3 rotate-45" />
@@ -900,11 +900,11 @@ function LinksPanel({ page, onDone }: { page: BeamPage; onDone: () => void }) {
                   {l.href}
                 </code>
                 {l.anchor_text && (
-                  <span className="text-xs text-slate-400 italic truncate max-w-[200px]">“{l.anchor_text}”</span>
+                  <span className="text-xs text-cb-muted italic truncate max-w-[200px]">“{l.anchor_text}”</span>
                 )}
               </div>
               <div className="mt-1.5 flex items-center gap-2">
-                <span className="text-[11px] text-slate-400 flex-shrink-0">Target</span>
+                <span className="text-[11px] text-cb-muted flex-shrink-0">Target</span>
                 <input
                   value={routeTarget(l.href)}
                   onChange={(e) => setOverrides((o) => ({ ...o, [l.href]: e.target.value }))}

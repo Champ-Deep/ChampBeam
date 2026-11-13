@@ -8,7 +8,6 @@ import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../lib/authClient';
 import { AccountFooter } from '../AccountFooter';
-import { AssistantLauncher } from '../AssistantDrawer';
 import { useShareLists } from '../../hooks/useShareLists';
 import { Logo } from '../ui/Logo';
 import { useClickNotifications } from '../../hooks/useClickNotifications';
@@ -93,13 +92,13 @@ export function Sidebar() {
 
   const items: NavItem[] = [
     { to: '/', label: 'Share', icon: Zap, end: true },
-    { to: '/links', label: 'Links', icon: Link2, count: links.data?.length },
     { to: '/files', label: 'Files', icon: FileText, count: files.data?.length },
     { to: '/pages', label: 'Pages', icon: Globe, count: pages.data?.length },
     { to: '/vault', label: 'Vault', icon: Radio, requiresVault: true },
     { to: '/library', label: 'Library', icon: Library, requiresOrg: 'member' },
     { to: '/team', label: 'Reporting', icon: Users, requiresOrg: 'team' },
     { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+    { to: '/links', label: 'Links', icon: Link2, count: links.data?.length },
     { to: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -128,7 +127,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      <p className="px-6 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/60">Workspace</p>
+      <p className="px-6 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground">Workspace</p>
       <nav className="flex flex-1 flex-col gap-0.5 px-3" aria-label="Workspace">
         {visible.map((it) => (
           <NavRow key={it.to} item={it} active={isActive(it)} onClick={() => setMobileOpen(false)} />
@@ -184,7 +183,6 @@ export function Sidebar() {
           )}
         </div>
 
-        <div className="cb-assistant-sidebar"><AssistantLauncher isAuthenticated={!!isSignedIn} /></div>
         <AccountFooter />
       </div>
     </div>

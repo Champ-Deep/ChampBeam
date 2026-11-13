@@ -9,6 +9,7 @@
  * credentials are configured) -> POST /{id}/finalize -> GET /{id}/status.
  */
 import { Hono } from "hono";
+import { REAL_CLICK } from "./_utmHelpers";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
@@ -569,6 +570,7 @@ async function analyticsScope(c: Ctx) {
   const [start, end] = dateRange(q.days ?? 30, q.start_date, q.end_date);
   const where = and(
     eq(clickEvents.fileId, asset.id),
+    sql.raw(REAL_CLICK.replaceAll("ce.", "click_events.")),
     sql`${clickEvents.clickedAt} >= ${start}`,
     sql`${clickEvents.clickedAt} <= ${end}`,
   );
