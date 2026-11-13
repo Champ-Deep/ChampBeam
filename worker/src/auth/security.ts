@@ -11,11 +11,11 @@
  *   Depends(require_org_admin)           -> await requireOrgAdmin(c)
  *   Depends(require_org_leader_or_admin) -> await requireOrgLeaderOrAdmin(c)
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv, Ctx } from "../env";
 import { trustedOrigins } from "../lib/cors";
-import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, organizationMemberships, organizations, users } from "../db/schema";
+import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, organizationMemberships, organizations, reportingGrants, users } from "../db/schema";
 import { HTTPError } from "../lib/errors";
 import { enforceLimit } from "../lib/ratelimit";
 import { sha256Hex } from "../lib/crypto";
@@ -71,6 +71,43 @@ export const crossSiteGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && hasSessionCookie(c) && presentedApiKey(c) === null && !c.req.header("x-service-key")) {
     const origin = c.req.header("origin");
     if (!origin || !trustedOrigins(c.var.settings).includes(origin)) throw new HTTPError(403, "Cross-site request blocked");
+  }
+  await next();
+};
+
+/**
+ * Better Auth's organization plugin authorizes from the raw membership row, so apply ChampBeam's own rules
+ * first: a deactivated account has no session, and a revoked membership (tombstone) grants nothing in that org.
+ */
+export const orgPluginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const session = await authOf(c).api.getSession({ headers: c.req.raw.headers });
+  if (session) {
+    if (session.user.isActive === false) throw new HTTPError(401, "Account is deactivated");
+    const body: unknown = c.req.method === "POST" ? await c.req.raw.clone().json().catch(() => null) : null;
+    const named = (body && typeof body === "object" ? (body as Record<string, unknown>).organizationId : undefined) ?? c.req.query("organizationId");
+    const slug = (body && typeof body === "object" ? (body as Record<string, unknown>).organizationSlug : undefined) ?? c.req.query("organizationSlug");
+    const db = c.var.db;
+    const orgId =
+      typeof named === "string" ? named
+      : typeof slug === "string" ? (await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, slug)).get())?.id
+      : session.session.activeOrganizationId;
+    if (orgId) {
+      const m = await db
+        .select({ status: organizationMemberships.status })
+        .from(organizationMemberships)
+        .where(and(eq(organizationMemberships.organizationId, orgId), eq(organizationMemberships.userId, session.user.id)))
+        .get();
+      if (m && m.status !== MEMBERSHIP_ACTIVE) throw new HTTPError(403, "Your membership of this organization was revoked");
+      // /leave deletes the row without running organizationHooks.afterRemoveMember: end the leaver's reporting grants here.
+      if (m && c.req.path.endsWith("/organization/leave")) {
+        await next();
+        if (c.res.ok) {
+          await db.update(reportingGrants).set({ revokedAt: nowIso() })
+            .where(and(eq(reportingGrants.organizationId, orgId), eq(reportingGrants.userId, session.user.id), isNull(reportingGrants.revokedAt)));
+        }
+        return;
+      }
+    }
   }
   await next();
 };

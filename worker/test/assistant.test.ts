@@ -4,13 +4,20 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_TOTAL_CHARS } from "../src/routes/assistant";
-import { api, apiKeyHeaders, awayFromWindowEdge, createApiKey, createUser, json, orgSession, sessionHeaders } from "./helpers";
+import { api, apiKeyHeaders, awayFromWindowEdge, createApiKey, createUser, env, json, orgSession, sessionHeaders } from "./helpers";
 
 const KEY = "sk-or-test-SECRET-openrouter";
 const chat = (headers: HeadersInit, messages: unknown, extra: object = {}) =>
   api("/api/v1/assistant/chat", { method: "POST", headers, json: { messages, ...extra } });
 const put = (headers: HeadersInit, body: object) => api("/api/v1/assistant/config", { method: "PUT", headers, json: body });
 const hi = [{ role: "user", content: "How do I share a file?" }];
+
+/** An admin of the operator org (slug champions-group): the only org whose admins may write the global assistant row. */
+async function operatorAdmin() {
+  const s = await orgSession({ role: "admin", clerkOrgId: "org_operator_assist" });
+  await env.DB.prepare("UPDATE organizations SET slug = 'champions-group' WHERE clerk_org_id = 'org_operator_assist' AND slug != 'champions-group'").run();
+  return s;
+}
 
 /** A signed-in user with no active organization (a personal account). */
 async function personal() {
@@ -20,14 +27,14 @@ async function personal() {
 
 /** Every test starts from the same known config, set through the public API, so it passes alone. */
 beforeEach(async () => {
-  const a = await orgSession({ role: "admin" });
+  const a = await operatorAdmin();
   expect((await put(a.headers, { provider: "mock", model: "test/model", enabled: true })).status).toBe(200);
 });
 afterEach(() => vi.restoreAllMocks());
 
 describe("config gate: PUT /assistant/config is a global singleton", () => {
   it("lets an org admin write, and trims the model", async () => {
-    const admin = await orgSession({ role: "admin" });
+    const admin = await operatorAdmin();
     const ok = await put(admin.headers, { provider: "mock", model: "  a/model  ", enabled: true });
     expect(ok.status).toBe(200);
     const body = await json(ok);
@@ -40,7 +47,7 @@ describe("config gate: PUT /assistant/config is a global singleton", () => {
   });
 
   it("refuses a personal account, a plain member, an API key and no auth, and none of them changes the row", async () => {
-    const admin = await orgSession({ role: "admin" });
+    const admin = await operatorAdmin();
     const member = await orgSession({ role: "member", clerkOrgId: admin.clerkOrgId });
     const apiKey = apiKeyHeaders(await createApiKey((await createUser()).id));
     const known = { provider: "mock", model: "a/model", enabled: true };
@@ -60,7 +67,7 @@ describe("config gate: PUT /assistant/config is a global singleton", () => {
   });
 
   it("rejects an unknown provider with 422", async () => {
-    const admin = await orgSession({ role: "admin" });
+    const admin = await operatorAdmin();
     expect((await put(admin.headers, { provider: "nope" })).status).toBe(422);
   });
 });
@@ -76,7 +83,7 @@ describe("POST /assistant/chat", () => {
   });
 
   it("is disabled when an admin turns it off", async () => {
-    const admin = await orgSession({ role: "admin" });
+    const admin = await operatorAdmin();
     await put(admin.headers, { provider: "mock", enabled: false });
     expect((await chat(admin.headers, hi)).status).toBe(503);
     await put(admin.headers, { provider: "mock", enabled: true });
@@ -84,7 +91,7 @@ describe("POST /assistant/chat", () => {
   });
 
   it("503s with no key configured for the picked provider", async () => {
-    const admin = await orgSession({ role: "admin" });
+    const admin = await operatorAdmin();
     await put(admin.headers, { provider: "vercel" });
     const res = await chat(admin.headers, hi);
     expect(res.status).toBe(503);
@@ -122,7 +129,7 @@ describe("POST /assistant/chat", () => {
 
 describe("OpenRouter provider", () => {
   const admin = async () => {
-    const a = await orgSession({ role: "admin" });
+    const a = await operatorAdmin();
     expect((await put(a.headers, { provider: "openrouter", model: "meta/test:free" })).status).toBe(200);
     return a;
   };

@@ -8,6 +8,8 @@ PLATFORM_REDIRECT_HOST=127.0.0.1,localhost
 BETTER_AUTH_SECRET=replace-with-32-plus-random-bytes
 BETTER_AUTH_URL=http://127.0.0.1:8799
 STORAGE_UPLOAD_SECRET=dev-upload-secret
+# Verified emails on these domains join the champions-group org at sign-up (empty = nobody):
+# AUTO_JOIN_EMAIL_DOMAINS=championsmail.com
 # Google sign-in, optional locally (redirect URI <BETTER_AUTH_URL>/api/auth/callback/google):
 # GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 # GOOGLE_CLIENT_SECRET=your-client-secret

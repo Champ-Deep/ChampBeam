@@ -197,6 +197,8 @@ export function buildSettings(env: Env) {
   const derived = hostnameOf(s.redirectBaseUrl);
   if (derived) platformRedirectHosts.add(derived);
   const shareHosts = splitCsv(s.shareOriginHosts).map((h) => h.toLowerCase());
+  /** Email domains whose VERIFIED addresses join the default org at sign-up (AUTO_JOIN_EMAIL_DOMAINS). Empty = nobody. */
+  const autoJoinEmailDomains = splitCsv(str(env, "AUTO_JOIN_EMAIL_DOMAINS")).map((d) => d.toLowerCase().replace(/^@/, ""));
   // A share origin is a platform-bucket host: same short codes and slugs resolve there.
   for (const h of shareHosts) platformRedirectHosts.add(h);
 
@@ -207,6 +209,7 @@ export function buildSettings(env: Env) {
     resolvedPlatformRedirectHost:
       splitCsv(s.platformRedirectHost)[0]?.toLowerCase() ?? hostnameOf(s.redirectBaseUrl),
     platformRedirectHosts,
+    autoJoinEmailDomains,
     shareHosts,
     /** Host new shares are minted on when no domain is chosen. */
     resolvedShareHost: shareHosts[0] ?? "",

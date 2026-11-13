@@ -23,6 +23,8 @@ export default defineConfig(async () => {
             STORAGE_UPLOAD_SECRET: "test-upload-secret",
             BETTER_AUTH_SECRET: "test-better-auth-secret-0123456789abcdef",
             BETTER_AUTH_URL: "https://share.example.com",
+            // example.com is allowlisted so the tests prove that an UNVERIFIED sign-up on an allowed domain still joins nothing.
+            AUTO_JOIN_EMAIL_DOMAINS: "example.com",
             // Pinned empty so a developer .dev.vars cannot switch Google sign-in on in tests.
             GOOGLE_CLIENT_ID: "",
             GOOGLE_CLIENT_SECRET: "",

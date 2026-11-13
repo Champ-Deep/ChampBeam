@@ -8,6 +8,7 @@
  */
 import { Hono } from "hono";
 import { z } from "zod";
+import { DEFAULT_ORG_SLUG } from "../auth/betterAuth";
 import { isOrgAdmin, requireSessionAuth } from "../auth/security";
 import type { AppEnv, Ctx } from "../env";
 import { httpError } from "../lib/errors";
@@ -68,7 +69,8 @@ router.get("/config", async (c) => {
 
 router.put("/config", async (c) => {
   const user = await requireSessionAuth(c);
-  if (!isOrgAdmin(user)) httpError(403, "Only organization admins can configure the assistant.");
+  // The row is global (every tenant's chat uses it): only the operator org's admins may write it, not any tenant's admin.
+  if (!isOrgAdmin(user) || user.orgSlug !== DEFAULT_ORG_SLUG) httpError(403, "Only organization admins can configure the assistant.");
   const data = await parseJson(c, ConfigPut);
   const row = await configRow(c.var.db, c.var.settings);
   const model = data.model?.trim();
