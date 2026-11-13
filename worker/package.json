@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "build:frontend": "npm --prefix ../frontend ci && npm --prefix ../frontend run build",
-    "deploy": "npm run build:frontend && wrangler deploy",
+    "deploy": "npm run build:frontend && wrangler deploy --env=\"\"",
     "db:migrate:local": "wrangler d1 migrations apply champbeam --local",
     "db:migrate:remote": "wrangler d1 migrations apply champbeam --remote",
     "typecheck": "tsc --noEmit",
