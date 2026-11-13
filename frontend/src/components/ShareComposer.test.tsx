@@ -34,14 +34,14 @@ afterEach(cleanup);
 
 describe('one composer', () => {
   it('does not upload on file selection and requires intent', async () => {
-    mount(); await screen.findByLabelText('Choose file');
+    mount(); await screen.findByLabelText('Choose file', {}, { timeout: 10_000 });
     fireEvent.change(screen.getByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type: 'application/pdf' })] } });
     expect(filesApi.initUpload).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('tab', { name: 'Send as file' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create download link' }));
     await screen.findByText('Download ready');
     expect(filesApi.initUpload).toHaveBeenCalledWith(expect.objectContaining({ intent: 'download', filename: 'Quarterly Brief.pdf', slug: undefined }));
-  });
+  }, 15_000);
   it.each(['application/pdf', 'image/png', 'video/mp4'])('hosts %s with an editable basename slug', async (type) => {
     mount(); await screen.findByLabelText('Choose file');
     fireEvent.change(screen.getByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type })] } });

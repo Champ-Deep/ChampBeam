@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { filesApi } from '../api/files';
 import type { FileSummary, FileEvent, FileGeoItem, FileDeviceBreakdown } from '../api/files';
 import type { DateRangeOpts } from '../api/utm';
@@ -261,6 +262,8 @@ export function FileAnalyticsPage() {
           </div>
         </Card>
       </div>
+
+      <JourneysSection assetType="file" assetId={fileId} />
 
       {/* Device + Browser Breakdown (shown first, always works, even on localhost) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

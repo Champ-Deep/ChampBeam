@@ -1,0 +1,20 @@
+[
+  {
+    "severity": "WARN",
+    "rule": "heading",
+    "message": "heading jumps h1 to h3, skipping a level",
+    "where": "h3.text-lg.font-semibold \"Geographic Breakdown\""
+  },
+  {
+    "severity": "INFO",
+    "rule": "skip-link",
+    "message": "no \"skip to content\" link found",
+    "where": ""
+  },
+  {
+    "severity": "WARN",
+    "rule": "default-font",
+    "message": "body font is \"arial\", an AI default; choose deliberately",
+    "where": ""
+  }
+]

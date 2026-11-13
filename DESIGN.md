@@ -26,3 +26,6 @@ Device class: pointer surface with touch support. At 375px controls stack; at 76
 
 ## 9. Agent Prompt Guide
 Preserve product identity. Put the user's content first, then ask what should happen when its recipient opens it. Downloads are Files, hosted media are Pages, external redirects and UTM work are Links. Match shared list queries for counts and recents. Report evidence and gaps without recovery claims.
+
+## Visitor journeys
+A visitor ledger followed by the 21st.dev Geo Traceroute (44579, lumesec) dotted map. Preserve all five existing product palettes, not parent-brand replacements. Titles, asset names and values use JetBrains Mono. Map width is at most 660px. Table rows wrap asset and city labels on phones. Semantic shadcn and lumesec variables alias the active cb tokens. Kokonut controls already mounted in the composer remain unchanged. Motion budget: retain the registry playback engine, compress elapsed time logarithmically and scale speed to the touch count; reduced motion renders the finished path. Rolling 90-day detail and 30-day workspace windows are labelled independently of legacy analytics filters.
