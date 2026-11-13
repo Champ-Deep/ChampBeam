@@ -18,6 +18,7 @@ import { requireAuth } from "../auth/security";
 import { httpError } from "../lib/errors";
 import { isoUtc, parseIso } from "../lib/time";
 import { parseQuery, qStr } from "../lib/validate";
+import { assertDomainEditable, shareOrgUuid } from "../services/domains";
 import { toCsvRow } from "../services/utm";
 import {
   buildRedirectUrl,
@@ -308,6 +309,7 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
     const user = await requireAuth(c);
     const q = parseQuery(c, z.object({ level: qDef("country"), ...rangeQuery(30) }));
     const link = await getUserLink(c, c.req.param("link_id")!, user.userId);
+    await assertDomainEditable(c.var.db, user, link.domain_id as string | null);
     const [start, end] = resolveDateRange(q.days, q.start_date, q.end_date);
     const w = new Where()
       .add("ce.link_id = ?", link.id as string)
@@ -742,6 +744,8 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
     const w = new Where().add("lc.user_id = ?", user.userId).add("ce.clicked_at >= ?", start).add("ce.clicked_at <= ?", end);
     if (q.project_id) w.add("lc.project_id IS ?", normUuid(q.project_id));
     if (q.campaign) w.add("lc.utm_campaign = ?", q.campaign);
+    // Raw visitor IPs on an org domain leave only through a current member who can share there.
+    w.add("(lc.domain_id IS NULL OR NOT EXISTS (SELECT 1 FROM domains d WHERE d.id = lc.domain_id AND d.organization_id IS NOT NULL AND d.organization_id IS NOT ?))", shareOrgUuid(user));
 
     const rows = await all(
       c,

@@ -5,7 +5,7 @@
  * global assistant row is writable only from the operator org.
  */
 import { describe, expect, it } from "vitest";
-import { addMember, api, BASE, createOrg, createUser, env, json, orgSession, sessionHeaders } from "./helpers";
+import { addMember, api, BASE, createApiKey, createOrg, createUser, env, json, orgSession, sessionHeaders } from "./helpers";
 import { createAuth, joinsDefaultOrg } from "../src/auth/betterAuth";
 import { getDb } from "../src/db/client";
 import type { Env } from "../src/env";
@@ -174,5 +174,27 @@ describe("the global assistant row is writable only from the operator org", () =
     const ok = await put(await sessionHeaders(admin.id, op));
     expect(ok.status).toBe(200);
     expect((await json(ok)).model).toBe("run5/model");
+  });
+});
+
+describe("service identity and contact-bound links stay with the trusted integration", () => {
+  it("an open sign-up cannot claim a service+<name>@ address", async () => {
+    const email = `service+champ-workspace-${crypto.randomUUID().slice(0, 6)}@championsmail.com`;
+    const up = await POST("/api/auth/sign-up/email", { ...ORIGIN, ...ip() }, { email, password: "long enough pw", name: "Imposter" });
+    expect(up.status).not.toBe(200);
+    const row = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+    expect(row).toBeNull();
+  });
+
+  it("a signed-in user cannot mint a contact-bound link; the service key still can", async () => {
+    const u = await createUser();
+    const h = await sessionHeaders(u.id);
+    const mint = (headers: HeadersInit) => POST("/api/v1/utm/generate", headers, { url: "https://example.com/x", utm_source: "voice", contact_ref: "victim_123" });
+    expect((await mint(h)).status).toBe(403);
+    expect(await env.DB.prepare("SELECT 1 FROM link_clicks WHERE contact_ref = 'victim_123'").first()).toBeNull();
+    // Same request through an API key is refused too (no ambient service identity).
+    expect((await mint({ "X-API-Key": await createApiKey(u.id) })).status).toBe(403);
+    // A plain link is unaffected.
+    expect((await POST("/api/v1/utm/generate", h, { url: "https://example.com/y", utm_source: "ok" })).status).toBe(200);
   });
 });

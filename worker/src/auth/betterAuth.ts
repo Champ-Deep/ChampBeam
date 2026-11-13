@@ -137,6 +137,8 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
       },
       user: {
         create: {
+          // service+<name>@ rows are provisioned by the operator for X-Service-Key; a self-registration must not claim one.
+          before: async (user) => (/^service\+/i.test(user.email) ? false : undefined),
           after: async (user) => {
             // Open sign-up: an unverified or off-domain address must not land inside the shared org.
             if (!joinsDefaultOrg(settings, user)) return;

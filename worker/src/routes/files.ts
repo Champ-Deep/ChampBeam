@@ -522,6 +522,8 @@ router.put("/:file_id/access", async (c) => {
 router.get("/:file_id/leads", async (c) => {
   const user = await requireAuth(c);
   const asset = await getOwnedFile(c, c.req.param("file_id"), user.userId);
+  // Visitor emails and IPs on an org host belong to the org: a removed or viewer-demoted owner reads none of them.
+  await assertDomainEditable(c.var.db, user, asset.domainId);
   const rows = await c.var.db
     .select()
     .from(accessLeads)
@@ -567,6 +569,7 @@ async function analyticsScope(c: Ctx) {
   const q = parseQuery(c, AnalyticsQuery);
   const user = await requireAuth(c);
   const asset = await getOwnedFile(c, c.req.param("file_id") ?? "", user.userId);
+  await assertDomainEditable(c.var.db, user, asset.domainId);
   const [start, end] = dateRange(q.days ?? 30, q.start_date, q.end_date);
   const where = and(
     eq(clickEvents.fileId, asset.id),

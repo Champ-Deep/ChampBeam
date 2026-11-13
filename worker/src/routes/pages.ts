@@ -763,7 +763,7 @@ router.get("/:page_id/events", async (c) => {
   const q = parseQuery(c, z.object({ ...DateQuery, limit: qInt(500, { ge: 1, le: 1000 }) }));
   const user = await requireAuth(c);
   const db = c.var.db;
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const [start, end] = dateRange(q.days ?? 30, q.start_date, q.end_date);
   const limit = q.limit ?? 500;
 
