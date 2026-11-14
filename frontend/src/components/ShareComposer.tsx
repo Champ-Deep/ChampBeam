@@ -14,6 +14,20 @@ const ComposerInput = lazy(() => import('./ComposerControls').then((module) => (
 const IntentControl = lazy(() => import('./ComposerControls').then((module) => ({ default: module.IntentControl })));
 const KINDS: Record<string, keyof typeof UPLOAD_CAPS_MB> = { 'text/html': 'html', 'application/pdf': 'pdf', 'image/jpeg': 'image', 'image/png': 'image', 'image/webp': 'image', 'video/mp4': 'video', 'video/webm': 'video' };
 
+/** Preview the address the API will hand out, with the slug the user is editing. */
+function previewAddress(publicUrl: string | null | undefined, slug: string): string {
+  const clean = slug.trim();
+  if (!publicUrl || !clean || /[/?#\s]/.test(clean)) return '';
+  try {
+    const url = new URL(publicUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    url.pathname = parts[0] === 'p' ? `/p/${clean}` : `/${clean}`;
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
 export function ShareComposer() {
   const { profile, canShare, canReport, isSignedIn, isLoading, error: profileError } = useOrgContext();
   const client = useQueryClient();
@@ -41,6 +55,7 @@ export function ShareComposer() {
     retry: false,
   });
   const slug = editedSlug ?? suggestion.data?.slug ?? '';
+  const preview = previewAddress(suggestion.data?.public_url, slug);
   const host = domain ? profile?.available_hosts.find((h) => h.id === domain)?.hostname : profile?.share_host.default;
   const validHost = !!host && !/[\s/:?#]/.test(host);
   const size = file?.size ?? new Blob([text]).size;
@@ -107,7 +122,7 @@ export function ShareComposer() {
       <ul className="cb-limits" aria-label="Upload limits">{UPLOAD_HINT.split(' · ').map((t) => <li key={t}>{t}</li>)}</ul>
       {externalUrl ? <div className="cb-actions"><Link className="cb-action" to={`/links?tab=utm&url=${encodeURIComponent(externalUrl)}`}>Track external URL</Link><p>Creates a redirect, not a hosted copy.</p></div> : (file || html) ? <>
         <Suspense fallback={<p role="status">Loading recipient options…</p>}><IntentControl value={intent} canHost={canHost} onChange={(next) => { setIntent(next); setError(''); setResult(null); }} /></Suspense>
-        {intent === 'host' && <div className="cb-host-preview"><p className="cb-address">{validHost ? `https://${host}/${slug}` : 'No active share domain available.'}</p><button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? 'Close address editor' : 'Edit address'}</button></div>}
+        {intent === 'host' && <div className="cb-host-preview"><p className="cb-address">{!validHost ? 'No active share domain available.' : preview || (suggestion.isSuccess ? 'The file link is created when you publish.' : 'Checking suggested address…')}</p><button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? 'Close address editor' : 'Edit address'}</button></div>}
         <div className="cb-form-grid">
           <label>Share domain<select aria-label="Share domain" aria-invalid={!validHost} aria-describedby={!validHost ? `${headingId}-domain-error` : undefined} value={domain} onChange={(event) => { setChosenDomain(event.target.value); setEditedSlug(null); setResult(null); setCopied(false); setError(''); }}>
             {domain && !host && <option value={domain} disabled>Unavailable domain</option>}

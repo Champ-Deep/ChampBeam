@@ -42,6 +42,24 @@ describe('one composer', () => {
     await screen.findByText('Download ready');
     expect(filesApi.initUpload).toHaveBeenCalledWith(expect.objectContaining({ intent: 'download', filename: 'Quarterly Brief.pdf', slug: undefined }));
   });
+  it('previews the API address and keeps an edited slug in that path', async () => {
+    vi.mocked(pagesApi.suggestSlug).mockResolvedValue({ slug: 'quarterly-brief', base: 'quarterly-brief', collided: false, host: 'fixture.example', public_url: 'https://fixture.example/p/quarterly-brief' });
+    mount();
+    fireEvent.change(await screen.findByLabelText('Paste content or drop one file'), { target: { value: '<!doctype html><html>Fixture</html>' } });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
+    expect(await screen.findByText('https://fixture.example/p/quarterly-brief')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit address' }));
+    fireEvent.change(screen.getByLabelText('Page address'), { target: { value: 'custom-page' } });
+    expect(screen.getByText('https://fixture.example/p/custom-page')).toBeVisible();
+  });
+  it('does not invent a root slug for a hosted file before publish', async () => {
+    vi.mocked(pagesApi.suggestSlug).mockResolvedValue({ slug: 'quarterly-brief', base: 'quarterly-brief', collided: false, host: 'fixture.example', public_url: null });
+    mount();
+    fireEvent.change(await screen.findByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type: 'application/pdf' })] } });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
+    expect(await screen.findByText('The file link is created when you publish.')).toBeVisible();
+    expect(screen.queryByText('https://fixture.example/quarterly-brief')).not.toBeInTheDocument();
+  });
   it.each(['application/pdf', 'image/png', 'video/mp4'])('hosts %s with an editable basename slug', async (type) => {
     mount(); await screen.findByLabelText('Choose file');
     fireEvent.change(screen.getByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type })] } });

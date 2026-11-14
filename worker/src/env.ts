@@ -210,6 +210,11 @@ export function buildSettings(env: Env) {
     shareHosts,
     /** Host new shares are minted on when no domain is chosen. */
     resolvedShareHost: shareHosts[0] ?? "",
+    /**
+     * Test seam. Undefined in production (liveness is probed). Tests set true or
+     * false so link generation does not depend on a real DNS lookup.
+     */
+    shareOriginReachable: undefined as boolean | undefined,
     isShareOrigin(this: { shareHosts: string[] }, host: string | null | undefined): boolean {
       return this.shareHosts.includes((host ?? "").toLowerCase().trim());
     },

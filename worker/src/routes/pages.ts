@@ -50,7 +50,7 @@ import {
   ensureStorage,
   parseBodyWithFields,
   publicUrl,
-  serveHost,
+  serveTarget,
   storageKey,
   type FileAsset,
 } from "./_files";
@@ -172,7 +172,8 @@ async function engagementStats(c: Ctx, asset: FileAsset) {
 
 async function pageResponse(c: Ctx, asset: FileAsset) {
   const db = c.var.db;
-  const host = await serveHost(db, c.var.settings, asset.userId, asset.domainId);
+  const target = await serveTarget(db, c.var.settings, asset.userId, asset.domainId);
+  const host = target.host;
   const stats = await engagementStats(c, asset);
   const versionNo = await pagesService.currentVersionNo(db, asset);
   const latest = await db
@@ -187,7 +188,7 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
     short_code: asset.shortCode,
     slug,
     url: slug ? `https://${host}/p/${slug}` : legacy,
-    public_url: publicUrl(host, asset),
+    public_url: publicUrl(host, asset, target.rootSlug),
     legacy_url: legacy,
     title: titleFromFilename(asset.filename),
     size_bytes: asset.sizeBytes,
@@ -360,8 +361,16 @@ router.get("/slug-suggestion", async (c) => {
   const domainId = await resolveDomainId(c, user, q.domain_id || null);
   const base = pagesService.slugFromFilename(q.filename);
   const slug = await pagesService.suggestSlug(c.var.db, base, domainId, user.userId);
-  const host = await serveHost(c.var.db, c.var.settings, user.userId, domainId);
-  return c.json({ slug, base, collided: slug !== base, host, public_url: `${schemeFor(host)}://${host}/${slug}` });
+  const target = await serveTarget(c.var.db, c.var.settings, user.userId, domainId);
+  const html = /\.html?$/i.test((q.filename ?? "").trim());
+  // Non-HTML files have no short code yet, so there is no /f/ address to preview.
+  // HTML on the platform previews /p/<slug>, which resolves as soon as the page exists.
+  const publicUrlValue = target.rootSlug
+    ? `${schemeFor(target.host)}://${target.host}/${slug}`
+    : html
+      ? `${schemeFor(target.host)}://${target.host}/p/${slug}`
+      : null;
+  return c.json({ slug, base, collided: slug !== base, host: target.host, public_url: publicUrlValue });
 });
 
 /** Your pages, newest first. */

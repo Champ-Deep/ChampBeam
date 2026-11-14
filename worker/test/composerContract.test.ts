@@ -27,7 +27,7 @@ describe('composer handoff acceptance', () => {
     const { asset } = await hostPdf();
     expect(asset.output_kind).toBe('page');
     expect(asset.slug).toBe('quarterly-brief');
-    expect(asset.public_url).toMatch(/\/quarterly-brief$/);
+    expect(asset.public_url).toBe(`https://share.example.com/f/${asset.short_code}/Quarterly_Brief.pdf`);
   });
 
   it('includes a hosted PDF in Pages', async () => {

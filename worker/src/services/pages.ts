@@ -64,6 +64,8 @@ export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
 export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "api", "f", "p", "r", "s", "rooms", "health", "docs", "redoc", "openapi.json",
   "static", "assets", "admin", "login", "logout", "sign-in", "sign-up",
+  "forgot-password", "reset-password", "welcome", "presets", "performance",
+  "campaigns", "vault", "library", "team", "dashboard",
   "unlock", "unlock-code", "page-events", "_beam", "beam", "www", "null",
   "undefined", "files", "links", "pages", "settings", "analytics", "org", "domains",
   "projects", "champvault", "favicon", "robots", "sitemap", "index", "new", "edit",
