@@ -31,7 +31,9 @@ it.each([
     expect(document.querySelector('link[rel="icon"]')?.getAttribute('href')).toBe(
       branded ? '/lakeb2b-favicon.svg' : '/favicon.svg',
     )
-    expect(document.title).toBe(branded ? 'LakeB2B Share' : 'Champbeam')
+    expect(document.title).toBe(
+      branded ? 'LakeB2B Share. Send it. Know they saw it.' : 'Champbeam. Send it. Know they saw it.',
+    )
     return { render: vi.fn(), unmount: vi.fn() }
   })
 

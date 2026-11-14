@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-import { Link2, BarChart3, FolderOpen, Menu, X, Settings, FileText, Globe, Library, Users, Radio } from 'lucide-react';
+import { BarChart3, FolderOpen, Menu, X, Settings, FileText, Globe, Library, Users, Radio } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 import { clsx } from 'clsx';
 import { useQuery } from '@tanstack/react-query';
@@ -14,7 +15,7 @@ import { champvaultApi } from '../../api/champvault';
 interface NavLink {
   to: string;
   label: string;
-  icon: typeof Link2;
+  icon: LucideIcon;
   requiresAuth?: boolean;
   publicOnly?: boolean;
   // 'member' shows for anyone with an active org; 'admin' only for org admins;
@@ -24,8 +25,9 @@ interface NavLink {
   requiresVault?: boolean;
 }
 
+// Signed-out only. The public generator is gone, so '/' is the landing and
+// this bar is the logo plus sign in / sign up. Work-screen links stay behind auth.
 const navLinks: NavLink[] = [
-  { to: '/', label: 'Generator', icon: Link2 },
   { to: '/links', label: 'Links', icon: FolderOpen, requiresAuth: true },
   { to: '/files', label: 'Files', icon: FileText, requiresAuth: true },
   { to: '/pages', label: 'Pages', icon: Globe, requiresAuth: true },

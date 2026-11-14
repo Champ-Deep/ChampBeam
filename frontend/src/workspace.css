@@ -90,7 +90,7 @@ button[aria-label="Open menu"], button[aria-label="Close menu"] { min-width: 44p
 .cb-workspace ::selection { background:var(--cb-accent-soft); color:var(--cb-ink); }
 @media(max-width:1023px) { .cb-workspace { padding:32px 24px 64px; } }
 @media(max-width:699px) { .cb-workspace { padding:24px 16px 48px; } .cb-workspace h1 { font-size:26px; } .cb-page-header { margin-bottom:24px; padding-bottom:20px; } .cb-panel { padding:16px; } .cb-form-grid,.cb-intents,.cb-recents { grid-template-columns:minmax(0,1fr); } .cb-intents label { min-height:86px; } }
-@media(prefers-reduced-motion:reduce) { .cb-workspace *, .cb-panel *, .cb-account * { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
+@media(prefers-reduced-motion:reduce) { .cb-workspace *, .cb-panel *, .cb-account *, .cb-landing * { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
 
 /* Sub-navigation under a page header: a segmented control, current view filled. */
 .cb-subnav { display:inline-flex; gap:2px; padding:3px; border-radius:12px; background:var(--cb-chip); }
