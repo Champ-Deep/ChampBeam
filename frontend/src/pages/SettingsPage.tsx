@@ -4,7 +4,7 @@ import { OrganizationSettings } from '../components/OrganizationSettings';
 import { useOrgContext } from '../hooks/useOrgContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, Building2, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
@@ -62,9 +62,14 @@ export function SettingsPage() {
   return <div className="cb-workspace"><PageHeader title="Settings" lede="Your account preferences and workspace administration, kept separate." /><PersonalSettings /></div>;
 }
 
+function NavTab({ id, tab, setTab, icon: Icon, label }: { id: SettingsTab; tab: SettingsTab; setTab: (t: SettingsTab) => void; icon: typeof Globe; label: string }) {
+  return <button type="button" onClick={() => setTab(id)} aria-pressed={tab === id}><Icon className="h-4 w-4" />{label}</button>;
+}
+
 function PersonalSettings() {
   const { userId } = useAuth();
-  const { inOrg, permissions } = useOrgContext();
+  const { inOrg, permissions, profile } = useOrgContext();
+  const orgName = profile?.org?.name;
   const canManageDomains = !inOrg || permissions.includes('org.domains.manage');
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -183,78 +188,32 @@ function PersonalSettings() {
         </p>
       </div>
 
-      {/* Sub-tab bar */}
-      <div className="beam-settings-nav" aria-label="Settings sections">
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
-          {inOrg && <button onClick={() => setTab('organization')} aria-pressed={tab === 'organization'}>Workspace administration</button>}
-          <button
-            onClick={() => setTab('domains')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'domains'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Globe className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Domains
-          </button>
-          <Link
-            to="/links?tab=utm&panel=presets"
-            className="pb-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700"
-          >
-            <BookmarkCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            UTM presets
-          </Link>
-          <button
-            onClick={() => setTab('apikeys')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'apikeys'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <KeyRound className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            API keys and agents
-          </button>
-          <button
-            onClick={() => setTab('appearance')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'appearance'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Palette className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Appearance
-          </button>
-          <button onClick={() => setTab('notifications')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${tab === 'notifications' ? 'border-brand-purple text-brand-purple' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            <Bell className="h-4 w-4 inline mr-1.5 -mt-0.5" />Notifications
-          </button>
-          {canViewSystem && <button
-            onClick={() => setTab('system')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'system'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Activity className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            System
-          </button>}
-          <button
-            onClick={() => setTab('assistant')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'assistant'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Bot className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Assistant settings
-          </button>
+      {/* Personal items sit under "Personal", shared-workspace items under the org name. Without an org, Domains and Assistant are personal. */}
+      <nav className="beam-settings-nav" aria-label="Settings sections">
+        <div role="group" aria-labelledby="settings-personal">
+          <h3 id="settings-personal">Personal</h3>
+          <NavTab id="appearance" tab={tab} setTab={setTab} icon={Palette} label="Appearance" />
+          <NavTab id="notifications" tab={tab} setTab={setTab} icon={Bell} label="Notifications" />
+          <NavTab id="apikeys" tab={tab} setTab={setTab} icon={KeyRound} label="API keys and agents" />
+          <Link to="/links?tab=utm&panel=presets"><BookmarkCheck className="h-4 w-4" />UTM presets</Link>
+          {!inOrg && <NavTab id="domains" tab={tab} setTab={setTab} icon={Globe} label="Domains" />}
+          {!inOrg && <NavTab id="assistant" tab={tab} setTab={setTab} icon={Bot} label="Assistant settings" />}
         </div>
-      </div>
+        {inOrg && (
+          <div role="group" aria-labelledby="settings-org">
+            <h3 id="settings-org">{orgName ?? 'Workspace'}</h3>
+            <NavTab id="organization" tab={tab} setTab={setTab} icon={Building2} label="Workspace administration" />
+            {canManageDomains && <NavTab id="domains" tab={tab} setTab={setTab} icon={Globe} label="Domains" />}
+            <NavTab id="assistant" tab={tab} setTab={setTab} icon={Bot} label="Assistant settings" />
+          </div>
+        )}
+        {canViewSystem && (
+          <div role="group" aria-labelledby="settings-platform">
+            <h3 id="settings-platform">Platform</h3>
+            <NavTab id="system" tab={tab} setTab={setTab} icon={Activity} label="System" />
+          </div>
+        )}
+      </nav>
 
       {tab === 'organization' && inOrg && <OrganizationSettings />}
       {tab === 'appearance' && <AppearanceSettings />}

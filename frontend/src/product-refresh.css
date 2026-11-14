@@ -72,6 +72,8 @@
 .beam-settings>* { grid-column:2;min-width:0; }
 .beam-settings .beam-settings-nav { grid-column:1;grid-row:2/span 20;position:sticky;top:24px; }
 .beam-settings-nav>div { display:flex;flex-direction:column;gap:4px; }
+.beam-settings-nav>div+div { margin-top:16px; }
+.beam-settings-nav h3 { margin:0 0 2px;padding:0 12px;font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--cb-muted);overflow-wrap:anywhere; }
 .beam-settings-nav button,.beam-settings-nav a { text-align:left;min-height:44px;padding:12px;border:0;border-radius:8px;display:flex;align-items:center;gap:8px; }
 .beam-settings-nav button[aria-pressed=true] { background:var(--cb-accent-soft);color:var(--cb-accent); }
 .beam-settings .cb-panel>fieldset>section { margin:24px 0;padding-top:20px;border-top:1px solid var(--cb-border); }
@@ -95,6 +97,7 @@
   .beam-settings { display:block; }
   .beam-settings .beam-settings-nav { position:static;margin-bottom:20px; }
   .beam-settings-nav>div { display:grid;grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .beam-settings-nav h3 { grid-column:1/-1; }
   .beam-page-row { grid-template-columns:minmax(0,1fr); }
   .beam-page-actions { grid-template-columns:repeat(3,minmax(0,1fr));width:100%; }
   .beam-page-diagnostics { margin-left:0; }
