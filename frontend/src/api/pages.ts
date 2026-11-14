@@ -143,7 +143,7 @@ export interface PageLinksApplyResult {
 // API
 // ============================================================
 
-/** The Worker returns `url` as the legacy /p/{slug} address; `public_url` is the canonical root-slug address the composer shows. */
+/** The Worker returns `url` as the /p/{slug} address; `public_url` is the address that resolves, which the composer shows. */
 const canonical = (page: BeamPage): BeamPage => (page.public_url ? { ...page, url: page.public_url } : page);
 
 export const pagesApi = {
@@ -151,8 +151,8 @@ export const pagesApi = {
     const response = await api.get<{ status: 'available'; size: number; etag: string } | { status: 'missing' }>(`/pages/${pageId}/availability`);
     return response.data;
   },
-  async suggestSlug(filename: string, domainId?: string): Promise<{ slug: string; base: string; collided: boolean; host: string; public_url: string }> {
-    const response = await api.get<{ slug: string; base: string; collided: boolean; host: string; public_url: string }>('/pages/slug-suggestion', { params: { filename, domain_id: domainId } });
+  async suggestSlug(filename: string, domainId?: string): Promise<{ slug: string; base: string; collided: boolean; host: string; public_url: string | null }> {
+    const response = await api.get<{ slug: string; base: string; collided: boolean; host: string; public_url: string | null }>('/pages/slug-suggestion', { params: { filename, domain_id: domainId } });
     return response.data;
   },
   async list(): Promise<BeamPage[]> {

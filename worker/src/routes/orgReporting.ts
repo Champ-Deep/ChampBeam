@@ -47,7 +47,7 @@ router.get("/profile", async (c) => {
     role: org ? user.orgRole ?? null : null,
     permissions: org ? [...permissionsForRole(user.orgRole)].sort() : [],
     report_scope: scope.kind,
-    share_host: { default: def?.hostname ?? platformShareHost(c.var.settings), default_domain_id: def?.id ?? null },
+    share_host: { default: def?.hostname ?? (await platformShareHost(c.var.settings)), default_domain_id: def?.id ?? null },
     available_hosts: hosts.map((d) => ({ id: d.id, hostname: d.hostname, org_default: !!d.isOrgDefault })),
   });
 });

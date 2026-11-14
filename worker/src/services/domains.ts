@@ -15,6 +15,7 @@ import type { Db } from "../db/client";
 import { DOMAIN_STATUS_ACTIVE, domains } from "../db/schema";
 import type { Settings } from "../env";
 import { httpError } from "../lib/errors";
+import { reachableShareHost } from "../lib/shareOriginLive";
 
 export type Domain = typeof domains.$inferSelect;
 
@@ -104,7 +105,11 @@ export async function availableDomains(db: Db, u: TokenData): Promise<Domain[]> 
   return mine.filter((d) => !d.organizationId || d.organizationId === org);
 }
 
-/** The host new shares use when no domain is chosen. */
-export function platformShareHost(settings: Settings): string {
-  return settings.resolvedShareHost || settings.resolvedPlatformRedirectHost || "localhost:8000";
+/**
+ * Host new shares use when no domain is chosen. A configured share origin is
+ * used only after it answers /health, so a name in SHARE_ORIGIN_HOSTS does not
+ * become a link target before that custom domain exists.
+ */
+export async function platformShareHost(settings: Settings): Promise<string> {
+  return (await reachableShareHost(settings)) || settings.resolvedPlatformRedirectHost || "localhost:8000";
 }

@@ -77,6 +77,11 @@
     "BETTER_AUTH_URL": "https://champbeam.com",
     "REDIRECT_BASE_URL": "https://champbeam.com",
     "PLATFORM_REDIRECT_HOST": "champbeam.com,www.champbeam.com,champbeam.deep-ae0.workers.dev",
+    // Share plane for hosted files. Traffic to this host serves only public
+    // content (no app, no API, no auth cookies). Links keep using champbeam.com
+    // until https://share.champbeam.com/health answers as this worker, so the
+    // name is safe to set before the custom domain is attached.
+    "SHARE_ORIGIN_HOSTS": "share.champbeam.com",
     "CLERK_PUBLISHABLE_KEY": "",
     "CORS_ALLOW_ORIGINS": "https://champbeam.com,https://www.champbeam.com,https://champbeam.deep-ae0.workers.dev",
     "CORS_ALLOW_ORIGIN_REGEX": "",
