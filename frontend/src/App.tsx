@@ -6,6 +6,7 @@ import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
 
 import { HomePage } from './pages/HomePage';
+import { LandingPage } from './pages/LandingPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LinksPage } from './pages/LinksPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
@@ -44,10 +45,14 @@ function OrgRoute({ team = false, children }: { team?: boolean; children: React.
 
 // App chrome. Signed-in users get the App v2 dark sidebar with the content
 // scrolling to its right; signed-out visitors keep the marketing top nav so the
-// landing page reads full-width.
+// landing page reads full-width. Wait for the session before choosing chrome,
+// so a signed-in user never sees the marketing bar flash in.
 function Chrome({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useAuth();
-  if (isLoaded && isSignedIn) {
+  if (!isLoaded) {
+    return <main id="main-content"><p role="status">Loading account…</p></main>;
+  }
+  if (isSignedIn) {
     return (
       <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar />
@@ -58,9 +63,18 @@ function Chrome({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Navigation />
-      <main>{children}</main>
+      <main id="main-content">{children}</main>
     </>
   );
+}
+
+// '/' is the landing for guests and the work screen for members. Hold both
+// until the session is known so neither screen flashes, and do not redirect:
+// sign-in already sends members back to '/', so a redirect here would loop.
+function HomeRoute() {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return <p role="status">Loading account…</p>;
+  return isSignedIn ? <HomePage /> : <LandingPage />;
 }
 
 export default function App() {
@@ -75,9 +89,8 @@ export default function App() {
         <Route path="*" element={
           <Chrome>
             <Routes>
-                <Route path="/" element={<HomePage />} />
-                {/* /welcome retired: the home page now serves both the marketing
-                    content (signed-out) and the full app (signed-in). */}
+                <Route path="/" element={<HomeRoute />} />
+                {/* /welcome retired: signed-out / is the landing, signed-in / is the work screen. */}
                 <Route path="/welcome" element={<Navigate to="/" replace />} />
                 {/* Presets moved into Settings. Redirect the old route so existing links don't 404. */}
                 <Route path="/presets" element={<Navigate to="/links?tab=utm&panel=presets" replace />} />
