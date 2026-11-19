@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
+import { SignedOutLanding } from '../components/SignedOutLanding';
 import { ArrowUpRight, FileText, Globe, Link2, RotateCw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../lib/authClient';
 import { ShareComposer } from '../components/ShareComposer';
 import { useShareLists } from '../hooks/useShareLists';
 import { Skeleton } from '../components/ui/skeleton';
-import { BeamGlobe } from '../components/ui/beam-globe';
+
 import { formatRelative } from '../lib/format';
 
 interface Row { id: string; title: string; sub: string; when: string | null | undefined }
@@ -22,18 +23,7 @@ export function HomePage() {
     { name: 'Links', path: '/links', icon: Link2, count: links.data?.length, isLoading: links.isLoading, error: links.error, refetch: links.refetch,
       rows: links.data?.slice(0, 3).map((l) => ({ id: l.link_id, title: hostOf(l.original_url), sub: l.original_url, when: l.created_at })) },
   ];
-  if (!isSignedIn) return <div className="mx-auto grid max-w-[1200px] items-center gap-2 px-6 py-8 md:grid-cols-2 md:gap-10 md:px-10 md:py-16">
-    <div>
-      <h1 className="font-display text-4xl leading-tight font-bold text-cb-ink md:text-5xl">Share with ChampBeam</h1>
-      <p className="mt-5 max-w-md text-lg text-cb-text">Files to download. Pages to view. Links to track.</p>
-      <p className="mt-3 max-w-md text-base text-cb-muted">Sign in to host a page, send a file or track a link.</p>
-      <div className="mt-7 flex flex-wrap gap-3">
-        <Link to="/sign-in" className="inline-flex min-h-12 items-center rounded-[10px] bg-cb-ink px-6 font-medium text-surface hover:bg-cb-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cb-accent">Sign in</Link>
-        <Link to="/sign-up" className="inline-flex min-h-12 items-center rounded-[10px] border border-cb-icon px-6 font-medium text-cb-ink hover:bg-cb-chip focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cb-accent">Sign up</Link>
-      </div>
-    </div>
-    <BeamGlobe />
-  </div>;
+  if (!isSignedIn) return <SignedOutLanding />;
   return <div className="cb-workspace">
       <div className="beam-share-hero"><p className="beam-eyebrow">Send something worth opening</p><h1>Your next share starts here.</h1><p className="beam-share-lede">A file to keep. A page to explore. One link to see what happens next.</p><ShareComposer /></div>
     {isSignedIn && <section aria-labelledby="recent-heading" className="mt-10">
