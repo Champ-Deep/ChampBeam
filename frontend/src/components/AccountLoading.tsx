@@ -17,18 +17,22 @@ export function AccountLoading() {
       <div className="beam-loading-avatar" />
     </aside>
     <div className="beam-loading-main">
-      <header><Logo tone="light" /><span className="beam-loading-line" /></header>
-      <section>
-        <h1>Opening your workspace</h1>
-        <p role="status" aria-live="polite">{slow ? 'Taking longer than expected.' : 'Loading account...'}</p>
-        <p>{slow ? 'Your session has not finished loading. Try reloading, or return to sign in.' : 'Checking your session for Files and Pages.'}</p>
+      <header aria-hidden="true"><Logo tone="dark" size={30} /><span className="beam-loading-square" /></header>
+      <div className="cb-workspace">
+        <div className="beam-share-hero" aria-hidden="true">
+          <p className="beam-eyebrow beam-loading-copy">Send something worth opening</p>
+          <div className="beam-loading-title beam-loading-copy">Your next share starts here.</div>
+          <p className="beam-share-lede beam-loading-copy">A file to keep. A page to explore. One link to see what happens next.</p>
+          <div className="cb-panel cb-composer beam-loading-composer"><div className="beam-loading-line" /><div className="beam-loading-line" /></div>
+        </div>
+        <p role="status" aria-live="polite" className="sr-only">{slow ? 'Taking longer than expected.' : 'Loading account...'}</p>
         {slow && <div className="beam-loading-recovery">
+          <p>Your session has not finished loading. Try reloading, or return to sign in.</p>
           <button type="button" onClick={() => window.location.reload()}>Reload page</button>
           <a href="/sign-in">Go to sign in</a>
         </div>}
-        <div aria-hidden="true" className="beam-loading-composer"><div className="beam-loading-line" /><div className="beam-loading-line" /></div>
         <div aria-hidden="true" className="beam-loading-rows">{[0, 1, 2].map((i) => <div key={i}><span className="beam-loading-square" /><span className="beam-loading-line" /><span className="beam-loading-line" /></div>)}</div>
-      </section>
+      </div>
     </div>
   </main>;
 }

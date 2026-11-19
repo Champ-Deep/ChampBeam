@@ -9,7 +9,9 @@ describe('AccountLoading', () => {
   it('names the operation without offering a premature recovery', () => {
     render(<AccountLoading />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading account');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Opening your workspace');
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+    expect(screen.queryByText('Opening your workspace')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).toBeNull();
   });
 

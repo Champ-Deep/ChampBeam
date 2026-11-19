@@ -20,6 +20,10 @@ it('renders the sidebar dashboard skeleton on pending home with a hint, with slo
   vi.useFakeTimers(); localStorage.setItem('cb_signed_in', '1');
   render(<SessionScope><h1>Private workspace</h1></SessionScope>);
   expect(screen.getByTestId('account-skeleton')).toBeVisible();
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  expect(screen.queryByText('Opening your workspace')).not.toBeInTheDocument();
+  expect(screen.queryByText('Checking your session for Files and Pages.')).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveClass('sr-only');
   expect(screen.queryByText('Private workspace')).not.toBeInTheDocument();
   act(() => vi.advanceTimersByTime(12_000));
   expect(screen.getByRole('button', { name: 'Reload page' })).toBeEnabled();
