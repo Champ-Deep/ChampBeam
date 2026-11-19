@@ -186,6 +186,8 @@ export const domains = sqliteTable("domains", {
   /** Set for an org-owned domain (administered by org admins, usable by members). */
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   isOrgDefault: bool("is_org_default").notNull().default(false),
+  /** 32-hex DNS TXT proof token; NULL for grandfathered active rows. */
+  verificationToken: text("verification_token"),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
