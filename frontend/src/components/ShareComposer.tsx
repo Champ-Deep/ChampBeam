@@ -91,16 +91,16 @@ export function ShareComposer() {
   }
 
   if (!isSignedIn) return <section className="cb-panel"><h2>Share with ChampBeam</h2><p>Sign in to host a page, send a file or track a link.</p><Link to="/sign-in">Sign in</Link></section>;
-  if (isLoading) return <p role="status">Loading workspace permissions…</p>;
   if (profileError) return <p role="alert">Workspace access could not be verified. Reload or sign in again. No content was uploaded.</p>;
-  if (!canShare) return <section className="cb-panel"><h2>Read-only workspace</h2>{canReport ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team">Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
+  if (!isLoading && !canShare) return <section className="cb-panel"><h2>Read-only workspace</h2>{canReport ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team">Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
 
-  return <section className="cb-panel cb-composer" aria-labelledby={headingId}>
+  return <section className="cb-panel cb-composer" aria-labelledby={headingId} aria-busy={isLoading}>
+    {isLoading && <span className="sr-only" role="status">Loading workspace permissions…</span>}
     <h2 id={headingId}>Drop a file or paste a link</h2>
     <p>Send a download or host a page. Nothing publishes until you confirm.</p>
-    <fieldset disabled={busy}>
+    <fieldset disabled={busy || isLoading}>
       <>
-        <ComposerInput text={text} onText={changeText} onFiles={selectFiles} busy={busy}
+        <ComposerInput text={text} onText={changeText} onFiles={selectFiles} busy={busy || isLoading}
           received={file && <div className="cb-received"><p role="status"><strong>{file.name}</strong><span>{file.type || 'File'} · {formatBytes(file.size)}</span></p><button type="button" onClick={() => { reset(); setFile(null); setText(''); }}>Remove file</button></div>} />
       </>
       <ul className="cb-limits" aria-label="Upload limits">{UPLOAD_HINT.split(' · ').map((t) => <li key={t}>{t}</li>)}</ul>
