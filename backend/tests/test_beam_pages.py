@@ -259,18 +259,19 @@ async def test_versions_rollback_and_prune(app_client, local_storage, monkeypatc
     pid, slug = page["page_id"], page["slug"]
 
     for n in (2, 3, 4):
-        r = await app_client.put(f"/api/v1/pages/{pid}", json={"html": f"<html><head></head><body>v{n}</body></html>"}, headers=headers)
+        r = await app_client.put(f"/api/v1/pages/{pid}", json={"html": f"<html><head></head><body><p>v{n}</p></body></html>"}, headers=headers)
         assert r.status_code == 200 and r.json()["current_version"] == n
 
     versions = (await app_client.get(f"/api/v1/pages/{pid}/versions", headers=headers)).json()
     assert [v["version_no"] for v in versions] == [4, 3, 2, 1]
     assert [v["current"] for v in versions] == [True, False, False, False]
-    assert "v4" in (await app_client.get(f"/p/{slug}")).text
+    assert "<p>v4</p>" in (await app_client.get(f"/p/{slug}")).text
 
     rb = await app_client.post(f"/api/v1/pages/{pid}/versions/1/rollback", headers=headers)
     assert rb.status_code == 200 and rb.json()["current_version"] == 5
     served = await app_client.get(f"/p/{slug}")
-    assert "hello" in served.text and "v4" not in served.text
+    # Match markup, not "v4": injected visitor/state tokens are random base64 and can contain "v4".
+    assert "<p>hello</p>" in served.text and "<p>v4</p>" not in served.text
 
     monkeypatch.setattr(settings, "pages_versions_keep", 2)
     await app_client.put(f"/api/v1/pages/{pid}", json={"html": "<html><head></head><body>v6</body></html>"}, headers=headers)
