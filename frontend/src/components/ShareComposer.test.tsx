@@ -39,6 +39,7 @@ afterEach(cleanup);
 
 describe('one composer', () => {
   it('keeps the composer shell inert until workspace permissions arrive', async () => {
+    localStorage.setItem('cb_composer_layout:["fixture-user","fixture-org"]', 'share');
     let resolveProfile!: (value: typeof profile) => void;
     vi.mocked(orgApi.profile).mockReturnValue(new Promise(resolve => { resolveProfile = resolve; }));
     mount();
@@ -53,6 +54,34 @@ describe('one composer', () => {
     expect(screen.getByLabelText('Choose file')).toBeEnabled();
     expect(screen.getByLabelText('Paste content or drop one file')).toBeEnabled();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+  it('reuses only this user and org read-only shell while the next profile is held', async () => {
+    vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, permissions: [] });
+    const first = mount();
+    await screen.findByText('Read-only workspace');
+    expect(localStorage.getItem('cb_composer_layout:["fixture-user","fixture-org"]')).toBe('report');
+    first.unmount();
+    vi.mocked(orgApi.profile).mockReturnValue(new Promise(() => {}));
+    const second = mount();
+    expect(screen.getByText('Read-only workspace').closest('section')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByLabelText('Choose file')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open reporting' })).toHaveAttribute('aria-disabled', 'true');
+    second.unmount();
+    localStorage.removeItem('cb_composer_layout:["fixture-user","fixture-org"]');
+    localStorage.setItem('cb_composer_layout:["other-user","fixture-org"]', 'report');
+    localStorage.setItem('cb_composer_layout:["fixture-user","other-org"]', 'report');
+    mount();
+    expect(screen.queryByText('Read-only workspace')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading workspace permissions');
+  });
+  it('replaces a stale share hint with server read-only permissions', async () => {
+    localStorage.setItem('cb_composer_layout:["fixture-user","fixture-org"]', 'share');
+    vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, permissions: [] });
+    mount();
+    await screen.findByText('Read-only workspace');
+    expect(screen.queryByLabelText('Choose file')).not.toBeInTheDocument();
+    expect(filesApi.initUpload).not.toHaveBeenCalled();
+    expect(localStorage.getItem('cb_composer_layout:["fixture-user","fixture-org"]')).toBe('report');
   });
   it('does not upload on file selection and requires intent', async () => {
     mount(); await readyInput('Choose file');

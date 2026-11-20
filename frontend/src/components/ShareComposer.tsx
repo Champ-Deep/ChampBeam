@@ -5,6 +5,7 @@ import { Button, QrButton } from './ui';
 import { filesApi } from '../api/files';
 import { pagesApi } from '../api/pages';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { useAuth } from '../lib/authClient';
 import { apiErrorDetail } from '../api/_shared';
 import { invalidateAssets } from '../lib/assetCache';
 import { PAGE_CAP_MB, UPLOAD_CAPS_MB, UPLOAD_HINT } from '../config/uploadLimits';
@@ -15,6 +16,15 @@ const KINDS: Record<string, keyof typeof UPLOAD_CAPS_MB> = { 'text/html': 'html'
 
 export function ShareComposer() {
   const { profile, canShare, canReport, isSignedIn, isLoading, error: profileError } = useOrgContext();
+  const { userId, orgId } = useAuth();
+  const layoutKey = `cb_composer_layout:${JSON.stringify([userId, orgId ?? null])}`;
+  let loadingLayout: string | null = null;
+  try { loadingLayout = localStorage.getItem(layoutKey); } catch { /* Storage is optional. */ }
+  useEffect(() => {
+    if (!userId || !profile || isLoading || profileError) return;
+    // A layout hint never grants capabilities; controls still await the server profile.
+    try { localStorage.setItem(layoutKey, canShare ? 'share' : canReport ? 'report' : 'readonly'); } catch { /* Storage is optional. */ }
+  }, [userId, profile, isLoading, profileError, layoutKey, canShare, canReport]);
   const client = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState('');
@@ -92,7 +102,9 @@ export function ShareComposer() {
 
   if (!isSignedIn) return <section className="cb-panel"><h2>Share with ChampBeam</h2><p>Sign in to host a page, send a file or track a link.</p><Link to="/sign-in">Sign in</Link></section>;
   if (profileError) return <p role="alert">Workspace access could not be verified. Reload or sign in again. No content was uploaded.</p>;
-  if (!isLoading && !canShare) return <section className="cb-panel"><h2>Read-only workspace</h2>{canReport ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team">Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
+  // shortcut: unknown org roles keep the original placeholder until their first profile resolves.
+  if (isLoading && orgId && !['share', 'report', 'readonly'].includes(loadingLayout ?? '')) return <p role="status">Loading workspace permissions…</p>;
+  if (isLoading ? loadingLayout === 'report' || loadingLayout === 'readonly' : !canShare) return <section className="cb-panel" aria-busy={isLoading}><h2>Read-only workspace</h2>{(isLoading ? loadingLayout === 'report' : canReport) ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team" aria-disabled={isLoading || undefined} tabIndex={isLoading ? -1 : undefined} onClick={event => { if (isLoading) event.preventDefault(); }}>Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
 
   return <section className="cb-panel cb-composer" aria-labelledby={headingId} aria-busy={isLoading}>
     {isLoading && <span className="sr-only" role="status">Loading workspace permissions…</span>}
