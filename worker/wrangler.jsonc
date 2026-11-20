@@ -76,7 +76,7 @@
     "FRONTEND_URL": "https://champbeam.com",
     "BETTER_AUTH_URL": "https://champbeam.com",
     // Verified emails on these domains join the champions-group org at sign-up; everyone else starts in Personal.
-    "AUTO_JOIN_EMAIL_DOMAINS": "championsmail.com",
+    "AUTO_JOIN_EMAIL_DOMAINS": "championsmail.com,lakeb2b.com",
     "REDIRECT_BASE_URL": "https://champbeam.com",
     "PLATFORM_REDIRECT_HOST": "champbeam.com,www.champbeam.com,champbeam.deep-ae0.workers.dev",
     "CLERK_PUBLISHABLE_KEY": "",

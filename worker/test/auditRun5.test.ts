@@ -37,6 +37,12 @@ describe("open sign-up does not reach the shared org", () => {
     expect(joinsDefaultOrg({ autoJoinEmailDomains: [] }, { email: "a@championsmail.com", emailVerified: true })).toBe(false);
   });
 
+  it("joinsDefaultOrg admits verified lakeb2b.com under the production allowlist", () => {
+    const prod = { autoJoinEmailDomains: ["championsmail.com", "lakeb2b.com"] }; // mirrors wrangler.jsonc top-level vars
+    expect(joinsDefaultOrg(prod, { email: "rep@lakeb2b.com", emailVerified: true })).toBe(true);
+    expect(joinsDefaultOrg(prod, { email: "rep@lakeb2b.com", emailVerified: false })).toBe(false);
+  });
+
   it("a stranger who registers reads no roster, no rooms and no org data", async () => {
     const orgId = await operatorOrg();
     const admin = await createUser({ email: "admin-roster@example.com" });
