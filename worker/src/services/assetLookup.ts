@@ -11,7 +11,7 @@
  *   resolveHost(c | {db, settings, host}): Promise<{ host, domain, unknownHost }>
  *   types FileAsset, Domain
  */
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import type { AppEnv, Settings } from "../env";
 import type { Db } from "../db/client";
@@ -42,10 +42,14 @@ export async function resolveDomain(db: Db, settings: Settings, host: string): P
  * platform-bucket assets (domain_id NULL), because serve URLs are minted on
  * the user's PRIMARY domain even for assets created before that domain
  * existed. Exact domain match wins when both buckets hold the same code.
+ *
+ * Legacy: a domain with `legacyPlatformBefore` (share.lakeb2b.com) ALSO serves platform-bucket assets
+ * created before that instant, whatever org owns them, because the host was the platform host until
+ * then. Anything newer in the platform bucket 404s there. Timestamps are ISO-with-ms text, so `<` is time order.
  */
 export async function lookupAsset(
   db: Db,
-  domain: Pick<Domain, "id" | "userId" | "organizationId"> | null,
+  domain: (Pick<Domain, "id" | "userId" | "organizationId"> & { legacyPlatformBefore?: string | null }) | null,
   ident: { shortCode: string; slug?: undefined } | { slug: string; shortCode?: undefined },
 ): Promise<FileAsset | null> {
   const hasCode = ident.shortCode != null;
@@ -68,6 +72,7 @@ export async function lookupAsset(
           // An org domain serves only what was shared on it; the admin who connected it
           // must not expose their personal platform-bucket assets through it.
           domain.organizationId ? sql`0` : and(eq(fileAssets.userId, domain.userId), isNull(fileAssets.domainId)),
+          domain.legacyPlatformBefore ? and(isNull(fileAssets.domainId), lt(fileAssets.createdAt, domain.legacyPlatformBefore)) : sql`0`,
         ),
       ),
     )
@@ -75,11 +80,15 @@ export async function lookupAsset(
     // platform bucket, and NULL ordering differs between engines.
     .orderBy(sql`CASE WHEN ${fileAssets.domainId} = ${domain.id} THEN 1 ELSE 0 END DESC`)
     .limit(1);
-  return rows[0] ?? (hasSlug ? aliasTarget(db, ident.slug!, domain.id) : null);
+  if (rows[0] || !hasSlug) return rows[0] ?? null;
+  return (
+    (await aliasTarget(db, ident.slug!, domain.id)) ??
+    (domain.legacyPlatformBefore ? aliasTarget(db, ident.slug!, null, domain.legacyPlatformBefore) : null)
+  );
 }
 
 /** A retired slug (explicitly renamed page) still resolves to its page in the same host namespace. */
-async function aliasTarget(db: Db, slug: string, domainId: string | null): Promise<FileAsset | null> {
+async function aliasTarget(db: Db, slug: string, domainId: string | null, createdBefore?: string): Promise<FileAsset | null> {
   const row = await db
     .select({ asset: fileAssets })
     .from(slugAliases)
@@ -92,6 +101,7 @@ async function aliasTarget(db: Db, slug: string, domainId: string | null): Promi
         // keep serving it (that host's edit authority no longer applies to the page).
         domainId === null ? isNull(fileAssets.domainId) : eq(fileAssets.domainId, domainId),
         eq(fileAssets.status, FILE_STATUS_ACTIVE),
+        createdBefore ? lt(fileAssets.createdAt, createdBefore) : undefined,
       ),
     )
     .limit(1)

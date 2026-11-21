@@ -26,6 +26,7 @@ export default defineConfig(async () => {
             // example.com is allowlisted so the tests prove that an UNVERIFIED sign-up on an allowed domain still joins nothing.
             AUTO_JOIN_EMAIL_DOMAINS: "example.com",
             // Pinned empty so a developer .dev.vars cannot switch Google sign-in on in tests.
+            SUPER_ADMIN_EMAILS: "root@example.com",
             GOOGLE_CLIENT_ID: "",
             GOOGLE_CLIENT_SECRET: "",
             CLERK_SECRET_KEY: "sk_test_dummy",

@@ -190,6 +190,8 @@ export const domains = sqliteTable("domains", {
   cfDnsRecords: json<{ type: string; name: string; value: string; purpose: string }[]>("cf_dns_records"),
   /** 32-hex DNS TXT proof token; NULL for grandfathered active rows. */
   verificationToken: text("verification_token"),
+  /** ISO instant (0009): also serve platform-bucket content created before it. See assetLookup. */
+  legacyPlatformBefore: text("legacy_platform_before"),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
@@ -637,4 +639,13 @@ export const rateLimit = sqliteTable("rate_limit", {
   key: text("key").notNull().unique(),
   count: integer("count").notNull(),
   lastRequest: integer("last_request").notNull(),
+});
+
+export const adminAudit = sqliteTable("admin_audit", {
+  id: id(),
+  actorUserId: text("actor_user_id").notNull(),
+  action: text("action").notNull(),
+  target: text("target"),
+  payload: text("payload"),
+  at: text("at").notNull().$defaultFn(nowIso),
 });

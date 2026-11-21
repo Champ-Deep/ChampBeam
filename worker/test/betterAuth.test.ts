@@ -101,12 +101,29 @@ describe("email and password", () => {
       json: { email, password: "long enough pw", name: "Joiner" },
     });
     expect(up.status).toBe(200);
-    const m = await env.DB.prepare(
-      "SELECT m.role FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ? AND m.organization_id = ?",
+    const n = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ?",
     )
       .bind(email, orgId)
       .first<{ role: string }>();
     expect(m).toBeNull();
+  });
+
+  it("a new sign-up is personal: it holds no membership anywhere, even when champions-group exists", async () => {
+    await defaultOrg();
+    const email = `join-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    const up = await api("/api/auth/sign-up/email", {
+      method: "POST",
+      headers: { ...ORIGIN, ...ip() },
+      json: { email, password: "long enough pw", name: "Joiner" },
+    });
+    expect(up.status).toBe(200);
+    const n = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ?",
+    )
+      .bind(email)
+      .first<{ n: number }>();
+    expect(n?.n).toBe(0);
   });
 
   it("a verified address on an allowlisted domain joins the Champions Group org as member; an off-domain one does not", async () => {
@@ -189,7 +206,7 @@ describe("organizations", () => {
     expect((await json(after)).detail).toMatch(/Select an organization/);
   });
 
-  it("users cannot create organizations through the Better Auth API", async () => {
+  it("an unverified, non-Google user cannot create an organization", async () => {
     const user = await createUser();
     const res = await api("/api/auth/organization/create", {
       method: "POST",

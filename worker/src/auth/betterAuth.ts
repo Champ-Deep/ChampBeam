@@ -8,6 +8,7 @@
  * below gate only Better Auth's own org-management endpoints.
  */
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { verifyPassword } from "better-auth/crypto";
 import { organization } from "better-auth/plugins";
@@ -20,9 +21,13 @@ import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
 import { sendMail } from "../lib/email";
+import { slugProblem } from "../services/orgSlug";
+import { isSuperAdmin } from "./superAdmin";
 
-/** The one org every user belongs to (Deep's ruling, 5 Nov). New sign-ups join it as `member`. */
-export const DEFAULT_ORG_SLUG = "champions-group";
+const INVITE_TTL_SECONDS = 7 * 86_400;
+
+/** The accept page lives on the platform host, never on a custom domain. */
+export const inviteUrl = (settings: { platformOrigin: string }, invitationId: string) => `${settings.platformOrigin}/accept-invitation/${invitationId}`;
 
 const ac = createAccessControl(defaultStatements);
 const roles = {
@@ -108,6 +113,15 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         verify: ({ hash, password }) => (hash.startsWith("$2") ? bcrypt.compare(password, hash) : verifyPassword({ hash, password })),
       },
     },
+    // Verification mail goes out at password sign-up. Sign-in is not blocked on it: a personal workspace
+    // works unverified, while creating an org (below) and accepting an invite (with email on) need it.
+    emailVerification: settings.emailEnabled
+      ? {
+          sendOnSignUp: true,
+          autoSignInAfterVerification: true,
+          sendVerificationEmail: async ({ user, url }) => mail(user.email, "Verify your email for ChampBeam", "Confirm this address to finish setting up your ChampBeam account.", "Verify email", url),
+        }
+      : undefined,
     socialProviders: google
       ? { google: { clientId: settings.googleClientId, clientSecret: settings.googleClientSecret } }
       : {},
@@ -169,10 +183,27 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         ac,
         roles,
         creatorRole: "admin",
-        allowUserToCreateOrganization: false,
-        // Explicit, not a side effect of the custom generateId: an unverified sign-up must not accept an invitation addressed to someone else.
+        // Deep's ruling (6 Nov): only super admins create orgs. A paid tier later widens this one line.
+        allowUserToCreateOrganization: (user) => isSuperAdmin(db, settings, user),
+        invitationExpiresIn: INVITE_TTL_SECONDS,
+        // Better Auth's default cap is 100 members per org.
+        membershipLimit: 5000,
+        // Explicit, not a side effect of the custom generateId: an unverified sign-up must not accept an invitation addressed to someone else (audit run-5).
         requireEmailVerificationOnInvitation: true,
+        sendInvitationEmail: settings.emailEnabled
+          ? async (d) =>
+              mail(d.email, `${d.inviter.user.name || d.inviter.user.email} invited you to ${d.organization.name} on ChampBeam`, `You were invited to join ${d.organization.name} as ${d.role}. The invitation expires in 7 days.`, "Accept invitation", inviteUrl(settings, d.id))
+          : undefined,
         organizationHooks: {
+          beforeCreateOrganization: async ({ organization }) => {
+            const why = slugProblem(organization.slug);
+            if (why) throw new APIError("BAD_REQUEST", { message: why });
+          },
+          beforeUpdateOrganization: async ({ organization }) => {
+            if (organization.slug === undefined) return;
+            const why = slugProblem(organization.slug);
+            if (why) throw new APIError("BAD_REQUEST", { message: why });
+          },
           // Removing a member deletes the row; also end their reporting grants, as the Clerk revoke did.
           afterRemoveMember: async ({ member }) => {
             await db
