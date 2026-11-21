@@ -112,8 +112,8 @@ describe("share origin", () => {
     expect((await api("/api/v1/auth/me")).status).toBe(401);
   });
 
-  it("legacy executable /p links on the control host move to the share origin", async () => {
-    setSettings({ shareHosts: ["share.sandbox.test"], resolvedShareHost: "share.sandbox.test" } as any);
+  it("legacy executable /p links on the control host move to a live share origin", async () => {
+    setSettings({ shareHosts: ["share.sandbox.test"], resolvedShareHost: "share.sandbox.test", shareOriginReachable: true } as any);
     const uid = await newUser();
     await seedPage(uid, HTML, { slug: "old-link" });
     const r = await api("/p/old-link");

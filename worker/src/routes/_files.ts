@@ -39,6 +39,7 @@ import { bytesToHex, sha256Hex, timingSafeEqual } from "../lib/crypto";
 import { httpError } from "../lib/errors";
 import { StorageError, blobStillReferenced, deleteObject, headObject } from "../lib/storage";
 import { isoUtc, parseIso } from "../lib/time";
+import { reachableShareHost } from "../lib/shareOriginLive";
 import { allocateFileShortCode, safeSlug, schemeFor } from "../services/content";
 import type { FileAsset } from "../services/assetLookup";
 
@@ -127,34 +128,53 @@ function hostFromBaseUrl(settings: Settings): string {
   }
 }
 
+export interface ServeTarget {
+  host: string;
+  /** True when this host serves https://<host>/<slug> (org domain or a live share origin). */
+  rootSlug: boolean;
+}
+
 /**
  * Hostname for a file's serve URL: explicit domain_id -> user's primary active
- * domain -> platform default. Anonymous assets always use the platform host.
+ * domain -> a live share origin -> platform default. Anonymous assets always
+ * use the platform host (or the share origin once it is answering).
+ * rootSlug is true only where GET /<slug> is actually served.
  */
-export async function serveHost(
+export async function serveTarget(
   db: Db,
   settings: Settings,
   userId: string | null | undefined,
   domainId: string | null | undefined,
-): Promise<string> {
+): Promise<ServeTarget> {
   if (userId) {
     if (domainId) {
       const d = await db
-        .select({ hostname: domains.hostname })
+        .select({ hostname: domains.hostname, organizationId: domains.organizationId })
         .from(domains)
         // asset.domain_id was authorized at write time; an org domain is not owned by the member.
         .where(and(eq(domains.id, domainId), eq(domains.status, DOMAIN_STATUS_ACTIVE), or(eq(domains.userId, userId), isNotNull(domains.organizationId))))
         .get();
-      if (d) return d.hostname;
+      if (d) return { host: d.hostname, rootSlug: d.organizationId != null };
     }
     const primary = await db
       .select({ hostname: domains.hostname })
       .from(domains)
       .where(and(eq(domains.userId, userId), eq(domains.isPrimary, true), eq(domains.status, DOMAIN_STATUS_ACTIVE), isNull(domains.organizationId)))
       .get();
-    if (primary) return primary.hostname;
+    if (primary) return { host: primary.hostname, rootSlug: false };
   }
-  return settings.resolvedShareHost || settings.resolvedPlatformRedirectHost || hostFromBaseUrl(settings);
+  const share = await reachableShareHost(settings);
+  if (share) return { host: share, rootSlug: true };
+  return { host: settings.resolvedPlatformRedirectHost || hostFromBaseUrl(settings), rootSlug: false };
+}
+
+export async function serveHost(
+  db: Db,
+  settings: Settings,
+  userId: string | null | undefined,
+  domainId: string | null | undefined,
+): Promise<string> {
+  return (await serveTarget(db, settings, userId, domainId)).host;
 }
 
 export function buildServeUrl(host: string, shortCode: string, filename: string): string {
@@ -187,20 +207,33 @@ export const hostedCond = or(
   and(isNull(fileAssets.shareIntent), eq(fileAssets.kind, FILE_KIND_HTML)),
 );
 
-/** https://<host>/<slug> for hosted shares (root-slug form); null when there is no root-slug address. */
-export function publicUrl(host: string, asset: Pick<FileAsset, "kind" | "shareIntent" | "slug">): string | null {
+/**
+ * Address the app should copy. Root slug only when `rootSlug` (that host serves
+ * it). Otherwise HTML uses /p/<slug>, which the platform always serves, and
+ * other hosted files use /f/<code>, which is the URL that already works.
+ * Null when the asset has no hosted address.
+ */
+export function publicUrl(
+  host: string,
+  asset: Pick<FileAsset, "kind" | "shareIntent" | "slug" | "shortCode" | "filename">,
+  rootSlug: boolean,
+): string | null {
   if (!asset.slug || (asset.shareIntent !== "host" && asset.kind !== FILE_KIND_HTML)) return null;
-  return `${schemeFor(host)}://${host}/${asset.slug}`;
+  const scheme = schemeFor(host);
+  if (rootSlug) return `${scheme}://${host}/${asset.slug}`;
+  if (asset.kind === FILE_KIND_HTML) return `${scheme}://${host}/p/${asset.slug}`;
+  return buildServeUrl(host, asset.shortCode, asset.filename);
 }
 
 export async function fileResponse(db: Db, settings: Settings, asset: FileAsset) {
-  const host = await serveHost(db, settings, asset.userId, asset.domainId);
+  const target = await serveTarget(db, settings, asset.userId, asset.domainId);
+  const host = target.host;
   const views = asset.viewCount ?? 0;
   return {
     intent: asset.shareIntent ?? null,
     output_kind: outputKind(asset),
     slug: asset.slug ?? null,
-    public_url: publicUrl(host, asset),
+    public_url: publicUrl(host, asset, target.rootSlug),
     id: asset.id,
     short_code: asset.shortCode,
     filename: asset.filename,
