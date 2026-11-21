@@ -24,7 +24,7 @@ const domain: Domain = {
 const writeText = vi.fn();
 function mount(children: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
-  return { client, ...render(<QueryClientProvider client={client}><MemoryRouter><ConfirmProvider>{children}</ConfirmProvider></MemoryRouter></QueryClientProvider>) };
+  return { client, ...render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/settings?tab=domains']}><ConfirmProvider>{children}</ConfirmProvider></MemoryRouter></QueryClientProvider>) };
 }
 function row() { return mount(<DomainRow domain={domain} config={undefined} onRefresh={vi.fn()} onSetPrimary={vi.fn()} onDelete={vi.fn()} refreshing={false} />); }
 beforeEach(() => {
@@ -101,7 +101,7 @@ describe('Domain DNS handoff', () => {
     const refresh = vi.spyOn(utmApi, 'refreshDomain').mockResolvedValueOnce(domain).mockResolvedValue({ ...domain, status: 'active', ssl_status: 'active' });
     const { client } = mount(<SettingsPage />);
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    expect(screen.getByText('Waiting on CNAME')).toBeInTheDocument();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
     expect(screen.getByText('Active')).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });

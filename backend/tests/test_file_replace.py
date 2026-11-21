@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.pages_service import VISITOR_COOKIE
+from tests.served_html import document_body
+
+# This id is a real shape from secrets.token_urlsafe and contains the old
+# page marker. The serve path copies it into the tracking snippet.
+_VISITOR_WITH_V1 = "WWKB52KB63v1A"
+
 
 @pytest.mark.asyncio
 async def test_replace_content_keeps_link(app_client, tmp_path, monkeypatch):
@@ -50,10 +57,15 @@ async def test_replace_content_keeps_link(app_client, tmp_path, monkeypatch):
     assert body["short_code"] == short_code
     assert body["size_bytes"] == len(v2)
 
-    served2 = await app_client.get(f"/f/{short_code}")
+    served2 = await app_client.get(
+        f"/f/{short_code}", cookies={VISITOR_COOKIE: _VISITOR_WITH_V1}
+    )
     assert served2.status_code == 200
-    assert "v2 updated weekly" in served2.text
-    assert "v1" not in served2.text
+    # The snippet still carries the visitor id, so "v1" is in the full document.
+    assert _VISITOR_WITH_V1 in served2.text
+    body = document_body(served2.text)
+    assert "v2 updated weekly" in body
+    assert "v1" not in body
 
 
 @pytest.mark.asyncio

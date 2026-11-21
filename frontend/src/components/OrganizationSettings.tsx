@@ -8,6 +8,7 @@ import { Button, useConfirm } from './ui';
 import { useMutation } from '@tanstack/react-query';
 import { AdoptionSummary, DomainAdoption } from './DomainAdoption';
 import type { AdoptionReport } from '../api/org';
+import { MembersPanel } from './org/MembersPanel';
 
 export function OrganizationSettings() {
   const { permissions, profile, orgId } = useOrgContext();
@@ -54,6 +55,7 @@ export function OrganizationSettings() {
   const memberOptions = (members.data ?? []).map((m) => <option key={m.user_id} value={m.user_id}>{memberName(m.user_id)} ({m.role})</option>);
   if (!domainsAllowed && !membersAllowed && !grantsAllowed) return <p>Organization administration requires an explicit IT permission. Your reporting access is separate.</p>;
   return <section className="cb-panel"><h2>{profile?.org?.name} administration</h2><details className="beam-permissions"><summary>Your workspace permissions</summary><p>{permissions.map(p => p.split('.').join(' ')).join(', ')}</p></details>
+      {membersAllowed && orgId && <MembersPanel orgId={orgId} orgName={profile?.org?.name ?? 'this organization'} />}
     {[domains, owned, members, grants].some((q) => q.isLoading) && <p role="status">Loading administration data…</p>}
     {[domains, owned, members, grants].some((q) => q.isError) && <p role="alert">Some administration data could not load. Reload before making changes.</p>}
     <fieldset disabled={busy}>

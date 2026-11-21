@@ -101,8 +101,8 @@ describe("email and password", () => {
       json: { email, password: "long enough pw", name: "Joiner" },
     });
     expect(up.status).toBe(200);
-    const n = await env.DB.prepare(
-      "SELECT COUNT(*) AS n FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ?",
+    const m = await env.DB.prepare(
+      "SELECT m.role FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ? AND m.organization_id = ?",
     )
       .bind(email, orgId)
       .first<{ role: string }>();

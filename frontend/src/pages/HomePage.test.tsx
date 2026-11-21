@@ -11,6 +11,7 @@ vi.mock('../hooks/useShareLists', () => ({ useShareLists: () => {
   const empty = { data: [], isLoading: false, error: null, refetch: vi.fn() };
   return { files: empty, pages: empty, links: empty };
 } }));
+vi.mock('../components/org/OnboardingChecklist', () => ({ OnboardingChecklist: () => null }));
 vi.mock('../components/ShareComposer', () => ({ ShareComposer: () => <p>Workspace composer</p> }));
 
 beforeEach(() => {

@@ -41,6 +41,9 @@ const roles = {
   viewer: ac.newRole({}),
 };
 
+/** The shared org that verified allowlisted addresses join on sign-up. */
+export const DEFAULT_ORG_SLUG = "champions-group";
+
 /** Only a verified address on an allowlisted company domain joins the shared org; anyone else starts in Personal and is added by an org admin. */
 export function joinsDefaultOrg(settings: { autoJoinEmailDomains: string[] }, u: { email: string; emailVerified?: boolean | null }): boolean {
   return u.emailVerified === true && settings.autoJoinEmailDomains.includes(u.email.slice(u.email.lastIndexOf("@") + 1).toLowerCase());

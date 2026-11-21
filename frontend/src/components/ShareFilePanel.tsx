@@ -21,11 +21,10 @@ import { filesApi } from '../api/files';
 import { ensureGated, pagesApi } from '../api/pages';
 import type { BeamPage } from '../api/pages';
 import { apiErrorDetail } from '../api/_shared';
+import { useOrgContext } from '../hooks/useOrgContext';
 
 const FILE_HISTORY_KEY = 'champbeam_file_history';
 const _PAGE_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/;
-// Canonical share host (mirrors the served /p/ and /f/ URLs in the App).
-const HOST = 'share.lakeb2b.com';
 
 interface SharedFile {
   fileId: string;
@@ -409,6 +408,8 @@ function HtmlAsPageCreator({
   const [slug, setSlug] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [publishing, setPublishing] = useState(false);
+  // The host new pages are served from in this workspace, from the server profile.
+  const host = useOrgContext().profile?.share_host.default;
 
   const slugValid = slug === '' || _PAGE_SLUG_RE.test(slug);
 
@@ -508,7 +509,7 @@ function HtmlAsPageCreator({
         </Button>
       </div>
       <p className="text-xs text-slate-400">
-        {HOST} links track every open; page versions are kept for rollback.
+        {host ? <>Links on <span className="font-mono">{host}</span> track every open</> : 'Links track every open'}; page versions are kept for rollback.
       </p>
     </div>
   );

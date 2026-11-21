@@ -79,7 +79,9 @@ describe("create org (super admin only)", () => {
     const { headers } = await superAdmin();
     const org = await json(await createOrgApi(headers, `ren-${rid()}`));
     const res = await api("/api/auth/organization/update", { method: "POST", headers, json: { organizationId: org.id, data: { slug: "admin" } } });
-    expect(res.status).toBe(400);
+    // Audit run-5 removed organization:update from every role (the default org is found by its slug), so the call is
+    // refused before the slug hook (beforeUpdateOrganization, still in place as defence in depth) is reached.
+    expect(res.status).toBe(403);
   });
 
   it("has no per-user org cap", async () => {
@@ -266,7 +268,11 @@ describe("invitations", () => {
     expect(await orgOfUser(org.id, b.id)).toBeNull();
     expect((await env.DB.prepare("SELECT status FROM invitation WHERE id = ?").bind(inv.id).first<{ status: string }>())?.status).toBe("pending");
 
+    // An unverified address can never accept (requireEmailVerificationOnInvitation is always on, audit run-5): B verifies first.
     const bHeaders = await sessionHeaders(b.id);
+    expect((await api("/api/auth/organization/accept-invitation", { method: "POST", headers: bHeaders, json: { invitationId: inv.id } })).status).toBe(403);
+    expect(await orgOfUser(org.id, b.id)).toBeNull();
+    await env.DB.prepare("UPDATE users SET email_verified = 1 WHERE id = ?").bind(b.id).run();
     const acc = await api("/api/auth/organization/accept-invitation", { method: "POST", headers: bHeaders, json: { invitationId: inv.id } });
     expect(acc.status).toBe(200);
     expect((await orgOfUser(org.id, b.id))?.role).toBe("leader");

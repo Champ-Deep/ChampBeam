@@ -11,6 +11,7 @@ import { formatRelative } from '../lib/format';
 
 interface Row { id: string; title: string; sub: string; when: string | null | undefined }
 interface Recent { name: string; path: string; icon: LucideIcon; count?: number; isLoading: boolean; error: unknown; refetch: () => unknown; rows?: Row[] }
+import { OnboardingChecklist } from '../components/org/OnboardingChecklist';
 
 export function HomePage() {
   const { isSignedIn } = useAuth();
@@ -26,6 +27,7 @@ export function HomePage() {
   if (!isSignedIn) return <SignedOutLanding />;
   return <div className="cb-workspace">
       <div className="beam-share-hero"><p className="beam-eyebrow">Send something worth opening</p><h1>Your next share starts here.</h1><p className="beam-share-lede">A file to keep. A page to explore. One link to see what happens next.</p><ShareComposer /></div>
+      {isSignedIn && <OnboardingChecklist />}
     {isSignedIn && <section aria-labelledby="recent-heading" className="mt-10">
       <h2 id="recent-heading" className="!mb-1">Recent shares</h2>
       <p className="cb-help !mt-0 !mb-4">Pick up where you left off with your files and pages.</p>
