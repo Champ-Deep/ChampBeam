@@ -188,6 +188,8 @@ export const domains = sqliteTable("domains", {
   isOrgDefault: bool("is_org_default").notNull().default(false),
   /** CF-issued TXT records IT must add (ownership + certificate): [{type,name,value,purpose}]. */
   cfDnsRecords: json<{ type: string; name: string; value: string; purpose: string }[]>("cf_dns_records"),
+  /** 32-hex DNS TXT proof token; NULL for grandfathered active rows. */
+  verificationToken: text("verification_token"),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
