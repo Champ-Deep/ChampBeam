@@ -256,7 +256,7 @@ export function PageAnalyticsPage() {
             <table className="w-full">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  {['Type', 'Time', 'Location', 'Device', 'Browser', 'Detail', 'VPN'].map((h) => (
+                  {['Type', 'Time', 'IP', 'Company', 'Location', 'Device', 'Browser', 'Detail', 'VPN'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -268,6 +268,10 @@ export function PageAnalyticsPage() {
                     <tr key={`${event.ts ?? ''}-${i}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3"><Badge variant={badge.variant} size="sm">{badge.label}</Badge></td>
                       <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{formatRelative(event.ts, '--')}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-600 whitespace-nowrap">{event.ip || '--'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700" title={event.company_domain || undefined}>
+                        {event.company_name || <span className="text-gray-300">--</span>}
+                      </td>
                       <td className="px-4 py-3 text-sm text-slate-700">
                         {event.city && event.country ? `${event.city}, ${event.country}` : event.country || event.city || '--'}
                       </td>

@@ -192,6 +192,9 @@ export interface ClickEvent {
   referrer: string | null;
   is_vpn: boolean;
   asn_org: string | null;
+  company_name: string | null;
+  company_domain: string | null;
+  company_type: string | null;
   clicked_at: string | null;
 }
 
@@ -268,6 +271,8 @@ export interface RecentClick {
   region: string | null;
   device_type: string | null;
   browser: string | null;
+  ip_address: string | null;
+  company_name: string | null;
   original_url: string | null;
   short_code: string | null;
   utm_campaign: string | null;

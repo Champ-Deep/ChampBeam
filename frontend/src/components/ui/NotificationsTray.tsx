@@ -42,7 +42,7 @@ export function NotificationsTray({ recentClicks, clearAll, clearing = false }: 
               const Icon = item.type === 'file' ? FileText : Link2;
               return <li key={item.id}><button type="button" className="beam-notification-row" onClick={() => setRead((prev) => new Set(prev).add(item.id))}>
                 <Icon size={20} aria-hidden="true" /><span className="beam-notification-copy"><strong>{item.filename || item.original_url || 'Link open'}</strong>
-                  <span className="beam-notification-meta"><span>{[item.country, item.region].filter(Boolean).join(', ') || 'Unknown location'}</span><span>{item.device_type || 'Unknown device'}</span></span>
+                  <span className="beam-notification-meta">{(item.company_name || item.ip_address) && <span>{[item.company_name, item.ip_address].filter(Boolean).join(' · ')}</span>}<span>{[item.country, item.region].filter(Boolean).join(', ') || 'Unknown location'}</span><span>{item.device_type || 'Unknown device'}</span></span>
                   {item.clicked_at && <span className="beam-notification-time">{formatRelative(item.clicked_at)}</span>}
                 </span><span className="beam-unread-dot" data-unread={!read.has(item.id)} role="img" aria-label={!read.has(item.id) ? 'Unread' : 'Read'} />
               </button></li>;

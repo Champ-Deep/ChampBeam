@@ -385,6 +385,8 @@ export function FileAnalyticsPage() {
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Country</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device</th>
@@ -400,6 +402,10 @@ export function FileAnalyticsPage() {
                       {event.clicked_at
                         ? formatDistanceToNow(new Date(event.clicked_at), { addSuffix: true })
                         : '--'}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-slate-600 whitespace-nowrap">{event.ip_address || '--'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700" title={event.company_domain || undefined}>
+                      {event.company_name || <span className="text-gray-300">--</span>}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700">
                       <span className="inline-flex items-center gap-1.5">

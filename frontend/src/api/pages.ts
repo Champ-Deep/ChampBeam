@@ -51,6 +51,8 @@ export interface PageTimelineEvent {
   browser: string | null;
   os: string | null;
   is_vpn: boolean;
+  company_name: string | null;
+  company_domain: string | null;
 }
 
 export interface PageAnalytics {
