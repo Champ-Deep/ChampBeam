@@ -229,6 +229,7 @@ describe("link management", () => {
       require_email: false,
       block_vpn: false,
       branded: false,
+      track_conversions: false,
       revoked: false,
       access_status: "tracking",
       views: 2,
