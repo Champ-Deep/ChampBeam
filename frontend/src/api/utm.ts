@@ -650,6 +650,10 @@ export const utmApi = {
     return response.data;
   },
 
+  async domainRecordsText(id: string): Promise<string> {
+    return (await api.get<string>(`/domains/${id}/records.txt`, { responseType: 'text' })).data;
+  },
+
   async refreshDomain(id: string): Promise<Domain> {
     const response = await api.post<Domain>(`/domains/${id}/refresh`);
     return response.data;
