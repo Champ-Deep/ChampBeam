@@ -1,21 +1,25 @@
-# Champbeam Go-Live Checklist
+# Production cutover
 
-Single source of truth for taking Champbeam to production. The deploy mechanics (the Docker
-Compose stack) live in the README "Production, VPS (Docker Compose)" section; this file is the
-ordered go-live checklist. Work top to bottom; the domain order matters. Check each box as you go.
+Production has been the Cloudflare Worker since 6 Nov 2026 (PR #58). https://champbeam.com serves the SPA, the API, short links, files, and pages from `worker/`. Auth is Better Auth on D1. File bytes are in R2. Deploy steps are in [CLOUDFLARE_DEPLOY.md](CLOUDFLARE_DEPLOY.md) and [docs/ENVIRONMENTS.md](docs/ENVIRONMENTS.md).
 
-## Where things live
-- **Backend** (API + short links `/r/...` + files `/f/...`): the DigitalOcean VPS, via the `deploy/` Docker Compose stack (app + Postgres + Redis + Caddy).
+Do not use the checklist below to deploy or to change DNS. It is the retired path: a VPS for the FastAPI app, Vercel for the UI, and Clerk for sign-in.
+
+## Archived checklist (before 6 Nov 2026)
+
+The Docker Compose mechanics for that retired path lived with the README section that used to be called "Production, VPS". The FastAPI app is now the legacy reference in `backend/`. Work below is historical. Boxes were the go-live list for that stack, not for the Worker.
+
+## Where that stack lived
+- **API** (short links `/r/...` and files `/f/...`): a DigitalOcean VPS, via the `deploy/` Docker Compose stack (app, Postgres, Redis, Caddy).
 - **App UI**: Vercel.
-- **Public host**: `champbeam.com` root, served by the VPS; the app UI on `app.champbeam.com` (CNAME to Vercel).
-- **DNS**: your champbeam.com DNS provider. **Auth**: Clerk. **Errors**: self-hosted Sentry on the droplet.
+- **Public host**: `champbeam.com` on the VPS, with the UI on `app.champbeam.com` (CNAME to Vercel).
+- **Auth**: Clerk.
 
 ---
 
 ## A. Deploy the backend on the VPS
-Full commands are in README "Production, VPS (Docker Compose)".
+Full commands for this retired stack were the old README "Production, VPS" section. They are not repeated as current steps. `deploy/.env.example` still lists the variables that FastAPI process expected.
 - [ ] Droplet has Docker + the Compose plugin; ports 80/443 open.
-- [ ] DNS `A` record: `champbeam.com -> <droplet IP>`.
+- [ ] DNS `A` record: `champbeam.com -> <droplet IP>`. Do not apply this to the live zone. champbeam.com is a Worker custom domain.
 - [ ] `deploy/.env` filled in (from `deploy/.env.example`): strong `POSTGRES_PASSWORD` with a matching `DATABASE_URL`, `CLERK_SECRET_KEY`, R2 vars, `STORAGE_UPLOAD_SECRET`.
 - [ ] `cd deploy && docker compose up -d --build`.
 - [ ] Verify (P2): `curl https://champbeam.com/health` returns `{"status":"healthy"}` (Caddy issues the cert once DNS resolves).
@@ -42,7 +46,7 @@ Keeps file bytes off the droplet disk; the code already supports it (no code cha
 - [ ] Add Clerk's required DNS records (on the app UI domain) and wait for verification.
 - [ ] Backend (`deploy/.env`): `CLERK_SECRET_KEY=sk_live_...` and
       `CLERK_PUBLISHABLE_KEY=pk_live_...` (the latter turns on **issuer
-      verification** — the backend derives the expected `iss` from it).
+      verification**, the backend derives the expected `iss` from it).
 - [ ] (Recommended) `CLERK_AUTHORIZED_PARTIES=https://app.champbeam.com` so only
       tokens minted for the app origin are accepted (`azp` check). Defaults to
       `FRONTEND_URL` when unset.
@@ -77,7 +81,7 @@ The org/admin features (shared content library + consolidated analytics) ride on
 
 ## F2. ISP / VPN detection (MaxMind GeoLite2)
 Click ISP + VPN/hosting detection uses local MaxMind databases. Without them the
-code falls back to ip-api.com, whose free tier **blocks datacenter/VPS IPs** — so
+code falls back to ip-api.com, whose free tier **blocks datacenter/VPS IPs**, so
 on the droplet VPN/ISP silently stops resolving. Fix:
 - [ ] Create a free MaxMind license key (https://www.maxmind.com/en/geolite2/signup).
 - [ ] Set `MAXMIND_LICENSE_KEY=...` in `deploy/.env`. On boot the app downloads
@@ -89,7 +93,7 @@ on the droplet VPN/ISP silently stops resolving. Fix:
 No backend code references Resend, and `Settings(extra="ignore")` means removing them cannot break startup.
 - [ ] Delete `RESEND_*` vars wherever they still live (the old Railway service / any `.env`).
 
-## H. Moving hosts / Clerk dev→prod — keeping data, links & files working
+## H. Moving hosts / Clerk dev→prod, keeping data, links & files working
 When you switch the Clerk instance (dev→prod) **and/or** move the backend off
 Railway, three different things can make "old data stop working." Handle each:
 
@@ -124,10 +128,10 @@ look orphaned.
 ### H3. Old files 404 even when owned (bytes missing)
 If files were uploaded with `STORAGE_BACKEND=local` on an ephemeral container
 (Railway without a mounted volume), the metadata rows survive in Postgres but the
-bytes were wiped on a redeploy — so they list but won't serve. New uploads work.
+bytes were wiped on a redeploy, so they list but won't serve. New uploads work.
 - [ ] Use durable, portable storage: `STORAGE_BACKEND=s3` on **Cloudflare R2**
       (section B). Bytes then live in R2, independent of the app host, so the
-      Railway→PaaS move doesn't touch them — only Postgres migrates (section C).
+      Railway→PaaS move doesn't touch them, only Postgres migrates (section C).
 - [ ] Bytes already lost to an ephemeral disk cannot be recovered; re-upload
       those files (they'll get fresh working URLs).
 

@@ -1,6 +1,6 @@
 # ChampBeam
 
-ChampBeam is an operational sharing workspace for Champions Group teams. Users publish viewable HTML, images, video and PDFs, share downloadable files, and track external links. IT manages organization access and domains. Reporting viewers inspect explicitly delegated scope without write access.
+ChampBeam is smart links, QR codes, and file tracking. ChampUTM (UTM links, presets, bulk CSV, and campaign analytics) lives in the same app. Users publish viewable HTML, images, video and PDFs, share downloadable files, and track external links. Organization access and domains are managed in the app. Reporting viewers inspect explicitly delegated scope without write access.
 
 ## Scope
 

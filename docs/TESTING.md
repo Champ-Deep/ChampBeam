@@ -1,43 +1,48 @@
-# Champbeam — Canonical Test Suite
+# ChampBeam test suite
 
-This is the **single source of truth** for how Champbeam is verified. Every
-behaviour we care about — location/geo, analytics, the App v2 themes, the login
-flow, and page performance — has a test ID here. Going forward we **keep to these
-tests**: a change ships only when the suite below is green, and new behaviour is
-added by adding a test ID here (not by ad‑hoc manual checks).
-
-Three layers, each runnable on its own:
+Production behaviour is covered first by the Worker suite. The legacy FastAPI
+tests and the Playwright specs remain for the reference backend and the older
+split deploy. Add a test when you add behaviour.
 
 | Layer | Runner | Location | Needs a deployment? |
 |-------|--------|----------|---------------------|
-| Backend unit/integration | `pytest` | `backend/tests/` | No (in‑memory SQLite) |
+| Worker (production) | `vitest` in workerd | `worker/test/` | No (in-memory D1 and R2) |
+| Worker smoke | `scripts/e2e-local.sh`, `scripts/e2e-smoke.mjs` | `worker/scripts/` | Local wrangler, or a deployed host plus an API key |
 | Frontend unit/component | `vitest` | `frontend/src/**/*.test.tsx` | No (jsdom) |
-| End‑to‑end (browser + API) | `playwright` | `frontend/e2e/` | Yes (Railway API + Vercel frontend) |
+| Legacy API | `pytest` | `backend/tests/` | No (in-memory SQLite) |
+| Browser (older split deploy) | `playwright` | `frontend/e2e/` | A running UI and API. Those specs were written for a separate frontend host and the FastAPI API. |
 
 ---
 
 ## How to run everything
 
 ```bash
-# 1) Backend — 62 tests, no services required
-cd backend && python -m pytest -q
+# 1) Worker (production path). No Cloudflare account required.
+cd worker && npm test && npx tsc --noEmit
 
-# 2) Frontend unit/component — themes + picker, jsdom
+# 2) Worker smoke against local wrangler (builds the SPA, seeds a user and key)
+cd worker && bash scripts/e2e-local.sh
+
+# 3) Frontend unit/component
 cd frontend && npm run test
 
-# 3) End-to-end against the deployed TEST instance
-cd frontend
-export E2E_BASE_URL="https://<frontend-origin>"          # Vercel test URL
-export E2E_API_URL="https://<railway-app>/api/v1"        # Railway backend /api/v1
-npm run test:e2e                                         # public specs run; authed self-skip
+# 4) Legacy FastAPI suite
+cd backend && python -m pytest -q
 
-# 3b) To also run the signed-in specs, capture a Clerk session once:
-npx playwright open --save-storage=auth.json "$E2E_BASE_URL/sign-in"   # sign in, then close
-E2E_STORAGE_STATE=auth.json npm run test:e2e
+# 5) Optional: Playwright against whatever host you pass.
+#    Public specs run; signed-in specs self-skip without storage state.
+cd frontend
+export E2E_BASE_URL="https://<host>"
+export E2E_API_URL="https://<host>/api/v1"
+npm run test:e2e
 ```
 
+Against a deployed Worker, `node worker/scripts/e2e-smoke.mjs https://<host> cb_live_<key>` creates and then deletes its own link, file, page, and project. Do not point it at production with a key you cannot afford to exercise.
+
+The Playwright sign-in specs were written for a Clerk session cookie captured in the browser. Production sign-in is Better Auth. Prefer the Worker tests (`worker/test/betterAuth.test.ts`, `worker/test/passwordReset.test.ts`) for auth.
+
 E2E specs **self-skip** when the env var they need is unset, so a bare run never
-fails for missing config — it reports what it could and couldn't verify.
+fails for missing config, it reports what it could and couldn't verify.
 
 > The pre-installed Chromium is used automatically
 > (`playwright.config.ts` → `executablePath: /opt/pw-browsers/chromium`).
@@ -47,7 +52,7 @@ fails for missing config — it reports what it could and couldn't verify.
 
 ## Test matrix
 
-### API deployment — `frontend/e2e/api-smoke.spec.ts` (needs `E2E_API_URL`)
+### API deployment, `frontend/e2e/api-smoke.spec.ts` (needs `E2E_API_URL`)
 Proves the backend build actually shipped the geo/analytics/vault routes. A `404`
 here is the regression that silently broke the last deploy.
 
@@ -58,19 +63,19 @@ here is the regression that silently broke the last deploy.
 | API-3 | `GET /utm/analytics/company-intent` is deployed (never 404). |
 | API-4 | `GET /champvault/config` returns a `configured: boolean`. |
 
-### Login — `frontend/e2e/app-smoke.spec.ts` (needs `E2E_BASE_URL`)
+### Login, `frontend/e2e/app-smoke.spec.ts` (needs `E2E_BASE_URL`)
 The login-loop regression: a 401 must **not** bounce the browser between
 `/sign-in` and a protected route forever.
 
 | ID | Proves |
 |----|--------|
-| LOGIN-1 | Visiting `/links` signed-out lands on `/sign-in` and the URL **stays put** (no loop); a Clerk sign-in surface renders (not blank). |
+| LOGIN-1 | Visiting `/links` signed-out lands on `/sign-in` and the URL **stays put** (no loop); the sign-in form renders (not blank). |
 | LOGIN-2 | The landing page loads with **no uncaught console/runtime errors**. |
 
-### Auth / Clerk token verification — backend (`test_clerk_security.py`)
+### Auth / Clerk token verification, backend (`test_clerk_security.py`)
 Guards the authorized-party (`azp`) check that gates every authenticated request.
-A blanket 401 across all endpoints is usually a frontend↔backend Clerk mismatch —
-see **docs/DEPLOY-TROUBLESHOOTING.md**.
+A blanket 401 across all endpoints is usually a frontend and backend Clerk mismatch.
+See **docs/DEPLOY-TROUBLESHOOTING.md**. These cases are the legacy FastAPI app. Production auth is Better Auth on the Worker.
 
 | ID | Proves |
 |----|--------|
@@ -78,14 +83,14 @@ see **docs/DEPLOY-TROUBLESHOOTING.md**.
 | AUTH-2 | A per-deploy Vercel **preview** origin still authenticates when it matches `CORS_ALLOW_ORIGIN_REGEX` (so previews don't 401 with "Unauthorized party"). |
 | AUTH-3 | With no regex configured, only the exact allowlist authorizes (strict, unchanged). |
 
-### Performance / no stutter — `frontend/e2e/app-smoke.spec.ts`, `authed.spec.ts`
+### Performance / no stutter, `frontend/e2e/app-smoke.spec.ts`, `authed.spec.ts`
 
 | ID | Proves |
 |----|--------|
 | PERF-1 | Landing does not reload in a loop (< 4 main-frame navigations over 3 s). |
 | PERF-2 | Signed-in route changes are client-side pushState (no full-page stutter across two visits). |
 
-### Themes — unit (`useTheme.test.ts`, `AppearanceSettings.test.tsx`) + E2E
+### Themes, unit (`useTheme.test.ts`, `AppearanceSettings.test.tsx`) + E2E
 The App v2 theme system: Paper default, five palettes, live switch, persistence.
 
 | ID | Type | Proves |
@@ -104,8 +109,8 @@ The App v2 theme system: Paper default, five palettes, live switch, persistence.
 | THM-E2 | e2e | A persisted theme is applied on load **and the `--cb-accent` token actually changes** (Graphite → `#2f3437`). |
 | THM-A1 | e2e (authed) | Settings → Appearance switch applies + survives a reload. |
 
-### Location / geo — backend (`test_geoip_ipinfo.py`, `test_opens_geo.py`) + E2E
-See **Verifying location end-to-end** below — the backend tests prove the code,
+### Location / geo, backend (`test_geoip_ipinfo.py`, `test_opens_geo.py`) + E2E
+See **Verifying location end-to-end** below, the backend tests prove the code,
 but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the server.
 
 | ID | Type | Proves |
@@ -124,7 +129,7 @@ but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the ser
 | GEO-12 | backend | `GEOIP_FORCE_DOWNLOAD=1` overrides the skip and attempts the download. |
 | LOCATION-1 | e2e (authed) | A link's analytics view exposes a location/geo section. |
 
-### Analytics — backend (`test_opens_geo.py`, `test_company_intent.py`) + E2E
+### Analytics, backend (`test_opens_geo.py`, `test_company_intent.py`) + E2E
 
 | ID | Type | Proves |
 |----|------|--------|
@@ -132,14 +137,14 @@ but a live "Unknown → real city" check needs `IPINFO_API_TOKEN` set on the ser
 | ANL-2 | backend | Company-intent classifies opens into Hot / Warm / Cool by reverse-IP. |
 | ANALYTICS-1 | e2e (authed) | The Analytics page renders without runtime errors. |
 
-### Navigation / layout — `frontend/e2e/authed.spec.ts`
+### Navigation / layout, `frontend/e2e/authed.spec.ts`
 
 | ID | Proves |
 |----|--------|
 | NAV-1 | The dark sidebar + orbit wordmark render after sign-in. |
 | CHIPS-1 | Links and Files show the folder **chips** row (App v2), not the old rail. |
 
-### Content library ↔ ChampVault — backend (`test_champvault_library.py`)
+### Content library ↔ ChampVault, backend (`test_champvault_library.py`)
 The admin curates the library directly from ChampVault; picked assets become live
 references the whole team can share (each share re-mints a fresh delivery URL).
 
@@ -148,7 +153,7 @@ references the whole team can share (each share re-mints a fresh delivery URL).
 | CVLIB-1 | An admin adds a ChampVault asset to the library (title resolved from ChampVault, `champvault_asset_id` surfaced); it's idempotent per (org, asset), shows in `/content`, and a member share of it re-mints a fresh delivery URL on open. |
 | CVLIB-2 | An explicit title skips the ChampVault lookup; a non-admin member is forbidden (403) from adding to the library. |
 
-### Briefing Rooms + visit tracking — backend (`test_rooms.py`)
+### Briefing Rooms + visit tracking, backend (`test_rooms.py`)
 Hosted Briefing Rooms (spec Modules B & C), Slice 1 spine: rooms assembled from
 ChampVault assets, per-recipient tokenized links, identified event tracking, and
 the self-ranking engagement score. See **docs/BRIEFING-ROOMS.md**.
@@ -163,7 +168,7 @@ the self-ranking engagement score. See **docs/BRIEFING-ROOMS.md**.
 | ROOM-6 | A tokenless event is recorded anonymously (forwarded/unknown viewer) and surfaced as a signal, not attributed to a recipient. |
 | ROOM-7 | An unknown event type is 400; tracking against a missing room is 404. |
 
-### Deploy / config — backend (`test_config_database_url.py`)
+### Deploy / config, backend (`test_config_database_url.py`)
 Guards the `DATABASE_URL` handling that has bitten deploys. See
 **docs/DEPLOY-TROUBLESHOOTING.md** for the runbook.
 
@@ -191,9 +196,9 @@ fixed in the backend:
 2. The fix adds an **IPinfo path** (HTTPS, datacenter-safe) and wires
    `ensure_geoip.py` into boot.
 
-**We are using MaxMind** (GeoIP Insights). Two ways to run it — pick one:
+**We are using MaxMind** (GeoIP Insights). Two ways to run it, pick one:
 
-- **MaxMind web service / Insights (chosen)** — HTTPS REST, datacenter-safe, and
+- **MaxMind web service / Insights (chosen)**, HTTPS REST, datacenter-safe, and
   returns anonymizer traits for VPN detection. Set on the backend:
   - `MAXMIND_ACCOUNT_ID` = your MaxMind account id
   - `MAXMIND_LICENSE_KEY` = the license key for that account
@@ -201,7 +206,7 @@ fixed in the backend:
     free GeoLite2 web service)
   - `MAXMIND_WS_ENDPOINT` = `insights` (default; `city` is cheaper but has no
     VPN/anonymizer flags)
-- **MaxMind local DB (free GeoLite2)** — set `MAXMIND_LICENSE_KEY` only; boot
+- **MaxMind local DB (free GeoLite2)**, set `MAXMIND_LICENSE_KEY` only; boot
   (`ensure_geoip.py`) downloads GeoLite2 City + ASN to a mounted volume.
 
 Fallbacks remain available and need no MaxMind: `IPINFO_API_TOKEN`, then the free
@@ -212,7 +217,7 @@ To confirm on a live instance:
 1. Set the MaxMind vars above and redeploy.
 2. Open a tracked link from a real network.
 3. In the link/file analytics, the new open should show **country + city + ISP**,
-   and VPN/proxy opens should be flagged. Historical opens stay "Unknown" — they
+   and VPN/proxy opens should be flagged. Historical opens stay "Unknown", they
    were recorded before enrichment and are not backfilled.
 
 Automated backing: **GEO-1..GEO-9** prove the resolvers (IPinfo + MaxMind web
@@ -225,6 +230,6 @@ service) and the endpoint; **API-2** proves the endpoint is deployed;
 
 - **Green-before-merge.** All three layers must pass before merging to `main`.
   Backend + unit run anywhere; E2E runs against the test instance.
-- **New behaviour ⇒ new test ID here.** Don't verify by hand and move on — add
+- **New behaviour ⇒ new test ID here.** Don't verify by hand and move on, add
   the case to this file and to the matching spec so it's checked forever.
 - **Deleting a test** requires deleting its row here too, with a reason in the PR.

@@ -1,7 +1,8 @@
 # V3 release: Cloudflare Worker, org-scoped sharing, delegated reporting
 
-Branch `v3/cloudflare-release`, draft PR #42 into `main`. Not merged. Deep approved a
-merge only after exact-head tests, security review and `/review` pass (see sections 6 and 7).
+> Historical release note. Production is the Cloudflare Worker on https://champbeam.com (cutover 6 Nov 2026, PR #58). Auth is Better Auth. This file is not the setup guide. See [CLOUDFLARE_DEPLOY.md](../CLOUDFLARE_DEPLOY.md).
+
+Branch `v3/cloudflare-release`, draft PR #42 into `main`. Not merged at the time this note was written. A merge was approved only after exact-head tests, security review and `/review` pass (see sections 6 and 7).
 Production recovery, DNS, deploys and migrations are gated (section 9).
 
 This head is the unified release candidate: PR #44 (single composer UI) and PR #43 (wrangler

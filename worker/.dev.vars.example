@@ -4,7 +4,10 @@ DEBUG=true
 FRONTEND_URL=http://localhost:5173
 REDIRECT_BASE_URL=http://127.0.0.1:8799
 PLATFORM_REDIRECT_HOST=127.0.0.1,localhost
-# Better Auth (required; the Worker refuses requests without these three):
+# Better Auth (required; the Worker refuses requests without these three).
+# BETTER_AUTH_URL must be the origin you open in the browser.
+# Vite hot reload (npm run dev in frontend/, proxy to this Worker): http://localhost:5173
+# Opening wrangler itself on this port: http://127.0.0.1:8799
 BETTER_AUTH_SECRET=replace-with-32-plus-random-bytes
 BETTER_AUTH_URL=http://127.0.0.1:8799
 STORAGE_UPLOAD_SECRET=dev-upload-secret

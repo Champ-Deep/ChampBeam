@@ -1,8 +1,8 @@
 # ChampBeam on Cloudflare: replace Clerk with Better Auth, migrate Clerk accounts
 
-Status: PLAN, nothing built. Card t_5a608473 (planner), 5 Nov 2026. Source: Deep's comment on t_7a001972.
-Branch of record for this file: `docs/t_5a608473-better-auth-prd` (local, cut from PR #52 head b800cbe).
-Read it from any checkout with `git -C /Users/deep/repos/ChampBeam show docs/t_5a608473-better-auth-prd:docs/BETTER-AUTH-PRD.md`.
+> Decision record. This migration has shipped. Production sign-in is Better Auth on the Worker. `CLERK_*` settings are inert. Setup steps are in [CLOUDFLARE_DEPLOY.md](../CLOUDFLARE_DEPLOY.md), not in the plan below.
+
+Status: shipped. Better Auth is the production sign-in path. The sections below are the plan as written on 5 Nov 2026, including options that were not taken.
 
 ## 0. Recommendation (read this first)
 
