@@ -67,13 +67,29 @@ URLs. Add a CORS rule on the bucket allowing `PUT` from the app origin.
 
 ```bash
 cd worker
-VITE_GOOGLE_CLIENT_ID=<the Worker's GOOGLE_CLIENT_ID> npm run deploy   # builds frontend/, then wrangler deploy
+VITE_GOOGLE_CLIENT_ID=<the Worker's GOOGLE_CLIENT_ID> npm run deploy   # builds frontend/, then wrangler deploy --env=""
 ```
 
-Or connect the repo in **Workers Builds** (Cloudflare dashboard): root
-directory `worker`, build command `npm run build:frontend`, deploy command
-`npx wrangler deploy`, and `VITE_GOOGLE_CLIENT_ID` as a build variable. It is the
-public Google client id; the sign-in page shows "Continue with Google" only when it is set.
+`wrangler deploy --env=""` is the production Worker (the top-level config: `champbeam`, D1 `champbeam`, R2 `champbeam-files`). The named `env` blocks are not production. `--env=""` selects the top level on purpose. `deepify` still has `TODO_` placeholders and must not be deployed.
+
+### Workers Builds (dashboard)
+
+The git integration does not read a build command from the repo. Set it on the Worker `champbeam` under **Settings > Builds**. These values are what the live project was missing on 12 Nov 2026 (root `/`, build command empty, deploy command `npx wrangler preview` on `main` and on every non-production branch trigger):
+
+| Setting | Value |
+|---|---|
+| Production branch | `main` |
+| Root directory | `worker` |
+| Build command | `npm run build:frontend` |
+| Deploy command | `npx wrangler deploy --env=""` |
+| Non-production branch command | leave builds off, or `npx wrangler preview` only after a `previews` block exists in `worker/wrangler.jsonc` that does not use the production D1 or R2 |
+| Build variable | `VITE_GOOGLE_CLIENT_ID` (public Google client id; the sign-in page shows "Continue with Google" only when it is set) |
+
+Root directory `/` is the repository root. That directory has `requirements.txt` (the Python backend) and no `package.json` or `wrangler.jsonc`. With an empty build command, Workers Builds installs the Python backend, then runs `npx wrangler preview`. That Wrangler is not the copy pinned in `worker/package-lock.json` (4.152.0). It does not see `worker/wrangler.jsonc` (Wrangler only walks up from the working directory). The command exits because the config it does see has no `previews` block. The `deepify` `TODO_` values are not involved: `wrangler deploy --dry-run --env deepify` parses them.
+
+`npx wrangler preview` creates a Preview. It does not deploy the production Worker. Do not leave it as the deploy command on `main`.
+
+There is no `previews` block yet. Do not turn on non-production branch builds that run `npx wrangler preview` until that block points `DB` and `FILES` at non-production resources. An empty block omits both bindings. Preview settings are not inherited from the top level.
 
 ## 3. Domains
 
