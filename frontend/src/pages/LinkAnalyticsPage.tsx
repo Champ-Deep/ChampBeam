@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState 
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, ClickEvent, GeoBreakdownItem, DeviceBreakdown, DateRangeOpts } from '../api/utm';
 
@@ -272,6 +273,8 @@ export function LinkAnalyticsPage() {
           </div>
         </Card>
       </div>
+
+      <JourneysSection assetType="link" assetId={linkId} />
 
       {/* Device + Browser Breakdown (shown first, always works, even on localhost) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

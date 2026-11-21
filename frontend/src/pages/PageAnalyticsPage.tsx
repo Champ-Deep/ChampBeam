@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { pagesApi } from '../api/pages';
 import type { BeamPage, PageAnalytics, PageTimelineEvent } from '../api/pages';
 import type { DateRangeOpts, GeoBreakdownItem, DeviceBreakdown } from '../api/utm';
@@ -185,6 +186,8 @@ export function PageAnalyticsPage() {
       <p className="text-xs text-slate-500 -mt-2">
         {summary.sessions} tracked {summary.sessions === 1 ? 'session' : 'sessions'} · median {formatDwell(summary.median_dwell_ms)} · total {formatDwell(summary.total_dwell_ms)} · last opened {formatRelative(summary.last_viewed_at)}
       </p>
+
+      <JourneysSection assetType="file" assetId={pageId} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>

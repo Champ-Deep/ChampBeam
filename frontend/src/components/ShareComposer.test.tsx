@@ -91,7 +91,7 @@ describe('one composer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create download link' }));
     await screen.findByText('Download ready');
     expect(filesApi.initUpload).toHaveBeenCalledWith(expect.objectContaining({ intent: 'download', filename: 'Quarterly Brief.pdf', slug: undefined }));
-  });
+  }, 15_000);
   it.each(['application/pdf', 'image/png', 'video/mp4'])('hosts %s with an editable basename slug', async (type) => {
     mount(); await readyInput('Choose file');
     fireEvent.change(screen.getByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type })] } });

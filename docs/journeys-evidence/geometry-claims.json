@@ -1,0 +1,38 @@
+{
+  "label": {
+    "left": 178.796875,
+    "right": 273.3125,
+    "top": 515.8125,
+    "bottom": 529.8125
+  },
+  "dot": {
+    "left": 290.796875,
+    "right": 297.796875,
+    "top": 519.3125,
+    "bottom": 526.3125
+  },
+  "elapsed": {
+    "left": 456.125,
+    "right": 499.015625,
+    "top": 347,
+    "bottom": 363
+  },
+  "replay": {
+    "left": 511.015625,
+    "right": 592.875,
+    "top": 343,
+    "bottom": 387
+  },
+  "heading": {
+    "left": 16,
+    "right": 752,
+    "top": 36,
+    "bottom": 64
+  },
+  "section": {
+    "left": 16,
+    "right": 752,
+    "top": 32,
+    "bottom": 930.828125
+  }
+}

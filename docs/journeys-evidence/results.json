@@ -1,0 +1,582 @@
+[
+  {
+    "case": "paper-375-two",
+    "pixels": [
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 8636
+      },
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 60
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "paper-375-one",
+    "pixels": [
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 15330
+      },
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 0
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "graphite-375-two",
+    "pixels": [
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 8636
+      },
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 60
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "graphite-375-one",
+    "pixels": [
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 15330
+      },
+      {
+        "width": 341,
+        "height": 162,
+        "painted": 0
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "paper-768-two",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 42164
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 128
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "paper-768-one",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 22480
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 0
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "graphite-768-two",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 42164
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 128
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "graphite-768-one",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 22480
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 0
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "paper-1440-two",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 42164
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 128
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "paper-1440-one",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 22480
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 0
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "graphite-1440-two",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 42164
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 128
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "case": "graphite-1440-one",
+    "pixels": [
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 22480
+      },
+      {
+        "width": 658,
+        "height": 313,
+        "painted": 0
+      }
+    ],
+    "overflow": [],
+    "errors": [],
+    "audit": [
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "controls": "touch or click, keyboard selection, Escape, Replay, Pause, Play passed"
+  },
+  {
+    "surface": "file",
+    "errors": [],
+    "requests": [
+      "/files/fixture/summary{}",
+      "/files/fixture/events?days=30{}",
+      "/files/fixture/geo?days=30&level=country{}",
+      "/files/fixture/devices?days=30{}",
+      "/analytics/journeys{\"asset_type\":\"file\",\"asset_id\":\"fixture\",\"days\":90,\"limit\":20}"
+    ]
+  },
+  {
+    "surface": "page",
+    "errors": [],
+    "requests": [
+      "/pages/fixture{}",
+      "/pages/fixture/analytics?days=30{}",
+      "/pages/fixture/events?days=30{}",
+      "/files/fixture/geo?days=30&level=country{}",
+      "/files/fixture/devices?days=30{}",
+      "/analytics/journeys{\"asset_type\":\"file\",\"asset_id\":\"fixture\",\"days\":90,\"limit\":20}"
+    ]
+  },
+  {
+    "surface": "top",
+    "errors": [],
+    "requests": [
+      "/projects{}",
+      "/utm/analytics/overview{}",
+      "/utm/analytics/breakdown?days=30&group_by=source{}",
+      "/utm/analytics/breakdown?days=30&group_by=campaign{}",
+      "/utm/analytics/performance?days=30{}",
+      "/utm/analytics/geo/overview?days=30&level=country{}",
+      "/analytics/journeys/top{\"days\":30,\"limit\":5}"
+    ]
+  },
+  {
+    "case": "paper reduced",
+    "finished": true,
+    "stablePixels": true,
+    "dropdown": {
+      "bg": "rgb(251, 248, 242)",
+      "ink": "rgb(36, 28, 20)"
+    }
+  },
+  {
+    "case": "graphite reduced",
+    "finished": true,
+    "stablePixels": true,
+    "dropdown": {
+      "bg": "rgb(250, 250, 249)",
+      "ink": "rgb(25, 28, 29)"
+    }
+  },
+  {
+    "state": "empty",
+    "audit": [
+      {
+        "severity": "WARN",
+        "rule": "heading",
+        "message": "heading jumps h1 to h3, skipping a level",
+        "where": "h3.text-lg.font-semibold \"Geographic Breakdown\""
+      },
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "recovery": false
+  },
+  {
+    "state": "loading",
+    "audit": [
+      {
+        "severity": "WARN",
+        "rule": "heading",
+        "message": "heading jumps h1 to h3, skipping a level",
+        "where": "h3.text-lg.font-semibold \"Geographic Breakdown\""
+      },
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "recovery": false
+  },
+  {
+    "state": "error",
+    "audit": [
+      {
+        "severity": "WARN",
+        "rule": "heading",
+        "message": "heading jumps h1 to h3, skipping a level",
+        "where": "h3.text-lg.font-semibold \"Geographic Breakdown\""
+      },
+      {
+        "severity": "INFO",
+        "rule": "skip-link",
+        "message": "no \"skip to content\" link found",
+        "where": ""
+      },
+      {
+        "severity": "WARN",
+        "rule": "default-font",
+        "message": "body font is \"arial\", an AI default; choose deliberately",
+        "where": ""
+      }
+    ],
+    "recovery": true
+  },
+  {
+    "longJourneyMs": 2851.2999999970198,
+    "livePalettes": [
+      {
+        "theme": "paper",
+        "colors": {
+          "--foreground": "#241C14",
+          "--card": "#FBF8F2",
+          "--border": "#ECE5D8",
+          "--muted": "#F7F2E9",
+          "--muted-foreground": "#706A5D",
+          "--lumesec": "#B3502F",
+          "--cb-accent": "#B3502F"
+        },
+        "repainted": true
+      },
+      {
+        "theme": "graphite",
+        "colors": {
+          "--foreground": "#191C1D",
+          "--card": "#FAFAF9",
+          "--border": "#EAEAE8",
+          "--muted": "#F5F5F4",
+          "--muted-foreground": "#666B6D",
+          "--lumesec": "#2F3437",
+          "--cb-accent": "#2F3437"
+        },
+        "repainted": true
+      },
+      {
+        "theme": "lagoon",
+        "colors": {
+          "--foreground": "#122022",
+          "--card": "#F9FAFA",
+          "--border": "#E7ECEC",
+          "--muted": "#F4F7F7",
+          "--muted-foreground": "#636C6B",
+          "--lumesec": "#0E5B63",
+          "--cb-accent": "#0E5B63"
+        },
+        "repainted": true
+      },
+      {
+        "theme": "merlot",
+        "colors": {
+          "--foreground": "#201618",
+          "--card": "#FAF9F9",
+          "--border": "#ECE7E8",
+          "--muted": "#F7F4F5",
+          "--muted-foreground": "#72686B",
+          "--lumesec": "#7C3644",
+          "--cb-accent": "#7C3644"
+        },
+        "repainted": true
+      },
+      {
+        "theme": "slate",
+        "colors": {
+          "--foreground": "#161B22",
+          "--card": "#F9FAFB",
+          "--border": "#E8EBEF",
+          "--muted": "#F5F7F9",
+          "--muted-foreground": "#646B73",
+          "--lumesec": "#3D4E63",
+          "--cb-accent": "#3D4E63"
+        },
+        "repainted": true
+      }
+    ]
+  }
+]

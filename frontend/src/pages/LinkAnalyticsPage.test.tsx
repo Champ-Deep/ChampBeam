@@ -6,6 +6,7 @@ import type { ClickEvent, LinkPerformanceItem } from '../api/utm';
 import { utmApi } from '../api/utm';
 import { LinkAnalyticsPage } from './LinkAnalyticsPage';
 
+vi.mock('../components/JourneysSection', () => ({ JourneysSection: () => null }));
 vi.mock('../components/ui/GeoChart', () => ({ GeoChart: () => <div>geo</div> }));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
