@@ -20,6 +20,7 @@ import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
+import { INTRANET_DISABLED_AUTH_PATHS, intranetAcceptInvite, intranetCheckSignup } from "../intranet/invites";
 import { joinOrgByEmailDomain } from "../services/emailDomains";
 import { sendMail } from "../lib/email";
 import { slugProblem } from "../services/orgSlug";
@@ -50,8 +51,14 @@ export function joinsDefaultOrg(settings: { autoJoinEmailDomains: string[] }, u:
   return u.emailVerified === true && settings.autoJoinEmailDomains.includes(u.email.slice(u.email.lastIndexOf("@") + 1).toLowerCase());
 }
 
-export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) => void) {
+export interface AuthOptions {
+  /** Intranet: the invite this request redeems (intranet accept route). Only then may an email sign-up create a user. */
+  inviteEmail?: string;
+}
+
+export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) => void, opts: AuthOptions = {}) {
   const settings = getSettings(env);
+  const intranet = settings.intranetMode;
   const google = settings.googleClientId && settings.googleClientSecret;
   // An email failure must never fail the reset request that triggered it (and must not reveal which emails exist).
   const mail = async (to: string, subject: string, body: string, linkLabel: string, url: string): Promise<void> => {
@@ -68,6 +75,8 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
     baseURL: settings.betterAuthUrl,
     secret: settings.betterAuthSecret,
     trustedOrigins: trustedOrigins(settings),
+    // Intranet: accounts only through an invite (ACC-1 to ACC-3), membership changes only through the logged intranet API.
+    disabledPaths: intranet ? INTRANET_DISABLED_AUTH_PATHS : [],
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema: {
@@ -163,9 +172,18 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
       },
       user: {
         create: {
-          // service+<name>@ rows are provisioned by the operator for X-Service-Key; a self-registration must not claim one.
-          before: async (user) => (/^service\+/i.test(user.email) ? false : undefined),
+          before: async (user, ctx) => {
+            // service+<name>@ rows are provisioned by the operator for X-Service-Key; a self-registration must not claim one.
+            if (/^service\+/i.test(user.email)) return false;
+            if (!intranet) return;
+            const refusal = await intranetCheckSignup(env.DB, String(user.email ?? ""), ctx?.path ?? null, opts.inviteEmail ?? null);
+            if (refusal) throw new APIError("FORBIDDEN", { message: refusal });
+          },
           after: async (user) => {
+            if (intranet) {
+              await intranetAcceptInvite(env.DB, user.id, String(user.email ?? ""));
+              return;
+            }
             // Open sign-up: an unverified or off-domain address must not land inside the shared org.
             // An env-allowlisted domain (Deep's ruling: championsmail.com, lakeb2b.com) joins the shared org at creation; any other
             // verified address falls through to the admin-managed list (PR #61), which joins at most once per user.

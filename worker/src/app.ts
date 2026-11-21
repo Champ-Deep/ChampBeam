@@ -42,6 +42,9 @@ import { router as assistant } from "./routes/assistant";
 import { router as orgInvites } from "./routes/orgInvites";
 import { router as admin } from "./routes/admin";
 import { router as config } from "./routes/config";
+import { router as intranet } from "./intranet/routes";
+import { intranetGate } from "./intranet/gate";
+import { reportError, scrubPath } from "./lib/observability";
 
 export const app = new Hono<AppEnv>({ strict: false });
 
@@ -51,6 +54,7 @@ app.use("*", async (c, next) => {
   await next();
 });
 app.use("*", cors);
+app.use("*", intranetGate);
 app.use("*", shareOriginGuard);
 app.use("*", serviceKeyGate);
 
@@ -60,7 +64,8 @@ app.onError((err, c) => {
     res = c.json({ detail: err.detail }, err.status as 400);
     for (const [k, v] of Object.entries(err.headers)) res.headers.set(k, v);
   } else {
-    console.error(`Unhandled exception on ${c.req.method} ${new URL(c.req.url).pathname}`, err);
+    const path = new URL(c.req.url).pathname;
+    reportError(`Unhandled exception on ${c.req.method} ${scrubPath(path)}`, err, { component: "http", method: c.req.method, path });
     res = c.json({ detail: "Internal server error" }, 500);
   }
   return withCors(res, requestOrigin(c.var.settings ?? getSettings(c.env), c.req.header("origin"), c.req.url));
@@ -114,3 +119,4 @@ app.route(`${v1}/internal/provisioning`, internalProvisioning);
 app.route(`${v1}/pages`, pages);
 app.route(`${v1}/system`, system);
 app.route(`${v1}/assistant`, assistant);
+app.route(`${v1}/intranet`, intranet);
