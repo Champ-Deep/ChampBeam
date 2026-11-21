@@ -78,6 +78,7 @@ jobs:
       - run: npx tsc --noEmit
       - run: node scripts/check-env-overlays.mjs
       - run: npx vitest run
+      - run: npx vitest run -c vitest.intranet.config.ts
 
   image:
     name: backend image builds
