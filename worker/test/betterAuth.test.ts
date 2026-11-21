@@ -139,6 +139,18 @@ describe("email and password", () => {
     expect(await make(`ver-${crypto.randomUUID().slice(0, 8)}@outsider.test`)).toBeNull();
   });
 
+  it("an env-allowlist join sets the once-only join marker, so removing the member sticks even if their domain is later listed", async () => {
+    const orgId = await defaultOrg();
+    const ctx = await createAuth(env as unknown as Env, getDb(env.DB)).$context;
+    const email = `mark-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    await ctx.internalAdapter.createUser({ email, name: "Marked", emailVerified: true }, { method: "oauth" });
+    const row = await env.DB.prepare(
+      "SELECT u.org_join_checked_at AS at, m.role FROM users u JOIN organization_memberships m ON m.user_id = u.id WHERE u.email = ? AND m.organization_id = ?",
+    ).bind(email, orgId).first<{ at: string | null; role: string }>();
+    expect(row?.role).toBe("member");
+    expect(row?.at).not.toBeNull();
+  });
+
   it("a member's new session lands in their org; a user with no membership lands in Personal", async () => {
     const orgId = await defaultOrg();
     const user = await createUser({ email: `land-${crypto.randomUUID().slice(0, 8)}@example.com` });

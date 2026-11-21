@@ -20,6 +20,7 @@ import type { Db } from "../db/client";
 import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
+import { joinOrgByEmailDomain } from "../services/emailDomains";
 import { sendMail } from "../lib/email";
 import { slugProblem } from "../services/orgSlug";
 import { isSuperAdmin } from "./superAdmin";
@@ -147,6 +148,9 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         create: {
           // Land members in their org instead of Personal: oldest active membership becomes the session's org.
           before: async (session) => {
+            // First sign-in after verification catches users who signed up unverified; join before the org is picked below.
+            const person = await db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get();
+            if (person) await joinOrgByEmailDomain(db, person);
             const m = await db
               .select({ orgId: schema.organizationMemberships.organizationId })
               .from(schema.organizationMemberships)
@@ -163,7 +167,12 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
           before: async (user) => (/^service\+/i.test(user.email) ? false : undefined),
           after: async (user) => {
             // Open sign-up: an unverified or off-domain address must not land inside the shared org.
-            if (!joinsDefaultOrg(settings, user)) return;
+            // An env-allowlisted domain (Deep's ruling: championsmail.com, lakeb2b.com) joins the shared org at creation; any other
+            // verified address falls through to the admin-managed list (PR #61), which joins at most once per user.
+            if (!joinsDefaultOrg(settings, user)) {
+              await joinOrgByEmailDomain(db, user);
+              return;
+            }
             const org = await db
               .select({ id: schema.organizations.id })
               .from(schema.organizations)
@@ -177,6 +186,8 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
               .insert(schema.organizationMemberships)
               .values({ organizationId: org.id, userId: user.id, role: schema.ROLE_MEMBER })
               .onConflictDoNothing();
+            // Same once-only marker the admin-managed join uses: a later admin removal must not be undone by a sign-in join.
+            await db.update(schema.users).set({ orgJoinCheckedAt: new Date().toISOString() }).where(eq(schema.users.id, user.id));
           },
         },
       },

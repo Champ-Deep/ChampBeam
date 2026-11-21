@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { CopyButton } from '../components/ui/copy-button';
 import './domain-records.css';
+import { EmailDomainsSettings } from '../components/EmailDomainsSettings';
 import { OrganizationSettings } from '../components/OrganizationSettings';
 import { useOrgContext } from '../hooks/useOrgContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -225,7 +226,7 @@ function PersonalSettings() {
         )}
       </nav>
 
-      {tab === 'organization' && inOrg && <OrganizationSettings />}
+      {tab === 'organization' && inOrg && <><OrganizationSettings />{permissions.includes('org.domains.manage') && <EmailDomainsSettings />}</>}
       {tab === 'appearance' && <AppearanceSettings />}
       {tab === 'notifications' && <Card>
         <CardHeader><CardTitle>Recent opens</CardTitle></CardHeader>

@@ -31,6 +31,7 @@ export interface Profile {
 }
 
 export interface ReportingFilters { team?: string; user?: string; kind?: string; from?: string; to?: string }
+export interface EmailDomain { domain: string; created_at: string }
 export interface OrgDomain { id: string; hostname: string; status: string; is_org_default: boolean }
 export interface AdoptionReport {
   dry_run: boolean;
@@ -157,6 +158,9 @@ export const orgApi = {
   async adoptExisting(id: string, dryRun = true): Promise<AdoptionReport> {
     return (await api.post<AdoptionReport>(`/org/domains/${id}/adopt-existing`, { dry_run: dryRun })).data;
   },
+  async emailDomains(): Promise<EmailDomain[]> { return (await api.get<EmailDomain[]>('/org/email-domains')).data; },
+  async addEmailDomain(domain: string): Promise<EmailDomain> { return (await api.post<EmailDomain>('/org/email-domains', { domain })).data; },
+  async removeEmailDomain(domain: string): Promise<void> { await api.delete(`/org/email-domains/${encodeURIComponent(domain)}`); },
   async viewers(): Promise<ViewerGrant[]> { return (await api.get<ViewerGrant[]>('/org/viewers')).data; },
   async grantViewer(input: Omit<ViewerGrant, 'id'>): Promise<ViewerGrant> { return (await api.post<ViewerGrant>('/org/viewers', input)).data; },
   async revokeViewer(id: string): Promise<void> { await api.delete(`/org/viewers/${id}`); },
