@@ -29,6 +29,10 @@
   // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Overlays do not inherit it: staging declares its own.
   "send_email": [{ "name": "EMAIL" }],
 
+  // Cloudflare for SaaS: custom hostnames (share.lakeb2b.com ...) reach the Worker through this zone route.
+  // Top level only: staging and deepify inherit no routes. Provisioned by scripts/setup_saas.mjs.
+  "routes": [{ "pattern": "*/*", "zone_name": "champbeam.com" }],
+
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",

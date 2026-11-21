@@ -180,7 +180,7 @@ describe("cloudflare (CF for SaaS client)", () => {
     expect(new Headers(m.calls[0].init?.headers).get("authorization")).toBe("Bearer cf-token");
     expect(JSON.parse(String(m.calls[0].init?.body))).toEqual({
       hostname: "track.acme.com",
-      ssl: { method: "http", type: "dv", settings: { min_tls_version: "1.2" } },
+      ssl: { method: "txt", type: "dv", settings: { min_tls_version: "1.2" } },
     });
   });
 
