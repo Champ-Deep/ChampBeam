@@ -11,7 +11,7 @@ import { requestOrigin } from "../lib/request";
  * typed `bot` at insert time (services/ua.ts), so every attribution read drops
  * them with this predicate (alias `ce`). Do not write a second filter.
  */
-export const REAL_CLICK = "COALESCE(ce.device_type, '') != 'bot'";
+export const REAL_CLICK = "COALESCE(ce.device_type, '') != 'bot' AND lower(COALESCE(ce.user_agent, '')) NOT LIKE '%proofpoint%' AND lower(COALESCE(ce.user_agent, '')) NOT LIKE '%mimecast%' AND lower(COALESCE(ce.user_agent, '')) NOT LIKE '%barracuda%' AND lower(COALESCE(ce.user_agent, '')) NOT LIKE '%safelinks%'";
 
 /** Canonical lowercase hyphenated UUID, or null when `v` is not a UUID (`_to_uuid`). */
 export function normUuid(v: string | null | undefined): string | null {

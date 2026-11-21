@@ -26,8 +26,8 @@ export const DEFAULT_ORG_SLUG = "champions-group";
 
 const ac = createAccessControl(defaultStatements);
 const roles = {
+  // No organization:update: the default org is found by its slug, so a rename through this API would redirect every sign-up.
   admin: ac.newRole({
-    organization: ["update"],
     member: ["create", "update", "delete"],
     invitation: ["create", "cancel"],
   }),
@@ -35,6 +35,11 @@ const roles = {
   member: ac.newRole({}),
   viewer: ac.newRole({}),
 };
+
+/** Only a verified address on an allowlisted company domain joins the shared org; anyone else starts in Personal and is added by an org admin. */
+export function joinsDefaultOrg(settings: { autoJoinEmailDomains: string[] }, u: { email: string; emailVerified?: boolean | null }): boolean {
+  return u.emailVerified === true && settings.autoJoinEmailDomains.includes(u.email.slice(u.email.lastIndexOf("@") + 1).toLowerCase());
+}
 
 export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) => void) {
   const settings = getSettings(env);
@@ -83,7 +88,7 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
     },
     account: {
       // Links a Google sign-in to an existing users row only when Google says the email is verified.
-      accountLinking: { enabled: true },
+      accountLinking: { enabled: true, requireLocalEmailVerified: true },
     },
     emailAndPassword: {
       enabled: true,
@@ -91,7 +96,13 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
       sendResetPassword: settings.emailEnabled
         ? async ({ user, url }) => mail(user.email, "Reset your ChampBeam password", "Use this link to choose a new password. It expires in one hour.", "Reset password", url)
         : undefined,
-      // No email sender at launch (D2 = B): no reset or verification mail.
+      // A reset must end every session opened before it (a pre-registered or stolen session must not survive recovery).
+      revokeSessionsOnPasswordReset: true,
+      // Recovery also ends the user's API keys: a key minted from a stolen session must not outlive the reset.
+      onPasswordReset: async ({ user }) => {
+        await db.update(schema.apiKeys).set({ revokedAt: new Date().toISOString() })
+          .where(and(eq(schema.apiKeys.userId, user.id), isNull(schema.apiKeys.revokedAt)));
+      },
       password: {
         // Imported Clerk hashes are bcrypt; everything Better Auth writes is its default scrypt.
         verify: ({ hash, password }) => (hash.startsWith("$2") ? bcrypt.compare(password, hash) : verifyPassword({ hash, password })),
@@ -131,7 +142,11 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
       },
       user: {
         create: {
+          // service+<name>@ rows are provisioned by the operator for X-Service-Key; a self-registration must not claim one.
+          before: async (user) => (/^service\+/i.test(user.email) ? false : undefined),
           after: async (user) => {
+            // Open sign-up: an unverified or off-domain address must not land inside the shared org.
+            if (!joinsDefaultOrg(settings, user)) return;
             const org = await db
               .select({ id: schema.organizations.id })
               .from(schema.organizations)
@@ -155,6 +170,8 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         roles,
         creatorRole: "admin",
         allowUserToCreateOrganization: false,
+        // Explicit, not a side effect of the custom generateId: an unverified sign-up must not accept an invitation addressed to someone else.
+        requireEmailVerificationOnInvitation: true,
         organizationHooks: {
           // Removing a member deletes the row; also end their reporting grants, as the Clerk revoke did.
           afterRemoveMember: async ({ member }) => {

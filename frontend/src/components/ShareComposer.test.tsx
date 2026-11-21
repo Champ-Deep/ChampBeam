@@ -15,6 +15,11 @@ vi.mock('../api/org', () => ({ orgApi: { profile: vi.fn() } }));
 vi.mock('../api/files', () => ({ filesApi: { initUpload: vi.fn(), uploadBytes: vi.fn(), finalize: vi.fn() } }));
 vi.mock('../api/pages', () => ({ pagesApi: { suggestSlug: vi.fn(), create: vi.fn() } }));
 const profile = { user_id: 'fixture-user', full_name: 'Fixture User', email: null, org: { id: 'fixture-org', name: 'Fixture workspace', slug: 'fixture' }, role: 'member', permissions: ['share.create'], report_scope: 'own' as const, share_host: { default: 'fixture.example', default_domain_id: null }, available_hosts: [] };
+async function readyInput(label: string) {
+  const input = await screen.findByLabelText(label);
+  await waitFor(() => expect(input).toBeEnabled());
+  return input;
+}
 function mount(ui = <ShareComposer />) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><MemoryRouter>{ui}</MemoryRouter></QueryClientProvider>);
@@ -33,8 +38,53 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('one composer', () => {
+  it('keeps the composer shell inert until workspace permissions arrive', async () => {
+    localStorage.setItem('cb_composer_layout:["fixture-user","fixture-org"]', 'share');
+    let resolveProfile!: (value: typeof profile) => void;
+    vi.mocked(orgApi.profile).mockReturnValue(new Promise(resolve => { resolveProfile = resolve; }));
+    mount();
+    const composer = screen.getByRole('region', { name: 'Drop a file or paste a link' });
+    expect(composer).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading workspace permissions');
+    expect(screen.getByLabelText('Choose file')).toBeDisabled();
+    expect(screen.getByLabelText('Paste content or drop one file')).toBeDisabled();
+    expect(filesApi.initUpload).not.toHaveBeenCalled();
+    resolveProfile(profile);
+    await waitFor(() => expect(composer).toHaveAttribute('aria-busy', 'false'));
+    expect(screen.getByLabelText('Choose file')).toBeEnabled();
+    expect(screen.getByLabelText('Paste content or drop one file')).toBeEnabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+  it('reuses only this user and org read-only shell while the next profile is held', async () => {
+    vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, permissions: [] });
+    const first = mount();
+    await screen.findByText('Read-only workspace');
+    expect(localStorage.getItem('cb_composer_layout:["fixture-user","fixture-org"]')).toBe('report');
+    first.unmount();
+    vi.mocked(orgApi.profile).mockReturnValue(new Promise(() => {}));
+    const second = mount();
+    expect(screen.getByText('Read-only workspace').closest('section')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByLabelText('Choose file')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open reporting' })).toHaveAttribute('aria-disabled', 'true');
+    second.unmount();
+    localStorage.removeItem('cb_composer_layout:["fixture-user","fixture-org"]');
+    localStorage.setItem('cb_composer_layout:["other-user","fixture-org"]', 'report');
+    localStorage.setItem('cb_composer_layout:["fixture-user","other-org"]', 'report');
+    mount();
+    expect(screen.queryByText('Read-only workspace')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading workspace permissions');
+  });
+  it('replaces a stale share hint with server read-only permissions', async () => {
+    localStorage.setItem('cb_composer_layout:["fixture-user","fixture-org"]', 'share');
+    vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, permissions: [] });
+    mount();
+    await screen.findByText('Read-only workspace');
+    expect(screen.queryByLabelText('Choose file')).not.toBeInTheDocument();
+    expect(filesApi.initUpload).not.toHaveBeenCalled();
+    expect(localStorage.getItem('cb_composer_layout:["fixture-user","fixture-org"]')).toBe('report');
+  });
   it('does not upload on file selection and requires intent', async () => {
-    mount(); await screen.findByLabelText('Choose file');
+    mount(); await readyInput('Choose file');
     fireEvent.change(screen.getByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type: 'application/pdf' })] } });
     expect(filesApi.initUpload).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole('tab', { name: 'Send as file' }));
@@ -43,7 +93,7 @@ describe('one composer', () => {
     expect(filesApi.initUpload).toHaveBeenCalledWith(expect.objectContaining({ intent: 'download', filename: 'Quarterly Brief.pdf', slug: undefined }));
   });
   it.each(['application/pdf', 'image/png', 'video/mp4'])('hosts %s with an editable basename slug', async (type) => {
-    mount(); await screen.findByLabelText('Choose file');
+    mount(); await readyInput('Choose file');
     fireEvent.change(screen.getByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Quarterly Brief.pdf', { type })] } });
     fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit address' }));
@@ -54,7 +104,7 @@ describe('one composer', () => {
   });
   it('keeps input after a collision and shows the API error', async () => {
     vi.mocked(pagesApi.create).mockRejectedValue({ response: { status: 409, data: { detail: 'That slug is taken.' } } });
-    mount(); await screen.findByLabelText('Paste content or drop one file');
+    mount(); await readyInput('Paste content or drop one file');
     fireEvent.change(screen.getByLabelText('Paste content or drop one file'), { target: { value: '<!doctype html><html>Fixture</html>' } });
     fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish page' })).not.toBeDisabled());
@@ -63,7 +113,7 @@ describe('one composer', () => {
     expect(screen.getByLabelText('Paste content or drop one file')).toHaveValue('<!doctype html><html>Fixture</html>');
   });
   it('routes external URLs to Links rather than inventing URL import', async () => {
-    mount(); await screen.findByLabelText('Paste content or drop one file');
+    mount(); await readyInput('Paste content or drop one file');
     fireEvent.change(screen.getByLabelText('Paste content or drop one file'), { target: { value: 'https://example.com/path' } });
     expect(screen.getByRole('link', { name: 'Track external URL' })).toHaveAttribute('href', '/links?tab=utm&url=https%3A%2F%2Fexample.com%2Fpath');
     expect(filesApi.initUpload).not.toHaveBeenCalled();
@@ -71,7 +121,7 @@ describe('one composer', () => {
   it('delegates Unicode and multi-extension basenames to the backend and accepts collision suggestions', async () => {
     vi.mocked(pagesApi.suggestSlug).mockResolvedValue({ slug: 'cafe-final-2', base: 'cafe-final', collided: true, host: 'fixture.example', public_url: 'https://fixture.example/cafe-final-2' });
     mount();
-    fireEvent.change(await screen.findByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'Café.final.pdf', { type: 'application/pdf' })] } });
+    fireEvent.change(await readyInput('Choose file'), { target: { files: [new File(['fixture'], 'Café.final.pdf', { type: 'application/pdf' })] } });
     fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use suggested address' }));
     expect(pagesApi.suggestSlug).toHaveBeenCalledWith('Café.final.pdf', undefined);
@@ -81,12 +131,12 @@ describe('one composer', () => {
   it('does not silently fall back when the selected domain is missing', async () => {
     vi.mocked(orgApi.profile).mockResolvedValue({ ...profile, share_host: { default: 'fixture.example', default_domain_id: 'removed-domain' } });
     mount();
-    fireEvent.change(await screen.findByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'file.pdf', { type: 'application/pdf' })] } });
+    fireEvent.change(await readyInput('Choose file'), { target: { files: [new File(['fixture'], 'file.pdf', { type: 'application/pdf' })] } });
     expect(screen.getByRole('alert')).toHaveTextContent('domain is unavailable or invalid');
     expect(screen.getByRole('button', { name: 'Create download link' })).toBeDisabled();
   });
   it('preserves the draft on invalid file input and supports removal', async () => {
-    mount(); const input = await screen.findByLabelText('Choose file');
+    mount(); const input = await readyInput('Choose file');
     fireEvent.change(input, { target: { files: [new File(['fixture'], 'keep.zip', { type: 'application/zip' })] } });
     const huge = new File(['fixture'], 'large.png', { type: 'image/png' });
     Object.defineProperty(huge, 'size', { value: 11 * 1024 * 1024 });
@@ -99,7 +149,7 @@ describe('one composer', () => {
     expect(screen.queryByText('keep.zip')).toBeNull();
   });
   it('handles file paste, page-wide URL paste and multiline typing without submitting', async () => {
-    mount(); const text = await screen.findByLabelText('Paste content or drop one file');
+    mount(); const text = await readyInput('Paste content or drop one file');
     fireEvent.paste(text, { clipboardData: { files: [new File(['fixture'], 'paste.pdf', { type: 'application/pdf' })] } });
     expect(screen.getByText('paste.pdf')).toBeVisible();
     fireEvent.paste(document.body, { clipboardData: { files: [], getData: () => 'https://example.com/pasted' } });
@@ -111,7 +161,7 @@ describe('one composer', () => {
   it('retries a failed slug check without changing input', async () => {
     vi.mocked(pagesApi.suggestSlug).mockRejectedValueOnce(new Error('Offline'));
     mount();
-    fireEvent.change(await screen.findByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'file.pdf', { type: 'application/pdf' })] } });
+    fireEvent.change(await readyInput('Choose file'), { target: { files: [new File(['fixture'], 'file.pdf', { type: 'application/pdf' })] } });
     fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry address check' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish page' })).toBeEnabled());
@@ -120,7 +170,7 @@ describe('one composer', () => {
   it('retains a Unicode edited slug after server validation failure', async () => {
     vi.mocked(filesApi.initUpload).mockRejectedValueOnce({ response: { status: 400, data: { detail: 'Slug must be 3\u201360 characters of lowercase letters, numbers and hyphens.' } } });
     mount();
-    fireEvent.change(await screen.findByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'file.pdf', { type: 'application/pdf' })] } });
+    fireEvent.change(await readyInput('Choose file'), { target: { files: [new File(['fixture'], 'file.pdf', { type: 'application/pdf' })] } });
     fireEvent.click(await screen.findByRole('tab', { name: 'Host for viewing' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit address' }));
     fireEvent.change(screen.getByLabelText('Page address'), { target: { value: '日本語' } });
@@ -132,7 +182,7 @@ describe('one composer', () => {
   it('keeps a successful URL usable after clipboard rejection', async () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('Denied')) } });
     mount();
-    fireEvent.change(await screen.findByLabelText('Choose file'), { target: { files: [new File(['fixture'], 'file.zip', { type: 'application/zip' })] } });
+    fireEvent.change(await readyInput('Choose file'), { target: { files: [new File(['fixture'], 'file.zip', { type: 'application/zip' })] } });
     fireEvent.click(screen.getByRole('button', { name: 'Create download link' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Copy address' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('copy it manually');

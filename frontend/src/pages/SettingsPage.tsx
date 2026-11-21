@@ -4,7 +4,7 @@ import { OrganizationSettings } from '../components/OrganizationSettings';
 import { useOrgContext } from '../hooks/useOrgContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, BookmarkCheck, Bot, Building2, CheckCircle2, Copy, Globe, Info, KeyRound, Palette, Plus, RefreshCw, Search, ShoppingCart, Star, Trash2, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, CardTitle, Input, useConfirm } from '../components/ui';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { ApiKeysSettings } from '../components/ApiKeysSettings';
@@ -18,12 +18,12 @@ import { systemApi } from '../api/system';
 import { useAuth } from '../lib/authClient';
 import { PageHeader } from '../components/ui/PageHeader';
 
-type SettingsTab = 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
+type SettingsTab = 'organization' | 'domains' | 'apikeys' | 'appearance' | 'notifications' | 'system' | 'assistant';
 
 function initialTab(param: string | null): SettingsTab {
-  if (param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system' || param === 'assistant')
+  if (param === 'organization' || param === 'domains' || param === 'appearance' || param === 'apikeys' || param === 'notifications' || param === 'system' || param === 'assistant')
     return param;
-  return 'domains';
+  return 'appearance';
 }
 
 const STATUS_LABEL: Record<DomainStatus, string> = {
@@ -55,15 +55,22 @@ function validateSlug(slug: string): string | null {
 
 export function SettingsPage() {
   const [params] = useSearchParams();
-  const { inOrg, permissions, isLoading, error } = useOrgContext();
+  const { isLoading, error } = useOrgContext();
   if (params.get('tab') === 'presets' || params.get('tab') === 'utm') return <Navigate to="/links?tab=utm&panel=presets" replace />;
   if (isLoading) return <p role="status">Loading workspace settings…</p>;
   if (error) return <p role="alert">Could not verify workspace access. Reload or sign in again.</p>;
-  return <div className="cb-workspace"><PageHeader title="Settings" lede="Domains, keys, appearance and notifications for this workspace." />{inOrg && <OrganizationSettings />}{(!inOrg || permissions.includes('org.domains.manage')) ? <PersonalSettings /> : <AppearanceSettings />}</div>;
+  return <div className="cb-workspace"><PageHeader title="Settings" lede="Your account preferences and workspace administration, kept separate." /><PersonalSettings /></div>;
+}
+
+function NavTab({ id, tab, setTab, icon: Icon, label }: { id: SettingsTab; tab: SettingsTab; setTab: (t: SettingsTab) => void; icon: typeof Globe; label: string }) {
+  return <button type="button" onClick={() => setTab(id)} aria-pressed={tab === id}><Icon className="h-4 w-4" />{label}</button>;
 }
 
 function PersonalSettings() {
   const { userId } = useAuth();
+  const { inOrg, permissions, profile } = useOrgContext();
+  const orgName = profile?.org?.name;
+  const canManageDomains = !inOrg || permissions.includes('org.domains.manage');
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -173,86 +180,42 @@ function PersonalSettings() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
+    <div className="beam-settings">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-900">Personal settings</h2>
+        <h2 className="text-2xl font-bold text-slate-900">Account and workspace</h2>
         <p className="text-slate-600 mt-1">
           Manage your domains and account preferences. UTM presets live in Links.
         </p>
       </div>
 
-      {/* Sub-tab bar */}
-      <div className="border-b border-slate-200 mb-6">
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
-          <button
-            onClick={() => setTab('domains')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'domains'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Globe className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Domains
-          </button>
-          <Link
-            to="/links?tab=utm&panel=presets"
-            className="pb-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700"
-          >
-            <BookmarkCheck className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            UTM presets
-          </Link>
-          <button
-            onClick={() => setTab('apikeys')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'apikeys'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <KeyRound className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            API keys
-          </button>
-          <button
-            onClick={() => setTab('appearance')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'appearance'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Palette className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Appearance
-          </button>
-          <button onClick={() => setTab('notifications')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${tab === 'notifications' ? 'border-brand-purple text-brand-purple' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            <Bell className="h-4 w-4 inline mr-1.5 -mt-0.5" />Notifications
-          </button>
-          {canViewSystem && <button
-            onClick={() => setTab('system')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'system'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Activity className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            System
-          </button>}
-          <button
-            onClick={() => setTab('assistant')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === 'assistant'
-                ? 'border-brand-purple text-brand-purple'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            <Bot className="h-4 w-4 inline mr-1.5 -mt-0.5" />
-            Assistant
-          </button>
+      {/* Personal items sit under "Personal", shared-workspace items under the org name. Without an org, Domains and Assistant are personal. */}
+      <nav className="beam-settings-nav" aria-label="Settings sections">
+        <div role="group" aria-labelledby="settings-personal">
+          <h3 id="settings-personal">Personal</h3>
+          <NavTab id="appearance" tab={tab} setTab={setTab} icon={Palette} label="Appearance" />
+          <NavTab id="notifications" tab={tab} setTab={setTab} icon={Bell} label="Notifications" />
+          <NavTab id="apikeys" tab={tab} setTab={setTab} icon={KeyRound} label="API keys and agents" />
+          <Link to="/links?tab=utm&panel=presets"><BookmarkCheck className="h-4 w-4" />UTM presets</Link>
+          {!inOrg && <NavTab id="domains" tab={tab} setTab={setTab} icon={Globe} label="Domains" />}
+          {!inOrg && <NavTab id="assistant" tab={tab} setTab={setTab} icon={Bot} label="Assistant settings" />}
         </div>
-      </div>
+        {inOrg && (
+          <div role="group" aria-labelledby="settings-org">
+            <h3 id="settings-org">{orgName ?? 'Workspace'}</h3>
+            <NavTab id="organization" tab={tab} setTab={setTab} icon={Building2} label="Workspace administration" />
+            {canManageDomains && <NavTab id="domains" tab={tab} setTab={setTab} icon={Globe} label="Domains" />}
+            <NavTab id="assistant" tab={tab} setTab={setTab} icon={Bot} label="Assistant settings" />
+          </div>
+        )}
+        {canViewSystem && (
+          <div role="group" aria-labelledby="settings-platform">
+            <h3 id="settings-platform">Platform</h3>
+            <NavTab id="system" tab={tab} setTab={setTab} icon={Activity} label="System" />
+          </div>
+        )}
+      </nav>
 
+      {tab === 'organization' && inOrg && <OrganizationSettings />}
       {tab === 'appearance' && <AppearanceSettings />}
       {tab === 'notifications' && <Card>
         <CardHeader><CardTitle>Recent opens</CardTitle></CardHeader>
@@ -264,7 +227,8 @@ function PersonalSettings() {
 
       {tab === 'assistant' && <AssistantSettings />}
 
-      {tab === 'domains' && (
+      {tab === 'domains' && !canManageDomains && <p>Domain changes require workspace administrator access. Your API keys and personal preferences remain available.</p>}
+      {tab === 'domains' && canManageDomains && (
         <>
           {config?.subdomain_enabled && config.platform_subdomain_base && (
             <ClaimSubdomainCard

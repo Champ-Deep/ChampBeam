@@ -195,6 +195,8 @@ router.post("/generate", async (c) => {
   const data = await parseJson(c, GenerateLinkRequest);
   const baseUrl = (data.base_url || data.url || "").trim();
   if (!baseUrl) httpError(422, "base_url (or url) is required.");
+  // A contact-bound link fires a signed "link opened" webhook at the receiver: only the trusted integration may name a contact.
+  if (data.contact_ref && !c.req.header("x-service-key")) httpError(403, "contact_ref is reserved for service integrations.");
 
   const utmParams: UtmParams = {};
   // If preset_id provided, load preset values as base
@@ -517,6 +519,7 @@ router.get("/links/:link_id/access", async (c) => {
 router.get("/links/:link_id/leads", async (c) => {
   const user = await requireAuth(c);
   const link = await getOwnedLink(c, user.userId);
+  await assertDomainEditable(c.var.db, user, link.domainId);
   const rows = await c.var.db
     .select()
     .from(accessLeads)

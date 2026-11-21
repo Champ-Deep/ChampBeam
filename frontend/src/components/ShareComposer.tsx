@@ -1,21 +1,30 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Button, QrButton } from './ui';
 import { filesApi } from '../api/files';
 import { pagesApi } from '../api/pages';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { useAuth } from '../lib/authClient';
 import { apiErrorDetail } from '../api/_shared';
 import { invalidateAssets } from '../lib/assetCache';
 import { PAGE_CAP_MB, UPLOAD_CAPS_MB, UPLOAD_HINT } from '../config/uploadLimits';
 import { formatBytes } from '../lib/format';
 
-const ComposerInput = lazy(() => import('./ComposerControls').then((module) => ({ default: module.ComposerInput })));
-const IntentControl = lazy(() => import('./ComposerControls').then((module) => ({ default: module.IntentControl })));
+import { ComposerInput, IntentControl } from './ComposerControls';
 const KINDS: Record<string, keyof typeof UPLOAD_CAPS_MB> = { 'text/html': 'html', 'application/pdf': 'pdf', 'image/jpeg': 'image', 'image/png': 'image', 'image/webp': 'image', 'video/mp4': 'video', 'video/webm': 'video' };
 
 export function ShareComposer() {
   const { profile, canShare, canReport, isSignedIn, isLoading, error: profileError } = useOrgContext();
+  const { userId, orgId } = useAuth();
+  const layoutKey = `cb_composer_layout:${JSON.stringify([userId, orgId ?? null])}`;
+  let loadingLayout: string | null = null;
+  try { loadingLayout = localStorage.getItem(layoutKey); } catch { /* Storage is optional. */ }
+  useEffect(() => {
+    if (!userId || !profile || isLoading || profileError) return;
+    // A layout hint never grants capabilities; controls still await the server profile.
+    try { localStorage.setItem(layoutKey, canShare ? 'share' : canReport ? 'report' : 'readonly'); } catch { /* Storage is optional. */ }
+  }, [userId, profile, isLoading, profileError, layoutKey, canShare, canReport]);
   const client = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState('');
@@ -92,21 +101,23 @@ export function ShareComposer() {
   }
 
   if (!isSignedIn) return <section className="cb-panel"><h2>Share with ChampBeam</h2><p>Sign in to host a page, send a file or track a link.</p><Link to="/sign-in">Sign in</Link></section>;
-  if (isLoading) return <p role="status">Loading workspace permissions…</p>;
   if (profileError) return <p role="alert">Workspace access could not be verified. Reload or sign in again. No content was uploaded.</p>;
-  if (!canShare) return <section className="cb-panel"><h2>Read-only workspace</h2>{canReport ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team">Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
+  // shortcut: unknown org roles keep the original placeholder until their first profile resolves.
+  if (isLoading && orgId && !['share', 'report', 'readonly'].includes(loadingLayout ?? '')) return <p role="status">Loading workspace permissions…</p>;
+  if (isLoading ? loadingLayout === 'report' || loadingLayout === 'readonly' : !canShare) return <section className="cb-panel" aria-busy={isLoading}><h2>Read-only workspace</h2>{(isLoading ? loadingLayout === 'report' : canReport) ? <><p>Your current permissions allow reporting, not creating shares.</p><Link to="/team" aria-disabled={isLoading || undefined} tabIndex={isLoading ? -1 : undefined} onClick={event => { if (isLoading) event.preventDefault(); }}>Open reporting</Link></> : <p>Your role cannot create shares or open reporting in this workspace. Ask a workspace administrator for access.</p>}</section>;
 
-  return <section className="cb-panel cb-composer" aria-labelledby={headingId}>
+  return <section className="cb-panel cb-composer" aria-labelledby={headingId} aria-busy={isLoading}>
+    {isLoading && <span className="sr-only" role="status">Loading workspace permissions…</span>}
     <h2 id={headingId}>Drop a file or paste a link</h2>
     <p>Send a download or host a page. Nothing publishes until you confirm.</p>
-    <fieldset disabled={busy}>
-      <Suspense fallback={<p role="status">Loading composer…</p>}>
-        <ComposerInput text={text} onText={changeText} onFiles={selectFiles} busy={busy}
+    <fieldset disabled={busy || isLoading}>
+      <>
+        <ComposerInput text={text} onText={changeText} onFiles={selectFiles} busy={busy || isLoading}
           received={file && <div className="cb-received"><p role="status"><strong>{file.name}</strong><span>{file.type || 'File'} · {formatBytes(file.size)}</span></p><button type="button" onClick={() => { reset(); setFile(null); setText(''); }}>Remove file</button></div>} />
-      </Suspense>
+      </>
       <ul className="cb-limits" aria-label="Upload limits">{UPLOAD_HINT.split(' · ').map((t) => <li key={t}>{t}</li>)}</ul>
       {externalUrl ? <div className="cb-actions"><Link className="cb-action" to={`/links?tab=utm&url=${encodeURIComponent(externalUrl)}`}>Track external URL</Link><p>Creates a redirect, not a hosted copy.</p></div> : (file || html) ? <>
-        <Suspense fallback={<p role="status">Loading recipient options…</p>}><IntentControl value={intent} canHost={canHost} onChange={(next) => { setIntent(next); setError(''); setResult(null); }} /></Suspense>
+        <><IntentControl value={intent} canHost={canHost} onChange={(next) => { setIntent(next); setError(''); setResult(null); }} /></>
         {intent === 'host' && <div className="cb-host-preview"><p className="cb-address">{validHost ? `https://${host}/${slug}` : 'No active share domain available.'}</p><button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? 'Close address editor' : 'Edit address'}</button></div>}
         <div className="cb-form-grid">
           <label>Share domain<select aria-label="Share domain" aria-invalid={!validHost} aria-describedby={!validHost ? `${headingId}-domain-error` : undefined} value={domain} onChange={(event) => { setChosenDomain(event.target.value); setEditedSlug(null); setResult(null); setCopied(false); setError(''); }}>

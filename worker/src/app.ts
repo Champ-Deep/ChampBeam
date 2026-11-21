@@ -11,7 +11,7 @@ import { getDb } from "./db/client";
 import { HTTPError } from "./lib/errors";
 import { cors, requestOrigin, withCors } from "./lib/cors";
 import { serviceKeyGate } from "./auth/serviceAuth";
-import { authOf, crossSiteGuard } from "./auth/security";
+import { authOf, crossSiteGuard, orgPluginGuard } from "./auth/security";
 import { shareOriginGuard } from "./lib/shareOrigin";
 import { requestHost } from "./lib/request";
 
@@ -23,6 +23,7 @@ import { router as pageState } from "./routes/pageState";
 import { router as auth } from "./routes/auth";
 import { router as utm } from "./routes/utm";
 import { router as journeys } from "./routes/journeys";
+import { router as assetAnalytics } from "./routes/assetAnalytics";
 import { router as projects } from "./routes/projects";
 import { router as domains } from "./routes/domains";
 import { router as files } from "./routes/files";
@@ -80,6 +81,7 @@ app.get("/favicon.ico", (c) => {
 
 const v1 = "/api/v1";
 // Better Auth: sign-in/up, sessions, OAuth callbacks, org management. Before every router and the SPA fallback.
+app.use("/api/auth/organization/*", orgPluginGuard);
 app.on(["GET", "POST"], "/api/auth/*", (c) => authOf(c).handler(c.req.raw));
 app.use(`${v1}/*`, crossSiteGuard);
 app.route("/", health);
@@ -90,6 +92,7 @@ app.route("/api/pages", pageState);
 app.route(`${v1}/auth`, auth);
 app.route(`${v1}/utm`, utm);
 app.route(`${v1}/analytics`, journeys);
+app.route(`${v1}/analytics`, assetAnalytics);
 app.route(`${v1}/projects`, projects);
 app.route(`${v1}/domains`, domains);
 app.route(`${v1}/files`, files);

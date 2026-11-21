@@ -48,6 +48,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={clsx(baseStyles, variants[variant], sizes[size], className)}
         disabled={disabled || isLoading}
         {...props}
+        aria-label={props['aria-label'] ?? (typeof children === 'string' ? children : undefined)}
       >
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />

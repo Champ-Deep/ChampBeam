@@ -92,7 +92,7 @@ describe("email and password", () => {
     expect(statuses[5]).toBe(429);
   });
 
-  it("a new sign-up auto-joins the Champions Group org as member", async () => {
+  it("a password sign-up joins no org, even on an allowlisted domain: its email is unverified", async () => {
     const orgId = await defaultOrg();
     const email = `join-${crypto.randomUUID().slice(0, 8)}@example.com`;
     const up = await api("/api/auth/sign-up/email", {
@@ -106,19 +106,35 @@ describe("email and password", () => {
     )
       .bind(email, orgId)
       .first<{ role: string }>();
-    expect(m?.role).toBe("member");
+    expect(m).toBeNull();
+  });
+
+  it("a verified address on an allowlisted domain joins the Champions Group org as member; an off-domain one does not", async () => {
+    const orgId = await defaultOrg();
+    const ctx = await createAuth(env as unknown as Env, getDb(env.DB)).$context;
+    const make = async (email: string) => {
+      await ctx.internalAdapter.createUser({ email, name: "Verified", emailVerified: true }, { method: "oauth" });
+      return env.DB.prepare(
+        "SELECT m.role FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE u.email = ? AND m.organization_id = ?",
+      ).bind(email, orgId).first<{ role: string }>();
+    };
+    expect((await make(`ver-${crypto.randomUUID().slice(0, 8)}@example.com`))?.role).toBe("member");
+    expect(await make(`ver-${crypto.randomUUID().slice(0, 8)}@outsider.test`)).toBeNull();
   });
 
   it("a member's new session lands in their org; a user with no membership lands in Personal", async () => {
     const orgId = await defaultOrg();
-    const email = `land-${crypto.randomUUID().slice(0, 8)}@example.com`;
-    await api("/api/auth/sign-up/email", { method: "POST", headers: { ...ORIGIN, ...ip() }, json: { email, password: "long enough pw", name: "Lander" } });
-    const res = await signIn(email, "long enough pw");
+    const user = await createUser({ email: `land-${crypto.randomUUID().slice(0, 8)}@example.com` });
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES (?,?,?,?,?,?,?)")
+      .bind(crypto.randomUUID(), user.id, "credential", user.id, bcrypt.hashSync("long enough pw", 10), now, now).run();
+    await addMembership(orgId, user.id, "member");
+    const res = await signIn(user.email, "long enough pw");
     const s = await api("/api/auth/get-session", { headers: cookieHeader(sessionCookie(res)!) });
     expect(((await s.json()) as { session: { activeOrganizationId: string | null } }).session.activeOrganizationId).toBe(orgId);
 
-    await env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = (SELECT id FROM users WHERE email = ?)").bind(email).run();
-    const res2 = await signIn(email, "long enough pw");
+    await env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = ?").bind(user.id).run();
+    const res2 = await signIn(user.email, "long enough pw");
     const s2 = await api("/api/auth/get-session", { headers: cookieHeader(sessionCookie(res2)!) });
     expect(((await s2.json()) as { session: { activeOrganizationId: string | null } }).session.activeOrganizationId ?? null).toBeNull();
   });

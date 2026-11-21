@@ -77,6 +77,16 @@ File views are tracked like clicks, including per-page reading time for document
 
 ## 5. Read analytics
 
+### Content-first overview and safe owner preview
+
+`GET /api/v1/analytics/assets?days=30&scope=own` returns server-aggregated file and page opens, estimated visitors, returning opens, ranked assets, daily totals, weekday/hour buckets, countries, devices, referrers and recorded company signals. `days` is 1 to 365. Alternatively supply both `start_date` and `end_date`, with a maximum one-year range. Times are UTC. The ranked list is capped at 50 assets; summary totals are computed across all matching events, not that list.
+
+`scope=own` includes only the caller's assets in the active workspace. API keys have no interactive active workspace, so they read Personal assets. `scope=workspace` requires an active organization and reporting permission. Both membership scope and asset organization must match. Deleted assets and known scanner/bot events are excluded. Automated traffic can still remain. Visitor IDs, with IP fallback, estimate browsers and are not person identities. Company signals use existing records, not a new enrichment provider.
+
+`GET /api/v1/pages/{page_id}/preview` returns an owner-only static HTML thumbnail source. It does not create opens or engagement events. It requires authentication, responds with `Cache-Control: private, no-store`, and uses a sandbox CSP with scripts, navigation, forms and external resources disabled. Styling or images requiring external resources will not appear. This is separate from the public share URL and does not change its behavior.
+
+For agent clients, the [stdio MCP adapter](../mcp/README.md) exposes list, confirmed link creation, confirmed HTML publishing, confirmed small-file upload and content analytics over the existing API. It does not create API keys or administer members. See its README for secure configuration and the actual local protocol test.
+
 | What | Endpoint |
 |---|---|
 | Account overview | `GET /api/v1/utm/analytics/overview?days=30` |

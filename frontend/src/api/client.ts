@@ -24,6 +24,7 @@ const API_URL = normalizeApiUrl(typeof rawApiUrl === 'string' ? rawApiUrl : unde
 
 export const api = axios.create({
   baseURL: API_URL,
+  timeout: 30_000,
   headers: {
     'Content-Type': 'application/json',
   },

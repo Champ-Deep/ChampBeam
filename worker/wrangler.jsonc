@@ -75,6 +75,8 @@
     "DEBUG": "false",
     "FRONTEND_URL": "https://champbeam.com",
     "BETTER_AUTH_URL": "https://champbeam.com",
+    // Verified emails on these domains join the champions-group org at sign-up; everyone else starts in Personal.
+    "AUTO_JOIN_EMAIL_DOMAINS": "championsmail.com,lakeb2b.com",
     "REDIRECT_BASE_URL": "https://champbeam.com",
     "PLATFORM_REDIRECT_HOST": "champbeam.com,www.champbeam.com,champbeam.deep-ae0.workers.dev",
     "CLERK_PUBLISHABLE_KEY": "",
@@ -98,7 +100,7 @@
                   "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
-      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "BETTER_AUTH_URL": "TODO_deepify_origin", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "BETTER_AUTH_URL": "TODO_deepify_origin", "AUTO_JOIN_EMAIL_DOMAINS": "", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
                 "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify" }
     },
     // Real Cloudflare staging: managed D1/R2, real cron, sign-in with NON-production identities.
@@ -113,7 +115,7 @@
       "send_email": [{ "name": "EMAIL" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
-      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://staging.champbeam.com", "BETTER_AUTH_URL": "https://staging.champbeam.com", "REDIRECT_BASE_URL": "https://staging.champbeam.com", "PLATFORM_REDIRECT_HOST": "staging.champbeam.com",
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://staging.champbeam.com", "BETTER_AUTH_URL": "https://staging.champbeam.com", "AUTO_JOIN_EMAIL_DOMAINS": "championsmail.com", "REDIRECT_BASE_URL": "https://staging.champbeam.com", "PLATFORM_REDIRECT_HOST": "staging.champbeam.com",
                 "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
     }
   }

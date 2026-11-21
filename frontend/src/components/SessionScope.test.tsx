@@ -22,7 +22,7 @@ afterEach(cleanup);
 describe('SessionScope', () => {
   it('keeps a guest form mounted when a focus refetch goes pending again with null data', () => {
     render(<SessionScope><label>Email<input /></label></SessionScope>);
-    expect(screen.getByRole('status')).toHaveTextContent('Loading account');
+    expect(screen.queryByRole('status')).toBeNull();
 
     act(() => session.set({ data: null, isPending: false }));
     const input = screen.getByLabelText('Email');
