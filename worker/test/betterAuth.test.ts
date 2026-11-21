@@ -126,6 +126,18 @@ describe("email and password", () => {
     expect(n?.n).toBe(0);
   });
 
+  it("users cannot create organizations through the Better Auth API", async () => {
+    const user = await createUser();
+    const res = await api("/api/auth/organization/create", {
+      method: "POST",
+      headers: await sessionHeaders(user.id),
+      json: { name: "Rogue", slug: `rogue-${crypto.randomUUID().slice(0, 6)}` },
+    });
+    expect(res.status).toBe(403);
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM organizations WHERE name = 'Rogue'").first<{ n: number }>();
+    expect(n?.n).toBe(0);
+  });
+
   it("a verified address on an allowlisted domain joins the Champions Group org as member; an off-domain one does not", async () => {
     const orgId = await defaultOrg();
     const ctx = await createAuth(env as unknown as Env, getDb(env.DB)).$context;
