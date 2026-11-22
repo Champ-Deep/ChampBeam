@@ -36,8 +36,6 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-import asyncpg
-
 SCHEMA_SQL = Path(__file__).resolve().parent.parent / "migrations" / "0001_init.sql"
 
 # Parent tables before children so foreign keys resolve (D1 also gets
@@ -122,6 +120,8 @@ def to_sql_literal(value) -> str:
 
 
 async def export(dsn: str, out_dir: Path) -> None:
+    import asyncpg  # lazy: railway_resync.py imports this module for its helpers and needs no Postgres driver
+
     targets = d1_columns()
     conn = await asyncpg.connect(dsn)
     # Decode json/jsonb into Python objects so they are re-serialized compactly.

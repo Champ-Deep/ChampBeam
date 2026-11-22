@@ -1,3 +1,6 @@
+> **Superseded for the Railway exit (22 Nov 2026).** Sections A to C (VPS Compose stack, VPS R2, `pg_dump | pg_restore`) describe the old
+> VPS target. The Railway to Worker cutover, resync and retire checklist are in [`RAILWAY_EXIT.md`](RAILWAY_EXIT.md). Sections D to H (Clerk) are unchanged.
+
 # Champbeam Go-Live Checklist
 
 Single source of truth for taking Champbeam to production. The deploy mechanics (the Docker
