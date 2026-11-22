@@ -127,7 +127,7 @@ export async function run(env: Env, settings: Settings, orgId: string, provider:
 
 export function toMarkdown(report: Report, orgName?: string | null): string {
   const lines = [
-    `# Review agent benchmark${orgName ? ` — ${orgName}` : ""}`,
+    `# Review agent benchmark${orgName ? `: ${orgName}` : ""}`,
     "",
     `- Provider: \`${report.provider}\` (${report.models.join(", ") || "no model reported"})`,
     `- Generated: ${report.generated_at}`,

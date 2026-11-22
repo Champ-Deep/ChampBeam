@@ -105,7 +105,7 @@ export function DecisionLogPage() {
                     <td>{e.at?.replace('T', ' ').replace('Z', '')}</td>
                     <th scope="row">{e.event.replaceAll('_', ' ')}</th>
                     <td>{e.actor_name ?? e.actor_id ?? e.actor_type}</td>
-                    <td>{e.transfer_id ? <span title={e.transfer_id}>{e.transfer_id.slice(0, 8)}</span> : '—'}</td>
+                    <td>{e.transfer_id ? <span title={e.transfer_id}>{e.transfer_id.slice(0, 8)}</span> : '-'}</td>
                     <td>
                       {e.reason}
                       {e.detail && <small>{JSON.stringify(e.detail)}</small>}

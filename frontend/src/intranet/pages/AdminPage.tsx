@@ -166,7 +166,7 @@ function BenchmarkPanel({ providers }: { providers: string[] }) {
                     {latest.report.sweep.map((r) => (
                       <tr key={r.threshold}>
                         <th scope="row">{r.threshold.toFixed(2)}{r.threshold === latest.report?.current_threshold ? ' (current)' : ''}</th>
-                        <td>{r.agreement == null ? '—' : `${(r.agreement * 100).toFixed(1)}%`}</td>
+                        <td>{r.agreement == null ? '-' : `${(r.agreement * 100).toFixed(1)}%`}</td>
                         <td>{r.auto_approved}</td>
                         <td>{r.false_releases}</td>
                         <td>{r.missed_approvals}</td>
@@ -288,7 +288,7 @@ export function AdminPage() {
                     <th scope="row">{i.email}</th>
                     <td>{i.role}</td>
                     <td>{i.status}</td>
-                    <td>{i.status === 'pending' ? formatRelative(i.expires_at) : '—'}</td>
+                    <td>{i.status === 'pending' ? formatRelative(i.expires_at) : '-'}</td>
                     <td>{i.status === 'pending' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void change(() => intranetApi.revokeInvite(i.id), 'Invitation revoked.')}>Revoke</Button>}</td>
                   </tr>
                 ))}

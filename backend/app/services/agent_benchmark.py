@@ -137,7 +137,7 @@ async def run(session: AsyncSession, organization_id: UUID, provider: str, limit
 
 def to_markdown(report: dict[str, Any], org_name: Optional[str] = None) -> str:
     lines = [
-        f"# Review agent benchmark{f' — {org_name}' if org_name else ''}",
+        f"# Review agent benchmark{f': {org_name}' if org_name else ''}",
         "",
         f"- Provider: `{report['provider']}` ({', '.join(report['models']) or 'no model reported'})",
         f"- Generated: {report['generated_at']}",
