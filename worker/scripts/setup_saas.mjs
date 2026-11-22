@@ -94,7 +94,7 @@ Set on the champbeam worker (prod only, by the cutover card):
   secret  CLOUDFLARE_API_TOKEN   (a token with SSL and Certificates:Edit on ${ZONE_NAME}; value not printed)
   var     CLOUDFLARE_ZONE_ID=${zone.id}
   var     CLOUDFLARE_CNAME_TARGET=${CNAME}
-The worker needs the zone route */* on ${ZONE_NAME} (declared in wrangler.jsonc).`);
+The worker needs one per-host route for each SaaS hostname on ${ZONE_NAME}, added by API (PR #77, RAILWAY_EXIT.md step 5b). wrangler.jsonc declares no zone route.`);
   if (!apply) console.log("\nDry run only. Re-run with --apply to write.");
 } catch (e) {
   console.error(`FAILED: ${e.message}`);
