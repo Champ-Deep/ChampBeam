@@ -1,7 +1,7 @@
 /**
  * Railway exit: the Worker answers for share.lakeb2b.com once IT repoints the hostname. Proves, with the
  * Host header Cloudflare sends for a custom hostname, which Worker vars make that host serve and mint.
- * The steps named here are the ones in RAILWAY_EXIT.md (step 5 recognise the host, step 9 mint on it).
+ * The steps named here are the ones in RAILWAY_EXIT.md (step 4 recognise the host, step 9 mint on it).
  *
  *   serve: src/lib/shareOrigin.ts:21 (guard), src/env.ts:216 isPlatformHost, src/routes/redirect.ts:84 (/r, /s),
  *          src/routes/filesServe.ts:338-341 (/f, /p) via src/services/assetLookup.ts:28 resolveDomain.
@@ -40,7 +40,7 @@ describe("share.lakeb2b.com on the Worker", () => {
     expect((await row("SELECT click_count FROM link_clicks WHERE id = ?", lid))!.click_count).toBe(0);
   });
 
-  it("Host: share.lakeb2b.com reaches /health, /r, /s and /f once the host is recognised (cutover step 5)", async () => {
+  it("Host: share.lakeb2b.com reaches /health, /r, /s and /f once the host is recognised (cutover step 4)", async () => {
     const uid = await newUser();
     const sc = code("r");
     const lid = await seedLink(uid, sc);
