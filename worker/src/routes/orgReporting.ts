@@ -13,12 +13,14 @@ import type { AppEnv } from "../env";
 import { permissionsForRole } from "../auth/permissions";
 import { requireAuth, requireOrgMember, requirePermission } from "../auth/security";
 import { chunk } from "../db/client";
-import { DOMAIN_STATUS_ACTIVE, domains, organizations, reportingGrants, users } from "../db/schema";
+import { DOMAIN_STATUS_ACTIVE, domains, orgEmailDomains, organizations, reportingGrants, users } from "../db/schema";
 import { httpError } from "../lib/errors";
 import { isoUtc, nowIso } from "../lib/time";
 import { parseJson, parseQuery, qStr } from "../lib/validate";
+import { PUBLIC_EMAIL_DOMAINS } from "../services/emailDomains";
 import { availableDomains, defaultDomainFor, platformShareHost } from "../services/domains";
 import { getActiveMembershipRow, membershipIsAdmin, membershipIsLeader } from "../services/org";
+import { adoptExisting } from "../services/orgAdoption";
 import { activeGrants, reportScope, teamOf } from "../services/reporting";
 import { isPlaceholderEmail, orgForUser, pyUuid } from "./_org";
 
@@ -47,7 +49,7 @@ router.get("/profile", async (c) => {
     role: org ? user.orgRole ?? null : null,
     permissions: org ? [...permissionsForRole(user.orgRole)].sort() : [],
     report_scope: scope.kind,
-    share_host: { default: def?.hostname ?? platformShareHost(c.var.settings), default_domain_id: def?.id ?? null },
+    share_host: { default: def?.hostname ?? (await platformShareHost(c.var.settings)), default_domain_id: def?.id ?? null },
     available_hosts: hosts.map((d) => ({ id: d.id, hostname: d.hostname, org_default: !!d.isOrgDefault })),
   });
 });
@@ -179,7 +181,74 @@ router.post("/domains/:domain_id/default", async (c) => {
     c.env.DB.prepare("UPDATE domains SET is_org_default = 0 WHERE organization_id = ?1 AND is_org_default = 1").bind(org.id),
     c.env.DB.prepare("UPDATE domains SET is_org_default = 1 WHERE id = ?1").bind(d!.id),
   ]);
-  return c.json(orgDomainResponse({ ...d!, isOrgDefault: true }));
+  // Old links and pages live in the platform bucket; an org domain serves only what is on it.
+  const adoption = await adoptExisting(c.env.DB, org.id, d!.id, { dryRun: false }).catch((e) => {
+    console.error("org adoption failed", e);
+    return null;
+  });
+  return c.json({ ...orgDomainResponse({ ...d!, isOrgDefault: true }), adoption });
+});
+
+/**
+ * Move the org's existing content onto this domain. dry_run defaults to true: an admin sees the
+ * counts and collisions first, then re-sends with dry_run=false. Only NULL domain_id rows move.
+ */
+router.post("/domains/:domain_id/adopt-existing", async (c) => {
+  const user = await requirePermission(c, "org.domains.manage");
+  const org = await orgForUser(c.var.db, user);
+  const body = await parseJson(c, z.object({ dry_run: z.boolean().default(true), before: z.string().datetime().nullish() }));
+  const d = await c.var.db
+    .select()
+    .from(domains)
+    .where(and(eq(domains.id, c.req.param("domain_id")), eq(domains.organizationId, org.id)))
+    .get();
+  if (!d) httpError(404, "Domain not found.");
+  if (d!.status !== DOMAIN_STATUS_ACTIVE) httpError(400, "Only a verified, active domain can adopt content.");
+  return c.json(await adoptExisting(c.env.DB, org.id, d!.id, { dryRun: body.dry_run, before: body.before }));
+});
+
+// ============================================================================
+// Company email domains (org.domains.manage): verified sign-ins on these auto-join the org
+// ============================================================================
+
+const emailDomainResponse = (d: typeof orgEmailDomains.$inferSelect) => ({ domain: d.domain, created_at: d.createdAt });
+// Exact hostname with at least one dot; no wildcard, no "@", no path.
+const EMAIL_DOMAIN = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+router.get("/email-domains", async (c) => {
+  const user = await requirePermission(c, "org.domains.manage");
+  const org = await orgForUser(c.var.db, user);
+  const rows = await c.var.db.select().from(orgEmailDomains).where(eq(orgEmailDomains.organizationId, org.id)).orderBy(orgEmailDomains.domain).all();
+  return c.json(rows.map(emailDomainResponse));
+});
+
+router.post("/email-domains", async (c) => {
+  const user = await requirePermission(c, "org.domains.manage");
+  const org = await orgForUser(c.var.db, user);
+  const body = await parseJson(c, z.object({ domain: z.string() }));
+  const domain = body.domain.trim().toLowerCase();
+  if (!EMAIL_DOMAIN.test(domain)) httpError(400, "Enter a company email domain such as acme.com.");
+  if (PUBLIC_EMAIL_DOMAINS.has(domain)) httpError(400, "Public email providers cannot be listed: anyone can sign up with one.");
+  const existing = await c.var.db.select().from(orgEmailDomains).where(eq(orgEmailDomains.domain, domain)).get();
+  if (existing) {
+    if (existing.organizationId !== org.id) httpError(409, "This email domain belongs to another organization.");
+    return c.json(emailDomainResponse(existing));
+  }
+  const [row] = await c.var.db.insert(orgEmailDomains).values({ domain, organizationId: org.id, createdByUserId: user.userId }).returning();
+  return c.json(emailDomainResponse(row), 201);
+});
+
+/** Unlisting stops future auto-joins only; existing members keep their seat. */
+router.delete("/email-domains/:domain", async (c) => {
+  const user = await requirePermission(c, "org.domains.manage");
+  const org = await orgForUser(c.var.db, user);
+  const domain = c.req.param("domain").trim().toLowerCase();
+  const gone = await c.var.db
+    .delete(orgEmailDomains)
+    .where(and(eq(orgEmailDomains.domain, domain), eq(orgEmailDomains.organizationId, org.id)))
+    .returning();
+  if (gone.length === 0) httpError(404, "Email domain not found.");
+  return c.body(null, 204);
 });
 
 // ============================================================================

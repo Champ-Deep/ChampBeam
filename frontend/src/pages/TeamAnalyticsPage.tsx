@@ -13,6 +13,7 @@ import {
   type OrgContext,
 } from '../api/org';
 import { useOrgContext } from '../hooks/useOrgContext';
+import { AssetAnalytics } from '../components/AssetAnalytics';
 import { ReportingSummary } from '../components/ReportingSummary';
 import { apiErrorDetail } from '../api/_shared';
 
@@ -30,7 +31,7 @@ function StatTile({ label, value }: { label: string; value: string | number }) {
 
 export function TeamAnalyticsPage() {
   const { canManageTeam } = useOrgContext();
-  return <div className="cb-workspace"><h1>Reporting</h1><ReportingSummary />{canManageTeam && <details><summary>Content performance and team operations</summary><TeamOperations /></details>}</div>;
+  return <div className="cb-workspace"><h1>Reporting</h1><AssetAnalytics scope="workspace" /><details><summary>Team totals and reporting scope</summary><ReportingSummary /></details>{canManageTeam && <details><summary>Content performance and team operations</summary><TeamOperations /></details>}</div>;
 }
 
 function TeamOperations() {

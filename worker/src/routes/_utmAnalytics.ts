@@ -18,6 +18,7 @@ import { requireAuth } from "../auth/security";
 import { httpError } from "../lib/errors";
 import { isoUtc, parseIso } from "../lib/time";
 import { parseQuery, qStr } from "../lib/validate";
+import { assertDomainEditable, shareOrgUuid } from "../services/domains";
 import { toCsvRow } from "../services/utm";
 import {
   buildRedirectUrl,
@@ -308,6 +309,7 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
     const user = await requireAuth(c);
     const q = parseQuery(c, z.object({ level: qDef("country"), ...rangeQuery(30) }));
     const link = await getUserLink(c, c.req.param("link_id")!, user.userId);
+    await assertDomainEditable(c.var.db, user, link.domain_id as string | null);
     const [start, end] = resolveDateRange(q.days, q.start_date, q.end_date);
     const w = new Where()
       .add("ce.link_id = ?", link.id as string)
@@ -338,6 +340,10 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
         is_vpn: !!e.is_vpn,
         asn_org: e.asn_org ?? null,
         clicked_at: isoUtc(e.clicked_at as string),
+        // Stored by background enrichment. Owner-only, same audience as ip_address.
+        company_name: e.company_name ?? null,
+        company_domain: e.company_domain ?? null,
+        company_type: e.company_type ?? null,
       })),
     );
   });
@@ -387,7 +393,7 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
        LEFT JOIN link_clicks lc ON ce.link_id = lc.id AND lc.user_id = ?
        LEFT JOIN file_assets fa ON ce.file_id = fa.id AND fa.user_id = ?
        WHERE (lc.id IS NOT NULL OR fa.id IS NOT NULL) AND ce.clicked_at >= ?
-         AND ${REAL_CLICK}`,
+         AND ${REAL_CLICK} AND ce.is_scanner = 0`,
       [user.userId, user.userId, cutoff],
     );
 
@@ -742,12 +748,14 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
     const w = new Where().add("lc.user_id = ?", user.userId).add("ce.clicked_at >= ?", start).add("ce.clicked_at <= ?", end);
     if (q.project_id) w.add("lc.project_id IS ?", normUuid(q.project_id));
     if (q.campaign) w.add("lc.utm_campaign = ?", q.campaign);
+    // Raw visitor IPs on an org domain leave only through a current member who can share there.
+    w.add("(lc.domain_id IS NULL OR NOT EXISTS (SELECT 1 FROM domains d WHERE d.id = lc.domain_id AND d.organization_id IS NOT NULL AND d.organization_id IS NOT ?))", shareOrgUuid(user));
 
     const rows = await all(
       c,
       `SELECT ce.clicked_at, lc.original_url, lc.short_code, lc.utm_source, lc.utm_medium, lc.utm_campaign,
               lc.utm_content, lc.utm_term, ce.ip_address, ce.country, ce.region, ce.city, ce.device_type,
-              ce.browser, ce.os, ce.referrer, ce.is_vpn, ce.asn_org
+              ce.browser, ce.os, ce.referrer, ce.is_vpn, ce.asn_org, ce.company_name, ce.company_domain
        FROM ${CE_JOIN_LC} WHERE ${w.sql} ORDER BY ce.clicked_at DESC LIMIT 10000`,
       w.params,
     );
@@ -756,6 +764,7 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
       "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
       "ip_address", "country", "region", "city",
       "device_type", "browser", "os", "referrer", "is_vpn", "asn_org",
+      "company_name", "company_domain",
     ]);
     const s = (v: unknown) => (v == null ? null : String(v));
     for (const r of rows) {
@@ -767,6 +776,8 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
         s(r.device_type), s(r.browser), s(r.os), s(r.referrer),
         r.is_vpn ? "true" : "false",
         s(r.asn_org) || "",
+        s(r.company_name) || "",
+        s(r.company_domain) || "",
       ]);
     }
     return csvResponse(out, "click_events.csv");
@@ -848,6 +859,7 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
     const rows = await all(
       c,
       `SELECT ce.id, ce.clicked_at, ce.country, ce.region, ce.device_type, ce.browser, ce.link_id, ce.file_id,
+              ce.ip_address, ce.company_name,
               lc.original_url, lc.short_code AS link_short_code, lc.utm_campaign, lc.utm_source,
               fa.filename, fa.short_code AS file_short_code
        FROM click_events ce
@@ -866,6 +878,8 @@ export function registerAnalytics(router: Hono<AppEnv>): void {
         region: r.region ?? null,
         device_type: r.device_type ?? null,
         browser: r.browser ?? null,
+        ip_address: r.ip_address ?? null,
+        company_name: r.company_name ?? null,
         // Link fields (null for file opens)
         original_url: r.original_url ?? null,
         utm_campaign: r.utm_campaign ?? null,

@@ -104,6 +104,7 @@ const LinkAccessRequest = z.object({
   require_email: optBool,
   block_vpn: optBool,
   branded: optBool,
+  track_conversions: optBool,
   revoked: optBool,
 });
 
@@ -195,6 +196,8 @@ router.post("/generate", async (c) => {
   const data = await parseJson(c, GenerateLinkRequest);
   const baseUrl = (data.base_url || data.url || "").trim();
   if (!baseUrl) httpError(422, "base_url (or url) is required.");
+  // A contact-bound link fires a signed "link opened" webhook at the receiver: only the trusted integration may name a contact.
+  if (data.contact_ref && !c.req.header("x-service-key")) httpError(403, "contact_ref is reserved for service integrations.");
 
   const utmParams: UtmParams = {};
   // If preset_id provided, load preset values as base
@@ -479,6 +482,7 @@ function linkAccessResponse(link: LinkClick) {
     require_email: !!link.requireEmail,
     block_vpn: !!link.blockVpn,
     branded: !!link.branded,
+    track_conversions: !!link.trackConversions,
     revoked: link.revokedAt != null,
     access_status: linkAccessStatus(link),
     views,
@@ -502,6 +506,7 @@ router.put("/links/:link_id/access", async (c) => {
   if (sent("require_email")) set.requireEmail = !!data.require_email;
   if (sent("block_vpn")) set.blockVpn = !!data.block_vpn;
   if (sent("branded")) set.branded = !!data.branded;
+  if (sent("track_conversions")) set.trackConversions = !!data.track_conversions;
   if (sent("revoked")) set.revokedAt = data.revoked ? now : null;
   const db = c.var.db;
   if (Object.keys(set).length) await db.update(linkClicks).set(set).where(eq(linkClicks.id, link.id)).run();
@@ -517,6 +522,7 @@ router.get("/links/:link_id/access", async (c) => {
 router.get("/links/:link_id/leads", async (c) => {
   const user = await requireAuth(c);
   const link = await getOwnedLink(c, user.userId);
+  await assertDomainEditable(c.var.db, user, link.domainId);
   const rows = await c.var.db
     .select()
     .from(accessLeads)

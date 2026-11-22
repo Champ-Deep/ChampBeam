@@ -7,6 +7,7 @@ import { afterEach, vi } from "vitest";
 import { api, createUser, env } from "./helpers";
 import { getSettings, type Env, type Settings } from "../src/env";
 import { hashAccessCode } from "../src/lib/accessControl";
+import { clearShareOriginLiveCache } from "../src/lib/shareOriginLive";
 
 export const iso = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
 export const code = (prefix = "c") => `${prefix}${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
@@ -27,6 +28,7 @@ afterEach(() => {
     const [s, saved] = patched.pop()!;
     Object.assign(s, saved);
   }
+  clearShareOriginLiveCache();
   vi.restoreAllMocks();
 });
 

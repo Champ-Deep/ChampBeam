@@ -23,7 +23,10 @@ export default defineConfig(async () => {
             STORAGE_UPLOAD_SECRET: "test-upload-secret",
             BETTER_AUTH_SECRET: "test-better-auth-secret-0123456789abcdef",
             BETTER_AUTH_URL: "https://share.example.com",
+            // example.com is allowlisted so the tests prove that an UNVERIFIED sign-up on an allowed domain still joins nothing.
+            AUTO_JOIN_EMAIL_DOMAINS: "example.com",
             // Pinned empty so a developer .dev.vars cannot switch Google sign-in on in tests.
+            SUPER_ADMIN_EMAILS: "root@example.com",
             GOOGLE_CLIENT_ID: "",
             GOOGLE_CLIENT_SECRET: "",
             CLERK_SECRET_KEY: "sk_test_dummy",
@@ -45,6 +48,8 @@ export default defineConfig(async () => {
     ],
     test: {
       setupFiles: ["./test/setup.ts"],
+      // Intranet tests run with INTRANET_MODE=true: vitest.intranet.config.ts.
+      exclude: ["**/node_modules/**", "test/intranet/**"],
     },
   };
 });

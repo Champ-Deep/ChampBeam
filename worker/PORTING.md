@@ -1,8 +1,14 @@
 # Porting guide: FastAPI (backend/) -> Cloudflare Worker (worker/)
 
-The Worker must be a **drop-in replacement** for the Python API: same paths,
-methods, status codes, JSON field names and error bodies. The React SPA
-(`frontend/`) is not being changed, so any response-shape drift is a bug.
+The Worker in this directory is production (https://champbeam.com, since the
+6 Nov 2026 cutover). `backend/` is the legacy reference this guide translates
+from. The SPA now signs in with Better Auth (`frontend/src/lib/authClient.ts`),
+not Clerk.
+
+The Worker was ported as a drop-in replacement for the Python API: same paths,
+methods, status codes, JSON field names and error bodies. Response-shape drift
+from that API is still treated as a bug. Deliberate differences are listed in
+[CLOUDFLARE_DEPLOY.md](../CLOUDFLARE_DEPLOY.md) section 7.
 
 ## Stack
 - **Hono** routers (`src/routes/*.ts`), one per Python router, already mounted
@@ -34,11 +40,11 @@ methods, status codes, JSON field names and error bodies. The React SPA
 | `uuid4()` | `crypto.randomUUID()` |
 | `hashlib.sha256 / hmac / secrets.*` | `src/lib/crypto.ts` (same outputs) |
 | `request.client.host` / X-Forwarded-For | `clientIp(c)` (`src/lib/request.ts`, CF-Connecting-IP first) |
-| MaxMind `.mmdb` City/ASN lookups | `cfGeo(c)` — Cloudflare's `request.cf` (country, region, city, lat/lon, asn, asOrganization) |
+| MaxMind `.mmdb` City/ASN lookups | `cfGeo(c)`, Cloudflare's `request.cf` (country, region, city, lat/lon, asn, asOrganization) |
 | `request.headers["host"]` | `requestHost(c)`; `request.base_url` -> `requestOrigin(c)` |
 | `session.commit()` after several writes | `db.batch([...])` when atomicity matters (no interactive transactions on D1) |
 | `IntegrityError` | `isUniqueViolation(err)` (`src/db/client.ts`) |
-| `HTMLResponse` / `RedirectResponse(url, 302/307)` | `c.html(...)` / `c.redirect(url, 302)` — keep the Python status code |
+| `HTMLResponse` / `RedirectResponse(url, 302/307)` | `c.html(...)` / `c.redirect(url, 302)`, keep the Python status code |
 | `StreamingResponse` from storage | `new Response(obj.body, { headers })` with Range support via `getObject(bucket, key, { range: c.req.raw.headers })` |
 
 ## Rules
@@ -47,9 +53,9 @@ methods, status codes, JSON field names and error bodies. The React SPA
    response key. Keep comments that explain *why* (trim the Python-specific ones).
 2. **Response JSON**: use the exact snake_case keys the Python returned. UUIDs
    are plain strings. Booleans are real booleans (Drizzle maps 0/1 for you;
-   raw SQL returns 0/1 — convert with `!!`). JSON columns come back parsed via
+   raw SQL returns 0/1, convert with `!!`). JSON columns come back parsed via
    Drizzle `mode: "json"`; in raw SQL use `JSON.parse`.
-3. **D1 limits**: ≤100 bound params per statement — chunk large `IN` lists with
+3. **D1 limits**: ≤100 bound params per statement, chunk large `IN` lists with
    `chunk()`; no `BEGIN/COMMIT`.
 4. **Timestamps** are stored with `nowIso()` / `toStored()` only, never another
    format, so text comparison stays correct.

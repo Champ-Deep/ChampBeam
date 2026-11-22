@@ -28,7 +28,7 @@ export function useClickNotifications(enabled: boolean = true, userId?: string |
       clicks.filter((click) => !seen.has(click.id)).forEach((click) => {
         const label = click.filename || click.original_url || 'link';
         toast.info(`New open on ${label.length > 40 ? label.slice(0, 40) + '...' : label}`, {
-          description: [click.country, click.region, click.device_type].filter(Boolean).join(' · ') || 'Unknown location',
+          description: [click.company_name, click.ip_address, click.country, click.region, click.device_type].filter(Boolean).join(' · ') || 'Unknown location',
           duration: 8000,
         });
       });

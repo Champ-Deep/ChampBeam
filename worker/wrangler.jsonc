@@ -29,6 +29,10 @@
   // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Overlays do not inherit it: staging declares its own.
   "send_email": [{ "name": "EMAIL" }],
 
+  // No top-level zone route on purpose: a "*/*" pattern would sweep all of champbeam.com and make every
+  // deploy manage the production domains. Cloudflare for SaaS hostnames reach the Worker through
+  // per-host Worker routes added by API (PR #77, RAILWAY_EXIT.md step 5b), not through this file.
+
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
@@ -75,13 +79,24 @@
     "DEBUG": "false",
     "FRONTEND_URL": "https://champbeam.com",
     "BETTER_AUTH_URL": "https://champbeam.com",
+    // Verified emails on these domains join the champions-group org at sign-up; everyone else starts in Personal.
+    "AUTO_JOIN_EMAIL_DOMAINS": "championsmail.com,lakeb2b.com",
     "REDIRECT_BASE_URL": "https://champbeam.com",
     "PLATFORM_REDIRECT_HOST": "champbeam.com,www.champbeam.com,champbeam.deep-ae0.workers.dev",
+    // Share plane for hosted files. Traffic to this host serves only public
+    // content (no app, no API, no auth cookies). Links keep using champbeam.com
+    // until https://share.champbeam.com/health answers as this worker, so the
+    // name is safe to set before the custom domain is attached.
+    "SHARE_ORIGIN_HOSTS": "share.champbeam.com",
     "CLERK_PUBLISHABLE_KEY": "",
     "CORS_ALLOW_ORIGINS": "https://champbeam.com,https://www.champbeam.com,https://champbeam.deep-ae0.workers.dev",
     "CORS_ALLOW_ORIGIN_REGEX": "",
-    "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files"
+    "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files",
+    "SUPER_ADMIN_EMAILS": "deep1499@gmail.com"
   },
+  // Email (verification, password reset, invitations) turns on when a Cloudflare Email Service binding named
+  // EMAIL exists: add `"send_email": [{ "name": "EMAIL" }]` here and per env, with champbeam.com onboarded in
+  // the Email Service. Unbound, nothing is sent and GET /api/v1/config reports email_enabled false.
 
   // Environment overlays. Bindings and vars are NOT inherited by wrangler environments, so each
   // one is spelled out. Rules (checked by scripts/check-env-overlays.mjs):
@@ -98,8 +113,8 @@
                   "run_worker_first": ["/*", "!/assets/*"] },
       "d1_databases": [{ "binding": "DB", "database_name": "champbeam-deepify", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-deepify" }],
-      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "BETTER_AUTH_URL": "TODO_deepify_origin", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
-                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify" }
+      "vars": { "ENVIRONMENT": "deepify", "DEBUG": "false", "FRONTEND_URL": "", "BETTER_AUTH_URL": "TODO_deepify_origin", "AUTO_JOIN_EMAIL_DOMAINS": "", "REDIRECT_BASE_URL": "", "PLATFORM_REDIRECT_HOST": "",
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-deepify", "SUPER_ADMIN_EMAILS": "deep1499@gmail.com" }
     },
     // Real Cloudflare staging: managed D1/R2, real cron, sign-in with NON-production identities.
     "staging": {
@@ -113,8 +128,31 @@
       "send_email": [{ "name": "EMAIL" }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-files-staging" }],
       "triggers": { "crons": ["*/15 * * * *", "*/5 * * * *"] },
-      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://staging.champbeam.com", "BETTER_AUTH_URL": "https://staging.champbeam.com", "REDIRECT_BASE_URL": "https://staging.champbeam.com", "PLATFORM_REDIRECT_HOST": "staging.champbeam.com",
-                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging" }
+      "vars": { "ENVIRONMENT": "staging", "DEBUG": "false", "FRONTEND_URL": "https://staging.champbeam.com", "BETTER_AUTH_URL": "https://staging.champbeam.com", "AUTO_JOIN_EMAIL_DOMAINS": "championsmail.com", "REDIRECT_BASE_URL": "https://staging.champbeam.com", "PLATFORM_REDIRECT_HOST": "staging.champbeam.com",
+                "CLERK_PUBLISHABLE_KEY": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-files-staging", "SUPER_ADMIN_EMAILS": "deep1499@gmail.com,e2e-root@staging.champbeam.test" }
+    },
+    // ChampBeam Intranet (docs/INTRANET.md, docs/INTRANET-DEPLOY.md): invite-only, review-gated file transfer.
+    // Its own Worker, D1 database and R2 bucket; INTRANET_MODE=true serves only the intranet API, Better Auth,
+    // health and the intranet SPA (built with VITE_APP_MODE=intranet into ../frontend/dist-intranet).
+    // Deployed on Deep's account (deep-ae0) at https://champbeam-intranet.deep-ae0.workers.dev.
+    // Secrets (wrangler secret put --env intranet): BETTER_AUTH_SECRET, STORAGE_UPLOAD_SECRET, and optionally
+    // R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY (uploads over 100 MB), CLAMD_HOST, CLEF_URL/CLEF_TOKEN, JEV_API_KEY, GLITCHTIP_DSN.
+    "intranet": {
+      "name": "champbeam-intranet",
+      "assets": { "directory": "../frontend/dist-intranet", "binding": "ASSETS", "not_found_handling": "single-page-application",
+                  "run_worker_first": ["/*", "!/assets/*"] },
+      "d1_databases": [{ "binding": "DB", "database_name": "champbeam-intranet-db", "database_id": "cb5041d5-fe37-40ac-b0de-331ce2f5b02f", "migrations_dir": "migrations" }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "champbeam-intranet-files" }],
+      // One trigger: the intranet sweeper (expiry, invites, reminders, scans, review agent, benchmarks).
+      "triggers": { "crons": ["*/5 * * * *"] },
+      // NFR-7: Workers Logs (Grafana via an OTLP destination once it exists); GlitchTip via the GLITCHTIP_DSN secret.
+      "observability": { "enabled": true },
+      "vars": { "ENVIRONMENT": "intranet", "DEBUG": "false", "INTRANET_MODE": "true",
+                "FRONTEND_URL": "https://champbeam-intranet.deep-ae0.workers.dev", "BETTER_AUTH_URL": "https://champbeam-intranet.deep-ae0.workers.dev", "REDIRECT_BASE_URL": "https://champbeam-intranet.deep-ae0.workers.dev",
+                "PLATFORM_REDIRECT_HOST": "", "CORS_ALLOW_ORIGINS": "", "CORS_ALLOW_ORIGIN_REGEX": "", "CLERK_PUBLISHABLE_KEY": "",
+                "STORAGE_PUBLIC_BUCKET_NAME": "champbeam-intranet-files", "INTRANET_ORG_IDS": "6872e11a-c2e3-40b2-a404-c6b0c91fb9f2",
+                "INTRANET_MAX_FILE_BYTES": "5368709120", "MAX_BYTES_PER_USER": "5368709120", "INTRANET_INVITE_TTL_DAYS": "7",
+                "ASSISTANT_ENABLED": "false", "HTML_SANDBOX": "true" }
     }
   }
 }

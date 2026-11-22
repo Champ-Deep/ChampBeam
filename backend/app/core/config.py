@@ -177,6 +177,60 @@ class Settings(BaseSettings):
     anon_file_ttl_seconds: int = 24 * 3600
     anon_sweep_interval_seconds: int = 900
 
+    intranet_mode: bool = False
+    intranet_max_file_bytes: int = 5 * 1024 * 1024 * 1024
+    intranet_blocked_extensions: str = (
+        "exe,msi,bat,cmd,com,scr,pif,vbs,vbe,js,jse,wsf,wsh,ps1,psm1,hta,cpl,jar,dll,lnk,reg,iso,img"
+    )
+    intranet_invite_ttl_days: int = 7
+    intranet_max_expiry_days: int = 90
+    intranet_download_lease_seconds: int = 300
+    intranet_invite_redirect_url: str = ""
+    intranet_org_ids: str = ""
+
+    clamd_host: str = ""
+    clamd_port: int = 3310
+    clamd_timeout_s: float = 120.0
+    clamd_max_stream_bytes: int = 25 * 1024 * 1024
+    intranet_scan_retry_seconds: int = 900
+
+    clef_url: str = ""
+    clef_token: str = ""
+    clef_timeout_s: float = 20.0
+    review_agent_allow_mock: bool = False
+    review_agent_excerpt_bytes: int = 4096
+    review_agent_benchmark_max_rows: int = 500
+
+    jev_api_key: str = ""
+    jev_url: str = "https://openrouter.ai/api/alpha/decisions"
+    jev_model: str = "typesafe/jev-1.13"
+    jev_timeout_s: float = 20.0
+    jev_signoff_ref: str = ""
+
+    @property
+    def clamd_configured(self) -> bool:
+        return bool(self.clamd_host)
+
+    @property
+    def clef_configured(self) -> bool:
+        return bool(self.clef_url)
+
+    @property
+    def jev_configured(self) -> bool:
+        return bool(self.jev_api_key)
+
+    @property
+    def intranet_org_id_set(self) -> set[str]:
+        return {o.strip() for o in self.intranet_org_ids.split(",") if o.strip()}
+
+    @property
+    def intranet_blocked_extension_set(self) -> set[str]:
+        return {
+            e.strip().lower().lstrip(".")
+            for e in self.intranet_blocked_extensions.split(",")
+            if e.strip()
+        }
+
     # MongoDB GridFS storage backend (STORAGE_BACKEND=mongo). Stores file bytes
     # in GridFS, handy on Railway (one-click Mongo plugin, no volume needed,
     # survives redeploys). The app's primary DB stays PostgreSQL; Mongo holds

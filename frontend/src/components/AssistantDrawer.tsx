@@ -105,6 +105,15 @@ export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolea
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); launcherRef.current?.focus(); } };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [open]);
 
   const { data: config } = useQuery<AssistantConfig>({
     queryKey: ['assistant', 'config'],
@@ -166,9 +175,12 @@ export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolea
     <>
       {/* Launcher button, bottom right. */}
       <button
+        ref={launcherRef}
         type="button"
+        aria-expanded={open}
+        aria-controls="beam-assistant-panel"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-brand-purple px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-brand-purple/90 transition-colors"
+        className="fixed bottom-5 right-5 z-40 min-h-11 min-w-11 inline-flex items-center gap-2 rounded-full bg-brand-purple px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-brand-purple/90 transition-colors"
         aria-label={open ? 'Close assistant' : 'Open assistant'}
       >
         {open ? <X className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
@@ -176,7 +188,7 @@ export function AssistantLauncher({ isAuthenticated }: { isAuthenticated: boolea
       </button>
 
       {open && (
-        <div className="fixed bottom-20 right-5 z-40 w-[calc(100vw-2.5rem)] max-w-md h-[min(70vh,560px)] rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col overflow-hidden">
+        <div ref={panelRef} id="beam-assistant-panel" role="dialog" aria-label="Champ assistant" className="fixed bottom-20 right-5 z-40 w-[calc(100vw-2.5rem)] max-w-md h-[min(70vh,560px)] rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 bg-gradient-to-r from-brand-purple/10 to-brand-teal/10">
             <div className="h-9 w-9 rounded-lg bg-brand-purple/15 flex items-center justify-center flex-shrink-0">

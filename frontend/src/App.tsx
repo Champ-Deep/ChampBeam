@@ -4,6 +4,7 @@ import { ForgotPasswordPage, ResetPasswordPage, SignInPage, SignUpPage } from '.
 import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Navigation } from './components/layout/Navigation';
 import { Sidebar } from './components/layout/Sidebar';
+import { AssistantLauncher } from './components/AssistantDrawer';
 
 import { HomePage } from './pages/HomePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
@@ -20,6 +21,8 @@ import { PageAnalyticsPage } from './pages/PageAnalyticsPage';
 import { ContentLibraryPage } from './pages/ContentLibraryPage';
 import { TeamAnalyticsPage } from './pages/TeamAnalyticsPage';
 import { VaultPage } from './pages/VaultPage';
+import { AcceptInvitationPage } from './pages/AcceptInvitationPage';
+import { AdminOrgsPage } from './pages/AdminOrgsPage';
 import { useOrgContext } from './hooks/useOrgContext';
 
 
@@ -52,6 +55,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen flex-col md:flex-row">
         <Sidebar />
         <main id="main-content" className="min-w-0 flex-1">{children}</main>
+        <AssistantLauncher isAuthenticated />
       </div>
     );
   }
@@ -99,6 +103,8 @@ export default function App() {
                 <Route path="/library" element={<ProtectedRoute><OrgRoute><ContentLibraryPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><OrgRoute team><TeamAnalyticsPage /></OrgRoute></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+                <Route path="/admin/orgs" element={<ProtectedRoute><AdminOrgsPage /></ProtectedRoute>} />
+                <Route path="/accept-invitation/:id" element={<AcceptInvitationPage />} />
             </Routes>
           </Chrome>
         } />

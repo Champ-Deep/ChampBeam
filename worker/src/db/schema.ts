@@ -38,6 +38,8 @@ export const users = sqliteTable("users", {
   // Better Auth (0007)
   emailVerified: bool("email_verified").notNull().default(false),
   image: text("image"),
+  // Set once a verified user on a listed company domain was considered for auto-join (0009); never re-joins after.
+  orgJoinCheckedAt: text("org_join_checked_at"),
 });
 
 export const ROLE_ADMIN = "admin";
@@ -76,6 +78,9 @@ export const organizationMemberships = sqliteTable("organization_memberships", {
   revokedAt: text("revoked_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+  /** Intranet (0009): app-managed Reviewer flag and immediate deactivation (ACC-4). */
+  isReviewer: bool("is_reviewer").notNull().default(false),
+  deactivatedAt: text("deactivated_at"),
 });
 
 export const MEMBERSHIP_ACTIVE = "active";
@@ -95,6 +100,16 @@ export const reportingGrants = sqliteTable("reporting_grants", {
   grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
   revokedAt: text("revoked_at"),
+});
+
+/** Email domains whose verified users auto-join `organizationId` (0009). `domain` is lowercase and unique across orgs. */
+export const orgEmailDomains = sqliteTable("org_email_domains", {
+  domain: text("domain").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
 });
 
 export const slugAliases = sqliteTable("slug_aliases", {
@@ -186,6 +201,12 @@ export const domains = sqliteTable("domains", {
   /** Set for an org-owned domain (administered by org admins, usable by members). */
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   isOrgDefault: bool("is_org_default").notNull().default(false),
+  /** CF-issued TXT records IT must add (ownership + certificate): [{type,name,value,purpose}]. */
+  cfDnsRecords: json<{ type: string; name: string; value: string; purpose: string }[]>("cf_dns_records"),
+  /** 32-hex DNS TXT proof token; NULL for grandfathered active rows. */
+  verificationToken: text("verification_token"),
+  /** ISO instant (0009): also serve platform-bucket content created before it. See assetLookup. */
+  legacyPlatformBefore: text("legacy_platform_before"),
 });
 
 export const linkClicks = sqliteTable("link_clicks", {
@@ -217,6 +238,7 @@ export const linkClicks = sqliteTable("link_clicks", {
   requireEmail: bool("require_email").notNull().default(false),
   blockVpn: bool("block_vpn").notNull().default(false),
   branded: bool("branded").notNull().default(false),
+  trackConversions: bool("track_conversions").notNull().default(false),
   organizationId: text("organization_id").references(() => organizations.id, { onDelete: "set null" }),
   /** Opaque external contact id (ChampVoice drop_id, Harbinger lead id). Null = anonymous link. */
   contactRef: text("contact_ref"),
@@ -308,6 +330,9 @@ export const clickEvents = sqliteTable("click_events", {
   companyIndustry: text("company_industry"),
   companySize: text("company_size"),
   companyType: text("company_type"),
+  channel: text("channel"),
+  visitorType: text("visitor_type"),
+  isScanner: bool("is_scanner").notNull().default(false),
   clickedAt: text("clicked_at").notNull().$defaultFn(nowIso),
 });
 
@@ -633,4 +658,13 @@ export const rateLimit = sqliteTable("rate_limit", {
   key: text("key").notNull().unique(),
   count: integer("count").notNull(),
   lastRequest: integer("last_request").notNull(),
+});
+
+export const adminAudit = sqliteTable("admin_audit", {
+  id: id(),
+  actorUserId: text("actor_user_id").notNull(),
+  action: text("action").notNull(),
+  target: text("target"),
+  payload: text("payload"),
+  at: text("at").notNull().$defaultFn(nowIso),
 });

@@ -1,12 +1,12 @@
-# ChampBeam API — integration quickstart
+# ChampBeam API: integration quickstart
 
-Connect any application to ChampBeam and send **trackable short links** (with QR codes and hosted files) from inside it — under the platform domain or your own custom domain — then read the click analytics back.
+Connect any application to ChampBeam and send trackable short links (with QR codes and hosted files) from inside it, on https://champbeam.com or on your own custom domain, then read the click analytics back. ChampUTM is the UTM link builder inside that same API (`/api/v1/utm`).
 
-Full request-by-request documentation lives in the Postman collection: [`docs/postman/ChampBeam.postman_collection.json`](postman/ChampBeam.postman_collection.json) (import it together with an environment file from the same folder). Interactive OpenAPI docs are served by the backend at `/docs`.
+The production API is the Cloudflare Worker. Full request-by-request notes live in the Postman collection: [`docs/postman/ChampBeam.postman_collection.json`](postman/ChampBeam.postman_collection.json) (import it together with an environment file from the same folder). The Worker does not serve interactive OpenAPI. The legacy FastAPI app still serves `/docs` when you run `backend/` locally.
 
 ## 1. Get an API key
 
-In the ChampBeam app: **Settings → API keys → Create key**. The full key (`cb_live_...`) is shown **once** — store it in your secret manager.
+In the ChampBeam app: **Settings → API keys → Create key**. The full key (`cb_live_...`) is shown **once**, store it in your secret manager.
 
 Send it on every request:
 
@@ -14,13 +14,13 @@ Send it on every request:
 X-API-Key: cb_live_...
 ```
 
-(`Authorization: Bearer cb_live_...` also works.) The key acts as your user: links it creates belong to your account, use your domains, and appear in your dashboard. Keys can be revoked instantly from the same Settings page. Key **management** is deliberately excluded from key auth — a leaked key cannot mint or revoke keys.
+(`Authorization: Bearer cb_live_...` also works.) The key acts as your user: links it creates belong to your account, use your domains, and appear in your dashboard. Keys can be revoked instantly from the same Settings page. Key **management** is deliberately excluded from key auth, a leaked key cannot mint or revoke keys.
 
 ## 2. Create a trackable link
 
 `POST /api/v1/utm/generate` creates a UTM-tagged link. Authenticated users get a tracked short link (`/r/{code}` and `/s/{code}`) with click analytics; guests get the tagged URL only.
 
-**Named links.** Pass an optional `alias` (slug rules: 3–60 lowercase letters, digits, hyphens; unique per domain; 409 if taken) and the short link becomes readable: `/s/your-name`. The same alias resolves through `/r/{alias}` too. `PATCH /api/v1/utm/links/{id}` with `{"alias": "new-name"}` renames it (`""` clears the name).
+**Named links.** Pass an optional `alias` (slug rules: 3-60 lowercase letters, digits, hyphens; unique per domain; 409 if taken) and the short link becomes readable: `/s/your-name`. The same alias resolves through `/r/{alias}` too. `PATCH /api/v1/utm/links/{id}` with `{"alias": "new-name"}` renames it (`""` clears the name).
 
 ```bash
 curl -s -X POST "$BASE/api/v1/utm/generate" \
@@ -38,8 +38,8 @@ Response (the fields you care about):
 
 ```json
 {
-  "short_url": "https://share.lakeb2b.com/s/Ab3dEfG",
-  "redirect_url": "https://share.lakeb2b.com/r/Ab3dEfG",
+  "short_url": "https://champbeam.com/s/Ab3dEfG",
+  "redirect_url": "https://champbeam.com/r/Ab3dEfG",
   "tracked_url": "https://example.com/creative-plan?utm_source=agent-workspace&...",
   "short_code": "Ab3dEfG",
   "link_id": "0b0e...-uuid"
@@ -54,8 +54,8 @@ Need a QR code? `GET /api/v1/qr.svg?data=<short_url>` (no auth) renders an SVG t
 
 1. `POST /api/v1/domains` `{"hostname": "links.acme.com"}` → domain is `pending_cname`.
 2. Read `cname_target` from `GET /api/v1/domains/config` and create a DNS **CNAME** record: `links.acme.com → <cname_target>`.
-3. ChampBeam re-checks every minute: once DNS resolves it issues the SSL certificate automatically and the domain flips to `active` (typically under 2 minutes; `POST /api/v1/domains/{id}/refresh` re-checks on demand).
-4. Generate links with `"domain_id": "<that domain's id>"` — the returned `short_url` is `https://links.acme.com/s/...`. Set the domain primary and it becomes the default for links that don't pass any `domain_id`.
+3. A cron job rechecks pending domains every 5 minutes. Once DNS resolves, the certificate is issued and the domain flips to `active`. `POST /api/v1/domains/{id}/refresh` checks on demand.
+4. Generate links with `"domain_id": "<that domain's id>"`, the returned `short_url` is `https://links.acme.com/s/...`. Set the domain primary and it becomes the default for links that don't pass any `domain_id`.
 
 ## 4. Host a file behind a trackable link
 
@@ -71,11 +71,23 @@ POST /api/v1/files/{file_id}/finalize    {}
 
 File views are tracked like clicks, including per-page reading time for documents. Files and links share the same access controls (`PUT .../access`): expiry, view caps, email gate (captured leads via `.../leads`), VPN blocking, instant revoke.
 
-**Update in place:** `PUT /api/v1/files/{file_id}/content` with the new bytes as the raw body (correct `Content-Type` header, optional `?filename=`) replaces the content while keeping the same `short_code`, serve URL and QR code — links you already sent now serve the new version, atomically, with view history preserved.
+**Attribution (links).** `PUT /api/v1/utm/links/{id}/access` accepts `track_conversions` (bool). When true, the redirect appends `cb_id=<click event id>` to the destination so a later lead or sale can name its click. Every click event also stores `channel` (email, paid_social, organic_social, search, referral, qr, direct, in_app), `visitor_type` (scanner, bot, hosting, vpn, business, mobile, residential, or null when unknown) and `is_scanner`. Scanner clicks (HEAD, security-vendor UA or ASN, or a datacenter ASN with no Accept-Language) are recorded, never dropped, and excluded from `/analytics/company-intent`.
+
+**Update in place:** `PUT /api/v1/files/{file_id}/content` with the new bytes as the raw body (correct `Content-Type` header, optional `?filename=`) replaces the content while keeping the same `short_code`, serve URL and QR code, links you already sent now serve the new version, atomically, with view history preserved.
 
 **Hosted HTML pages:** single-file HTML uploads are served inline with inline `<script>`/`<style>` and `localStorage` fully working (nothing is injected or sanitized; a CSP restricts external calls to same-origin + Google Fonts). Combined with update-in-place, this makes shareable, revisable, view-tracked dashboards/pages a first-class use case.
 
 ## 5. Read analytics
+
+### Content-first overview and safe owner preview
+
+`GET /api/v1/analytics/assets?days=30&scope=own` returns server-aggregated file and page opens, estimated visitors, returning opens, ranked assets, daily totals, weekday/hour buckets, countries, devices, referrers and recorded company signals. `days` is 1 to 365. Alternatively supply both `start_date` and `end_date`, with a maximum one-year range. Times are UTC. The ranked list is capped at 50 assets; summary totals are computed across all matching events, not that list.
+
+`scope=own` includes only the caller's assets in the active workspace. API keys have no interactive active workspace, so they read Personal assets. `scope=workspace` requires an active organization and reporting permission. Both membership scope and asset organization must match. Deleted assets and known scanner/bot events are excluded. Automated traffic can still remain. Visitor IDs, with IP fallback, estimate browsers and are not person identities. Company signals use existing records, not a new enrichment provider.
+
+`GET /api/v1/pages/{page_id}/preview` returns an owner-only static HTML thumbnail source. It does not create opens or engagement events. It requires authentication, responds with `Cache-Control: private, no-store`, and uses a sandbox CSP with scripts, navigation, forms and external resources disabled. Styling or images requiring external resources will not appear. This is separate from the public share URL and does not change its behavior.
+
+For agent clients, the [stdio MCP adapter](../mcp/README.md) exposes list, confirmed link creation, confirmed HTML publishing, confirmed small-file upload and content analytics over the existing API. It does not create API keys or administer members. See its README for secure configuration and the actual local protocol test.
 
 | What | Endpoint |
 |---|---|
@@ -114,41 +126,45 @@ Every touch one visitor made across your links and files, oldest first, with loc
 - `dwell_ms` is the sum of page engagement time on that file, attached to the touch it followed; `null` for links and files with no engagement.
 - Clicks without a visitor id cannot form a journey and are left out; their number is `meta.unattributed`. IP address and user agent are never returned.
 
+### Who opened it
+
+Link events (`GET /api/v1/utm/analytics/links/{id}/events`), file events (`GET /api/v1/files/{id}/events`), page timeline views (`GET /api/v1/pages/{id}/events`), the recent-opens feed, and the events CSV return the visitor IP already stored on the click (`ip_address`, or `ip` on the page timeline). Those same owner-only responses include `company_name` and `company_domain` when background company enrichment stored them, plus `company_type` on link and file events. The dashboard shows the IP and company on each row. MaxMind and IPinfo do not return a person's name or email. The IP is stored in full (no hash); it is not added to journeys.
+
 ## Pages: hosted, tracked HTML pages (Beam Pages)
 
-Publish a single-file HTML page (a checklist, dashboard, proposal microsite) behind a **permanent trackable link** — one call, no upload dance:
+Publish a single-file HTML page (a checklist, dashboard, proposal microsite) behind a **permanent trackable link**, one call, no upload dance:
 
 ```bash
 curl -s -X POST "$BASE/api/v1/pages" \
   -H "X-API-Key: $CHAMPBEAM_API_KEY" -H "Content-Type: application/json" \
-  -d '{"title": "Pallab North Star", "html": "<!doctype html>…", "slug": "pallab-northstar"}'
-# -> {"page_id": "...", "slug": "pallab-northstar", "url": "https://<host>/p/pallab-northstar", "legacy_url": "https://<host>/f/<code>", ...}
+  -d '{"title": "North star", "html": "<!doctype html>…", "slug": "north-star"}'
+# -> {"page_id": "...", "slug": "north-star", "url": "https://<host>/p/north-star", "legacy_url": "https://<host>/f/<code>", ...}
 ```
 
 Or upload the file: `POST /api/v1/pages/upload` (multipart `file`, optional `title`, `slug`, `domain_id`).
 
-**Serving.** Pages live at `/p/{slug}` (readable, editable) and also at their `/f/{code}` legacy URL; on a custom domain, at that hostname. The stored file is served **byte-identical** — inline `<script>`, `<style>` and `localStorage` work untouched (CSP allows inline code and Google Fonts; other external calls are blocked). A tracking snippet is injected into `<head>` *per response*, never into the stored bytes.
+**Serving.** Pages live at `/p/{slug}` (readable, editable) and also at their `/f/{code}` legacy URL; on a custom domain, at that hostname. The stored file is served **byte-identical**, inline `<script>`, `<style>` and `localStorage` work untouched (CSP allows inline code and Google Fonts; other external calls are blocked). A tracking snippet is injected into `<head>` *per response*, never into the stored bytes.
 
 **What is recorded per open:** geo (city/region/country), device, browser, referrer, ISP/VPN flag, a first-party visitor id, whether the open is a **revisit** (same visitor after 30 minutes), and **dwell** (visible time, reported every 15 s and on hide). Read it back with `GET /api/v1/pages/{id}/analytics` (views, unique visitors, revisits, total/median/avg dwell) and `GET /api/v1/pages/{id}/events` (merged timeline: `view`, `revisit`, `comment_added`, `state_changed`, `gate_failed`).
 
 **Update in place.** `PUT /api/v1/pages/{id}` `{"html": "..."}` swaps the content atomically; the URL, slug and QR never change and view history is kept. Every publish/update is retained as a version: `GET /api/v1/pages/{id}/versions`, `POST /api/v1/pages/{id}/versions/{n}/rollback` (the rollback is itself a new version, so history stays linear). The last 10 versions are kept.
 
-**Existing HTML uploads.** Single-file HTML uploaded through the Files API before Pages existed shows up in `GET /api/v1/pages` too: it receives a slug (and `/p/` URL) the first time it is listed, its `/f/` link keeps working, and its first `PUT` snapshots the bytes currently being served as version 1 before swapping — so the original stays rollback-able.
+**Existing HTML uploads.** Single-file HTML uploaded through the Files API before Pages existed shows up in `GET /api/v1/pages` too: it receives a slug (and `/p/` URL) the first time it is listed, its `/f/` link keeps working, and its first `PUT` snapshots the bytes currently being served as version 1 before swapping, so the original stays rollback-able.
 
 **Settings.** `PATCH /api/v1/pages/{id}` with any of `slug` (3 to 60 chars, lowercase/digits/hyphens; 409 if taken), `title`, `enabled` (`false` = kill switch: every URL and API route returns 410 immediately), `domain_id`, `access_code` (4 to 8 digits; `null` clears), `html_sandbox` (`true` serves the page under a CSP `sandbox`, an opaque origin; pages created while the `HTML_SANDBOX` flag is on start `true`, legacy pages start `false` until the owner opts in; page responses carry `html_sandbox`). `DELETE` removes the page and every version blob.
 
-**Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates — rename the delimiter).
+**Guardrails.** 2 MB cap. Rejected with a clear reason: server-side extensions (`.php`, `.asp`, `.jsp`, …), non-`text/html` content types, and files containing `<?php` or `<%` (the latter can false-positive on client-side templates, rename the delimiter).
 
-**Publish a set.** `POST /api/v1/pages/batch` (multipart, up to 50 `files`, optional `domain_id`) publishes several HTML files as pages in one call. Cross-references between the files are rewritten automatically: sibling file references (`Harshil Plan.html`) and `/f/{code}` links become clean `/p/{slug}` links. Each file's result carries the rewrite report and anything that could not be mapped:
+**Publish a set.** `POST /api/v1/pages/batch` (multipart, up to 50 `files`, optional `domain_id`) publishes several HTML files as pages in one call. Cross-references between the files are rewritten automatically: sibling file references (`Plan.html`) and `/f/{code}` links become clean `/p/{slug}` links. Each file's result carries the rewrite report and anything that could not be mapped:
 
 ```bash
 curl -s -X POST "$BASE/api/v1/pages/batch" \
   -H "X-API-Key: $CHAMP...KEY" \
-  -F "files=@mission-control.html" -F "files=@harshil-plan.html"
-# -> [{"filename": "mission-control.html", "slug": "event-scout-mission-control",
-#      "url": "https://<host>/p/event-scout-mission-control",
-#      "rewritten": [{"from_href": "Event Scout 2026 - Harshil Plan.html",
-#                     "to": "/p/harshil-plan", "kind": "mapped"}],
+  -F "files=@mission-control.html" -F "files=@plan.html"
+# -> [{"filename": "mission-control.html", "slug": "mission-control",
+#      "url": "https://<host>/p/mission-control",
+#      "rewritten": [{"from_href": "Plan.html",
+#                     "to": "/p/plan", "kind": "mapped"}],
 #      "unresolved": [{"from_href": "missing.html", "to": null, "kind": "unresolved"}]}]
 ```
 
@@ -161,21 +177,21 @@ curl -s -X POST "$BASE/api/v1/pages/batch" \
 Simple interactive pages (checklists, boards, sign-offs) need zero external backend. The served page gets a **page-scoped public token** and a helper on `window.beam`:
 
 ```js
-// inside your page — no fetch boilerplate needed
-await window.beam.state.set('check:step-1', { done: true, by: 'Sonali' });
+// inside your page, no fetch boilerplate needed
+await window.beam.state.set('check:step-1', { done: true, by: 'reviewer' });
 const all = await window.beam.state.all();            // {"check:step-1": {...}}
-await window.beam.comments.add('Deep', 'Looks good.'); // append-only
+await window.beam.comments.add('reviewer', 'Looks good.'); // append-only
 const { comments } = await window.beam.comments.list(); // ascending; pass a comment id to `list(afterId)`
-const stop = window.beam.poll(8000, (state, comments) => render(state, comments)); // no websockets; 5–10 s is right
+const stop = window.beam.poll(8000, (state, comments) => render(state, comments)); // no websockets; 5-10 s is right
 ```
 
 Under the hood: `GET/POST /api/pages/{slug}/comments`, `GET/PUT/DELETE /api/pages/{slug}/state[/{key}]` with an `X-Beam-Token` header. Same-origin with the page on every host, so it works on custom domains. Limits: 4000-char comments, 16 KB values, 200 keys and 5000 comments per page, 30 writes/min per visitor. The token only ever addresses its own page; rotate it with `POST /api/v1/pages/{id}/state-token/rotate`. When a page is disabled, every state route returns 410 (`window.beam.dead` flips to `true`). Owners moderate via `GET/DELETE /api/v1/pages/{id}/comments[/{cid}]` and `GET/DELETE /api/v1/pages/{id}/state[/{key}]`.
 
-It is a JSON store with a comment stream, not a database: no queries, no per-user auth, no schemas. A page needing more brings its own backend (its own API origin must then be allowed for that page's CSP — ask before relying on it).
+It is a JSON store with a comment stream, not a database: no queries, no per-user auth, no schemas. A page needing more brings its own backend (its own API origin must then be allowed for that page's CSP, ask before relying on it).
 
 ## Org administration and reporting (Worker, v3)
 
-Interactive Clerk session in an active org. API keys get no org permission. Full contract,
+Better Auth session cookie in an active org. API keys get no org permission. Full contract,
 permission map and examples: `docs/V3-RELEASE.md` sections 3 and 4.
 
 | Endpoint | Who | Purpose |
@@ -184,12 +200,33 @@ permission map and examples: `docs/V3-RELEASE.md` sections 3 and 4.
 | `GET/POST /api/v1/org/viewers`, `DELETE /api/v1/org/viewers/{id}` | org admin | Read-only reporting grants (`scope` `org` or `team` + `leader_user_id`). A grant adds no write or secret right. |
 | `GET /api/v1/org/domains` | org member | Active org hosts (admins also see pending). |
 | `POST /api/v1/org/domains/{id}/attach`, `.../default` | org admin | Attach a verified domain you own; set the org default host. |
+| `GET`, `POST /api/v1/org/email-domains`, `DELETE .../{domain}` | org admin (`org.domains.manage`) | Company email domains whose verified sign-ins auto-join the org as member. Public providers (gmail.com etc.) are a 400, a domain listed by another org is a 409. Removing a domain keeps existing members. |
 | `GET /api/v1/org/reporting/summary?team=&user=&kind=&from=&to=` | member (own), team lead (team), grant or admin (org) | `shares_created`, `opens`, `clicks` by kind and member. `emails_sent` is always `not_measured`. Out-of-scope `team` or `user` is 403. |
 | `GET /api/v1/pages/slug-suggestion?filename=&domain_id=` | signed in | Basename-without-extension slug, numbered on collision. Reserves nothing. |
 
+## Self-serve orgs (Worker, v3)
+
+A new account is Personal: it belongs to no org. Org management is Better Auth's `/api/auth/organization/*` (create, update, update-member-role, remove-member, leave, accept-invitation); the routes below add what it lacks.
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `GET /api/v1/config` | anyone | `email_enabled`, `custom_domains_enabled`, `is_super_admin`, `can_create_org` (the UI keys org creation off this; equals `is_super_admin` today), `platform_host`. Hide "Forgot password" when `email_enabled` is false. |
+| `POST /api/auth/organization/create` | super admin only (Deep's ruling, 6 Nov); everyone else gets 403 | `{name, slug}`. Slug: lowercase, unique, not `admin`/`api`/`www`/`app`/`champbeam`. Caller becomes admin and the org becomes active. No per-user cap. |
+| `POST /api/v1/org/invitations` | org admin | `{email, role: admin\|leader\|member\|viewer, resend?}`. Returns the invitation plus `accept_url` (always `https://<platform host>/accept-invitation/<id>`) and `email_sent`. Expires in 7 days. |
+| `GET /api/v1/org/invitations` | org admin | Pending invitations with `accept_url`. |
+| `POST /api/auth/organization/accept-invitation` | invited user | `{invitationId}`. The session email must equal the invited email. With email enabled the account must also be verified. |
+| `GET /api/v1/admin/orgs` | super admin | Every org with `members`, `content_items`, `files`, `links`. |
+| `POST /api/v1/admin/orgs` | super admin | `{name, slug, user_id\|email}`: create an org with that user as first admin. |
+| `POST /api/v1/admin/orgs/{id}/members` | super admin | `{user_id\|email, role}`. |
+| `POST /api/v1/admin/members/move` | super admin | `{user_id, from_org_id, to_org_id, role?, move_content=true, leave_source=true}`. One D1 batch. Refuses to move the last admin out. |
+| `POST /api/v1/admin/act-as` | super admin | `{organization_id\|null}`: switch this session into any org and act as admin there. |
+| `PUT /api/v1/admin/domains/{id}/legacy` | super admin | `{legacy_platform_before: ISO\|null}`: the domain also serves platform-bucket files and links created before that instant. |
+
+Every `/api/v1/admin` write adds an `admin_audit` row (actor, action, target, payload, at). A super admin is an email in `SUPER_ADMIN_EMAILS` that is verified or Google-linked.
+
 ## Service keys (trusted backend integrations)
 
-Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env, e.g. for the agent workspace) resolves to a dedicated org-scoped service identity and is accepted **only** on a write allowlist — register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `app/core/service_auth.py`.
+Separate from user API keys: a **service key** (`X-Service-Key` header, provisioned via the `SERVICE_API_KEYS` env) resolves to a dedicated org-scoped service identity and is accepted only on a write allowlist: register content (`POST /content`), mint shares (`POST /content/{id}/share`), generate links (`POST /utm/generate`), and publish/update pages. Any other route returns 403; reads are never allowed. 60 requests/minute per key. See `worker/src/auth/serviceAuth.ts` (legacy copy: `backend/app/core/service_auth.py`).
 
 ## Assistant: the guided feature helper
 
@@ -203,10 +240,10 @@ Keys live in the environment (`ASSISTANT_OPENROUTER_API_KEY`, `ASSISTANT_VERCEL_
 
 ## Limits & errors
 
-- **429** — over the per-key limit (120 requests/minute) or the per-IP limit (100/minute). Back off and retry.
-- **401** — missing/invalid/revoked key. A bad key never falls back to anonymous behavior.
-- **403** — the endpoint needs an interactive session (key management, org features).
-- **404 "Active domain not found"** — the `domain_id` isn't yours or isn't `active` yet.
+- **429**, over the per-key limit (120 requests/minute) or the per-IP limit (100/minute). Back off and retry.
+- **401**, missing/invalid/revoked key. A bad key never falls back to anonymous behavior.
+- **403**, the endpoint needs an interactive session (key management, org features).
+- **404 "Active domain not found"**, the `domain_id` isn't yours or isn't `active` yet.
 
 ## Validating the collection (maintainers)
 
@@ -216,4 +253,4 @@ newman run docs/postman/ChampBeam.postman_collection.json \
   --env-var api_key=cb_live_...
 ```
 
-Requests that need optional context (an active custom domain, a Clerk session token, a CSV file) skip themselves when their variable is unset.
+Requests that need optional context (an active custom domain, a session token variable, a CSV file) skip themselves when their variable is unset. Key management on the Worker uses the Better Auth session cookie, not a Clerk bearer token. The collection folder that still sends `clerk_session_token` is the legacy bearer shape and does not sign in to the Worker.

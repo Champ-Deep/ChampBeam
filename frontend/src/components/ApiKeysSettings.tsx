@@ -19,7 +19,7 @@ export function ApiKeysSettings() {
   const [name, setName] = useState('');
   const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
 
-  const { data: keys = [], isLoading } = useQuery<ApiKeySummary[]>({
+  const { data: keys = [], isLoading, error, refetch } = useQuery<ApiKeySummary[]>({
     queryKey: ['api-keys'],
     queryFn: () => apiKeysApi.list(),
   });
@@ -77,17 +77,19 @@ export function ApiKeysSettings() {
 
   return (
     <>
+      <section className="beam-agent-setup"><h2>Connect an agent</h2><p>Use a named API key for tracked links, file uploads, hosted pages and analytics. The MCP adapter uses the same API, with confirmation required before it creates a share.</p><p>Start the adapter with <code>node /path/to/ChampBeam/mcp/server.mjs</code> and supply <code>CHAMPBEAM_API_KEY</code> in your agent client's secret store. Do not paste keys into chat.</p><p className="cb-help">Keys act in Personal scope, not as the organization selected in your browser. No member administration is exposed.</p></section>
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Create API key</CardTitle>
         </CardHeader>
         <p className="text-sm text-slate-600 mb-4">
           API keys let your other applications create trackable links, upload files and
-          read analytics through the ChampBeam API — as you, including your custom
+          read analytics through the Champbeam API, as you, including your custom
           domains. Send the key in an <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">X-API-Key</code> header.
         </p>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <Input
+            label="Key name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
@@ -105,7 +107,7 @@ export function ApiKeysSettings() {
           <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
             <div className="flex items-center gap-2 text-emerald-800 text-sm font-medium mb-2">
               <ShieldCheck className="h-4 w-4" />
-              {createdKey.name} created — copy it now. You won't see it again.
+              {createdKey.name} created. Copy it now. You won't see it again.
             </div>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs bg-white border border-emerald-200 rounded px-3 py-2 font-mono break-all select-all">
@@ -125,7 +127,7 @@ export function ApiKeysSettings() {
         </CardHeader>
         {isLoading ? (
           <div className="py-8 text-center text-sm text-slate-500">Loading.</div>
-        ) : keys.length === 0 ? (
+        ) : error ? <div role="alert"><p>Your keys could not load. This does not mean you have no keys.</p><Button onClick={() => void refetch()}>Retry keys</Button></div> : keys.length === 0 ? (
           <div className="py-8 text-center text-sm text-slate-500">
             <KeyRound className="h-6 w-6 mx-auto mb-2 text-slate-400" />
             No API keys yet. Create one above to connect your applications.

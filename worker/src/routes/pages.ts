@@ -11,6 +11,7 @@
  * write routes allowlisted in auth/serviceAuth.ts.
  */
 import { Hono } from "hono";
+import { REAL_CLICK } from "./_utmHelpers";
 import { and, desc, eq, max, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppEnv, Ctx } from "../env";
@@ -50,7 +51,7 @@ import {
   ensureStorage,
   parseBodyWithFields,
   publicUrl,
-  serveHost,
+  serveTarget,
   storageKey,
   type FileAsset,
 } from "./_files";
@@ -156,7 +157,7 @@ async function engagementStats(c: Ctx, asset: FileAsset) {
       revisits: sql<number>`coalesce(sum(${clickEvents.isRevisit}), 0)`,
     })
     .from(clickEvents)
-    .where(eq(clickEvents.fileId, asset.id))
+    .where(and(eq(clickEvents.fileId, asset.id), sql.raw(REAL_CLICK.replaceAll("ce.", "click_events."))))
     .get();
   const dwell = await db
     .select({ total: sql<number>`coalesce(sum(${pageEngagements.dwellMs}), 0)` })
@@ -172,7 +173,8 @@ async function engagementStats(c: Ctx, asset: FileAsset) {
 
 async function pageResponse(c: Ctx, asset: FileAsset) {
   const db = c.var.db;
-  const host = await serveHost(db, c.var.settings, asset.userId, asset.domainId);
+  const target = await serveTarget(db, c.var.settings, asset.userId, asset.domainId);
+  const host = target.host;
   const stats = await engagementStats(c, asset);
   const versionNo = await pagesService.currentVersionNo(db, asset);
   const latest = await db
@@ -184,10 +186,11 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
   const legacy = `https://${host}/f/${asset.shortCode}`;
   return {
     page_id: asset.id,
+    kind: asset.kind,
     short_code: asset.shortCode,
     slug,
     url: slug ? `https://${host}/p/${slug}` : legacy,
-    public_url: publicUrl(host, asset),
+    public_url: publicUrl(host, asset, target.rootSlug),
     legacy_url: legacy,
     title: titleFromFilename(asset.filename),
     size_bytes: asset.sizeBytes,
@@ -360,8 +363,16 @@ router.get("/slug-suggestion", async (c) => {
   const domainId = await resolveDomainId(c, user, q.domain_id || null);
   const base = pagesService.slugFromFilename(q.filename);
   const slug = await pagesService.suggestSlug(c.var.db, base, domainId, user.userId);
-  const host = await serveHost(c.var.db, c.var.settings, user.userId, domainId);
-  return c.json({ slug, base, collided: slug !== base, host, public_url: `${schemeFor(host)}://${host}/${slug}` });
+  const target = await serveTarget(c.var.db, c.var.settings, user.userId, domainId);
+  const html = /\.html?$/i.test((q.filename ?? "").trim());
+  // Non-HTML files have no short code yet, so there is no /f/ address to preview.
+  // HTML on the platform previews /p/<slug>, which resolves as soon as the page exists.
+  const publicUrlValue = target.rootSlug
+    ? `${schemeFor(target.host)}://${target.host}/${slug}`
+    : html
+      ? `${schemeFor(target.host)}://${target.host}/p/${slug}`
+      : null;
+  return c.json({ slug, base, collided: slug !== base, host: target.host, public_url: publicUrlValue });
 });
 
 /** Your pages, newest first. */
@@ -379,6 +390,30 @@ router.get("/", async (c) => {
   for (const a of rows) await pagesService.ensureSlug(db, a, titleFromFilename(a.filename));
   // Per-row reads run concurrently: sequentially, 65 pages took 15.8 s on production D1.
   return c.json(await Promise.all(rows.map((a) => pageResponse(c, a))));
+});
+
+/** Owner-only, non-tracking preview. No scripts, external requests or same-origin privileges. */
+router.get("/:page_id/preview", async (c) => {
+  const asset = await getOwnedPage(c, c.req.param("page_id"), await requireAuth(c));
+  if (asset.kind !== FILE_KIND_HTML) httpError(415, "Preview is available for HTML pages only.");
+  try {
+    const obj = await getObject(c.env.FILES, asset.storageKey);
+    const response = new Response(obj.body, { headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "private, no-store",
+      "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+      "X-Robots-Tag": "noindex, nofollow",
+    } });
+    return new HTMLRewriter()
+      .on("script,iframe,frame,object,embed,meta,base,link", { element(el) { el.remove(); } })
+      .on("a", { element(el) { el.removeAttribute("href"); el.removeAttribute("ping"); } })
+      .transform(response);
+  } catch (err) {
+    if (err instanceof StorageError) httpError(404, "Page preview is unavailable.");
+    throw err;
+  }
 });
 
 /** Lazy per-item blob check for the UI: missing vs forbidden vs storage outage. */
@@ -615,6 +650,7 @@ router.get("/:page_id/analytics", async (c) => {
     .where(
       and(
         eq(clickEvents.fileId, asset.id),
+        sql.raw(REAL_CLICK.replaceAll("ce.", "click_events.")),
         sql`${clickEvents.clickedAt} >= ${start}`,
         sql`${clickEvents.clickedAt} <= ${end}`,
       ),
@@ -736,7 +772,7 @@ router.get("/:page_id/events", async (c) => {
   const q = parseQuery(c, z.object({ ...DateQuery, limit: qInt(500, { ge: 1, le: 1000 }) }));
   const user = await requireAuth(c);
   const db = c.var.db;
-  const asset = await getOwnedPage(c, c.req.param("page_id"), user);
+  const asset = await getOwnedPage(c, c.req.param("page_id"), user, true);
   const [start, end] = dateRange(q.days ?? 30, q.start_date, q.end_date);
   const limit = q.limit ?? 500;
 
@@ -746,6 +782,7 @@ router.get("/:page_id/events", async (c) => {
     .where(
       and(
         eq(clickEvents.fileId, asset.id),
+        sql.raw(REAL_CLICK.replaceAll("ce.", "click_events.")),
         sql`${clickEvents.clickedAt} >= ${start}`,
         sql`${clickEvents.clickedAt} <= ${end}`,
       ),
@@ -779,6 +816,8 @@ router.get("/:page_id/events", async (c) => {
       browser: e.browser,
       os: e.os,
       is_vpn: !!e.isVpn,
+      company_name: e.companyName ?? null,
+      company_domain: e.companyDomain ?? null,
     })),
     ...others.map((p) => ({
       _sort: isoUtc(p.createdAt) ?? "",
@@ -793,6 +832,8 @@ router.get("/:page_id/events", async (c) => {
       browser: null,
       os: null,
       is_vpn: false,
+      company_name: null,
+      company_domain: null,
     })),
   ];
   // Stable sort, newest first (canonical ISO text sorts chronologically).

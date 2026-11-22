@@ -48,6 +48,14 @@ export interface GenerateLinkRequest {
 
 export type DomainStatus = 'pending_cname' | 'pending_ssl' | 'active' | 'failed';
 
+export interface DnsRecord {
+  type: string;
+  name: string;
+  value: string;
+  purpose: string;
+  dns_only?: boolean;
+}
+
 export interface Domain {
   id: string;
   hostname: string;
@@ -59,6 +67,8 @@ export interface Domain {
   verified_at: string | null;
   last_checked_at: string | null;
   cname_target: string | null;
+  /** Every record IT must add: the routing CNAME (dns_only) plus the ownership and certificate TXTs. */
+  dns_records?: DnsRecord[];
   cloudflare_managed: boolean;
   // Procurement metadata (null for bring-your-own-domain rows).
   procured: boolean;
@@ -182,6 +192,9 @@ export interface ClickEvent {
   referrer: string | null;
   is_vpn: boolean;
   asn_org: string | null;
+  company_name: string | null;
+  company_domain: string | null;
+  company_type: string | null;
   clicked_at: string | null;
 }
 
@@ -258,6 +271,8 @@ export interface RecentClick {
   region: string | null;
   device_type: string | null;
   browser: string | null;
+  ip_address: string | null;
+  company_name: string | null;
   original_url: string | null;
   short_code: string | null;
   utm_campaign: string | null;
@@ -638,6 +653,10 @@ export const utmApi = {
   async createDomain(hostname: string): Promise<Domain> {
     const response = await api.post<Domain>('/domains', { hostname });
     return response.data;
+  },
+
+  async domainRecordsText(id: string): Promise<string> {
+    return (await api.get<string>(`/domains/${id}/records.txt`, { responseType: 'text' })).data;
   },
 
   async refreshDomain(id: string): Promise<Domain> {

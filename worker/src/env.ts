@@ -185,6 +185,41 @@ export function buildSettings(env: Env) {
     assistantMaxTokens: int(env, "ASSISTANT_MAX_TOKENS", 700),
     assistantMaxHistory: int(env, "ASSISTANT_MAX_HISTORY", 12),
     companyIntelApiKey: str(env, "COMPANY_INTEL_API_KEY"),
+
+    // Intranet (docs/INTRANET.md): invite-only, review-gated file transfer. INTRANET_MODE=true serves only
+    // the intranet API, Better Auth, health and the SPA; every marketing and public route answers 404.
+    intranetMode: bool(env, "INTRANET_MODE", false),
+    /** Org ids or slugs allowed to use the intranet. Empty = any org in this (dedicated) database. */
+    intranetOrgIds: str(env, "INTRANET_ORG_IDS"),
+    intranetMaxFileBytes: int(env, "INTRANET_MAX_FILE_BYTES", 5 * 1024 * 1024 * 1024),
+    intranetBlockedExtensions: str(
+      env,
+      "INTRANET_BLOCKED_EXTENSIONS",
+      "exe,msi,bat,cmd,com,scr,pif,vbs,vbe,js,jse,wsf,wsh,ps1,psm1,hta,cpl,jar,dll,lnk,reg,iso,img",
+    ),
+    intranetInviteTtlDays: int(env, "INTRANET_INVITE_TTL_DAYS", 7),
+    intranetMaxExpiryDays: int(env, "INTRANET_MAX_EXPIRY_DAYS", 90),
+    intranetDownloadLeaseSeconds: int(env, "INTRANET_DOWNLOAD_LEASE_SECONDS", 300),
+    intranetScanRetrySeconds: int(env, "INTRANET_SCAN_RETRY_SECONDS", 900),
+
+    // Malware scan (SUB-5): clamd INSTREAM over a Worker TCP socket. Unset = files are flagged "not scanned".
+    clamdHost: str(env, "CLAMD_HOST"),
+    clamdPort: int(env, "CLAMD_PORT", 3310),
+    clamdTimeoutS: float(env, "CLAMD_TIMEOUT_S", 120),
+    clamdMaxStreamBytes: int(env, "CLAMD_MAX_STREAM_BYTES", 25 * 1024 * 1024),
+
+    // Review agent (AGT-1 to AGT-9). Off by default; the org setting picks the provider.
+    clefUrl: str(env, "CLEF_URL"),
+    clefToken: str(env, "CLEF_TOKEN"),
+    clefTimeoutS: float(env, "CLEF_TIMEOUT_S", 20),
+    reviewAgentAllowMock: bool(env, "REVIEW_AGENT_ALLOW_MOCK", false),
+    reviewAgentExcerptBytes: int(env, "REVIEW_AGENT_EXCERPT_BYTES", 4096),
+    reviewAgentBenchmarkMaxRows: int(env, "REVIEW_AGENT_BENCHMARK_MAX_ROWS", 500),
+    jevApiKey: str(env, "JEV_API_KEY"),
+    jevUrl: str(env, "JEV_URL", "https://openrouter.ai/api/alpha/decisions"),
+    jevModel: str(env, "JEV_MODEL", "typesafe/jev-1.13"),
+    jevTimeoutS: float(env, "JEV_TIMEOUT_S", 20),
+    jevSignoffRef: str(env, "JEV_SIGNOFF_REF"),
   };
 
   const missing = (["STORAGE_UPLOAD_SECRET", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"] as const).filter((n) => !str(env, n));
@@ -197,6 +232,8 @@ export function buildSettings(env: Env) {
   const derived = hostnameOf(s.redirectBaseUrl);
   if (derived) platformRedirectHosts.add(derived);
   const shareHosts = splitCsv(s.shareOriginHosts).map((h) => h.toLowerCase());
+  /** Email domains whose VERIFIED addresses join the default org at sign-up (AUTO_JOIN_EMAIL_DOMAINS). Empty = nobody. */
+  const autoJoinEmailDomains = splitCsv(str(env, "AUTO_JOIN_EMAIL_DOMAINS")).map((d) => d.toLowerCase().replace(/^@/, ""));
   // A share origin is a platform-bucket host: same short codes and slugs resolve there.
   for (const h of shareHosts) platformRedirectHosts.add(h);
 
@@ -207,9 +244,15 @@ export function buildSettings(env: Env) {
     resolvedPlatformRedirectHost:
       splitCsv(s.platformRedirectHost)[0]?.toLowerCase() ?? hostnameOf(s.redirectBaseUrl),
     platformRedirectHosts,
+    autoJoinEmailDomains,
     shareHosts,
     /** Host new shares are minted on when no domain is chosen. */
     resolvedShareHost: shareHosts[0] ?? "",
+    /**
+     * Test seam. Undefined in production (liveness is probed). Tests set true or
+     * false so link generation does not depend on a real DNS lookup.
+     */
+    shareOriginReachable: undefined as boolean | undefined,
     isShareOrigin(this: { shareHosts: string[] }, host: string | null | undefined): boolean {
       return this.shareHosts.includes((host ?? "").toLowerCase().trim());
     },
@@ -218,6 +261,14 @@ export function buildSettings(env: Env) {
       if (!h) return true;
       return platformRedirectHosts.has(h);
     },
+
+    /** Comma-separated emails that may act as platform super admin (also need a verified or Google-linked email). */
+    superAdminEmails: new Set(splitCsv(str(env, "SUPER_ADMIN_EMAILS")).map((e) => e.toLowerCase())),
+    emailEnabled: !!env.EMAIL,
+    emailFrom: "ChampBeam <no-reply@champbeam.com>",
+    /** The app origin (BETTER_AUTH_URL): invite and reset links always point here, never at a custom domain. */
+    platformOrigin: s.betterAuthUrl,
+    platformHost: hostnameOf(s.betterAuthUrl),
 
     cloudflareConfigured: !!(s.cloudflareApiToken && s.cloudflareZoneId),
     cloudflareRegistrarConfigured: !!(s.cloudflareApiToken && s.cloudflareAccountId),
@@ -246,6 +297,11 @@ export function buildSettings(env: Env) {
     })(),
     /** R2 presigned URLs available (all S3 credentials set). */
     r2PresignConfigured: !!(s.r2AccountId && s.r2AccessKeyId && s.r2SecretAccessKey && s.r2BucketName),
+    intranetOrgIdSet: new Set(splitCsv(s.intranetOrgIds)),
+    intranetBlockedExtensionSet: new Set(splitCsv(s.intranetBlockedExtensions).map((e) => e.toLowerCase().replace(/^\.+/, ""))),
+    clamdConfigured: !!s.clamdHost,
+    clefConfigured: !!s.clefUrl,
+    jevConfigured: !!s.jevApiKey,
     /** Storage is always configured on Cloudflare (the R2 binding). */
     storageConfigured: true,
     resolvedUploadSecret: s.storageUploadSecret,

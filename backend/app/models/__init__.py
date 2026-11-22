@@ -13,6 +13,7 @@ from app.models.page_link_route import PageLinkRoute
 from app.models.maxmind_usage import MaxMindUsage
 from app.models.assistant_config import AssistantConfig
 from app.models.page_state import PageComment, PageEvent, PageState
+from app.models.intranet import AgentBenchmark, DecisionLogEntry, OrgInvite, OrgReviewSettings, Transfer
 
 __all__ = [
     "User",
@@ -37,4 +38,9 @@ __all__ = [
     "RoomRecipient",
     "RoomLink",
     "RoomEvent",
+    "Transfer",
+    "DecisionLogEntry",
+    "OrgReviewSettings",
+    "OrgInvite",
+    "AgentBenchmark",
 ]

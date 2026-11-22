@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { nextPath } from '../lib/selfServeRules';
 import { authClient, googleSignInEnabled, useAuth } from '../lib/authClient';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -31,7 +32,8 @@ function serverErrors(err: AuthError): Errors {
 
 function AuthShell({ title, lede, children, footer }: { title: string; lede: string; children: ReactNode; footer: ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
-  if (isLoaded && isSignedIn) return <Navigate to="/" replace />;
+  const [params] = useSearchParams();
+  if (isLoaded && isSignedIn) return <Navigate to={nextPath(params)} replace />;
   return (
     <main className="cb-auth flex min-h-screen flex-col items-center justify-center gap-6 p-4" style={{ background: 'var(--cb-bg)' }}>
       <Card padding="lg" className="w-full max-w-[420px] rounded-2xl border-[var(--cb-border)] shadow-[0_1px_2px_rgb(36_28_20/4%),0_24px_48px_-24px_rgb(36_28_20/22%)]">
@@ -70,7 +72,7 @@ function FormAlert({ text }: { text?: string }) {
 export function SignInPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>(params.get('error') ? { form: 'Google sign-in did not finish. Try again.' } : {});
   const [busy, setBusy] = useState(false);
@@ -89,10 +91,10 @@ export function SignInPage() {
     setBusy(false);
     setRejected(error?.code === 'INVALID_EMAIL_OR_PASSWORD');
     if (error) setErrors(serverErrors(error));
-    else void navigate('/', { replace: true });
+    else void navigate(nextPath(params), { replace: true });
   }
 
-  return <AuthShell title="Sign in" lede="Welcome back. Sign in to your workspace." footer={<>No account? <Link to="/sign-up" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Create one</Link></>}>
+  return <AuthShell title="Sign in" lede="Welcome back. Sign in to your workspace." footer={<>No account? <Link to={`/sign-up${params.size ? `?${params.toString()}` : ''}`} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Create one</Link></>}>
     <FormAlert text={errors.form ?? (params.get('reset') ? 'Password updated. Sign in with your new password.' : undefined)} />
     {/* Same line for every rejected sign-in, so it never reveals which emails have an account. */}
     {rejected && <p role="status" className="mb-4 rounded-lg border px-3 py-2 text-[14px]" style={{ borderColor: 'var(--cb-accent)', color: 'var(--cb-ink)', background: 'var(--cb-bg)' }}>Had an account before November 2026? <Link to={forgot} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Set a new password</Link> and your files will be right where you left them.</p>}
@@ -108,8 +110,9 @@ export function SignInPage() {
 
 export function SignUpPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
@@ -126,10 +129,10 @@ export function SignUpPage() {
     const { error } = await authClient.signUp.email({ name: name.trim(), email: email.trim(), password });
     setBusy(false);
     if (error) setErrors(serverErrors(error));
-    else void navigate('/', { replace: true });
+    else void navigate(nextPath(params), { replace: true });
   }
 
-  return <AuthShell title="Create your account" lede="Share files, pages and links, and see who opens them." footer={<>Already have an account? <Link to="/sign-in" className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Sign in</Link></>}>
+  return <AuthShell title="Create your account" lede="Share files, pages and links, and see who opens them." footer={<>Already have an account? <Link to={`/sign-in${params.size ? `?${params.toString()}` : ''}`} className="font-semibold underline" style={{ color: 'var(--cb-accent)' }}>Sign in</Link></>}>
     <FormAlert text={errors.form} />
     <GoogleButton onError={(form) => setErrors({ form })} />
     <form noValidate onSubmit={(e) => void submit(e)} className="space-y-4" aria-busy={busy}>

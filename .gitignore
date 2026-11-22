@@ -74,3 +74,6 @@ logs/
 
 # Local Python virtualenv used for running the backend test suite
 backend/.venv/
+
+# Intranet SPA build (worker env.intranet assets)
+frontend/dist-intranet/

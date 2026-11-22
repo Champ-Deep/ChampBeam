@@ -124,6 +124,7 @@ export function FileUploadZone({
           <Button
             variant="outline"
             size="sm"
+            aria-label="Browse files"
             onClick={(e) => {
               e.stopPropagation();
               fileInputRef.current?.click();
@@ -132,7 +133,7 @@ export function FileUploadZone({
             <FileSpreadsheet className="h-4 w-4 mr-1.5" />
             Browse Files
           </Button>
-          <p className="text-xs text-slate-400 mt-4">
+          <p className="text-xs text-cb-muted mt-4">
             {hint ?? 'Accepted: .csv, Required column: url'}
           </p>
         </div>

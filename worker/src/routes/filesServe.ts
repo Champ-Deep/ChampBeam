@@ -40,6 +40,7 @@ import { blockedPage, codeGatePage, emailGatePage } from "../lib/accessPages";
 import { background } from "../lib/background";
 import { enforceLimit } from "../lib/ratelimit";
 import { cfGeo, getCookie, requestHost } from "../lib/request";
+import { reachableShareHost } from "../lib/shareOriginLive";
 import { schemeFor } from "../services/content";
 import { StorageError, StorageNotConfigured, backendIsS3, generatePresignedGet, getObject } from "../lib/storage";
 import { diffSeconds, nowIso, parseIso } from "../lib/time";
@@ -201,17 +202,19 @@ async function serveAsset(c: Ctx, asset: FileAsset, domain: Domain | null): Prom
   const ip = clientIp(c);
 
   // Executable content (HTML, SVG) must not run on the signed-in control-plane
-  // origin. When a dedicated share origin is configured, legacy /f and /p links
-  // on any other platform host redirect there: same path, so old links keep working.
+  // origin. Once the dedicated share origin is actually answering, legacy /f
+  // and /p links on any other platform host redirect there: same path, so old
+  // links keep working. Until it answers, serve in place so those links still open.
   const reqHost = requestHost(c);
+  const share = settings.shareHosts.length ? await reachableShareHost(settings) : "";
   if (
-    settings.shareHosts.length &&
+    share &&
     domain === null &&
     !settings.isShareOrigin(reqHost) &&
     (asset.kind === FILE_KIND_HTML || /svg|xml/i.test(asset.mimeType))
   ) {
     const u = new URL(c.req.url);
-    return redirectResponse(`${schemeFor(settings.shareHosts[0])}://${settings.shareHosts[0]}${u.pathname}${u.search}`, 302);
+    return redirectResponse(`${schemeFor(share)}://${share}${u.pathname}${u.search}`, 302);
   }
 
   // --- Access gates (before serving / counting a view) -----------------
@@ -360,18 +363,33 @@ router.get("/p/:slug", async (c) => {
 });
 
 /**
- * Root-slug hosting: https://<share-host>/<slug>. Only on a share plane (a
- * dedicated share origin or an org-owned verified domain); on the control
- * plane this falls through so SPA routes keep working. Host + slug picks the
- * page: a slug is unique per host, and an org domain serves only what was
- * shared on it. Serves hosted HTML and any file shared with intent "host".
+ * Root-slug hosting: https://<host>/<slug>.
+ *
+ * On a share plane (a dedicated share origin or an org-owned verified domain)
+ * the slug is the page address. On the platform host, the same path is also
+ * an app route, so a slug is served only when it names an active hosted asset
+ * and is not an app path (RESERVED_SLUGS). Anything else falls through to the
+ * SPA. When the share origin is answering, platform root links redirect there
+ * so hosted HTML leaves the domain that holds auth cookies.
+ * Serves hosted HTML and any file shared with intent "host".
  */
 async function serveRootSlug(c: Ctx, next: () => Promise<void>, slug: string): Promise<Response | void> {
-  const { host, domain } = await resolveHost(c);
-  const plane = c.var.settings.isShareOrigin(host) || !!domain?.organizationId;
-  if (!plane || RESERVED_SLUGS.has(slug) || !SLUG_RE.test(slug)) return next();
+  const { host, domain, unknownHost } = await resolveHost(c);
+  const { settings } = c.var;
+  const plane = settings.isShareOrigin(host) || !!domain?.organizationId;
+  // A share origin is not an unknown host, even when the platform-host set was
+  // built before that name was configured. Personal custom domains and unknown
+  // hosts keep their previous behaviour (no root slug).
+  if ((unknownHost && !plane) || RESERVED_SLUGS.has(slug) || !SLUG_RE.test(slug)) return next();
+  if (!plane && !settings.isPlatformHost(host)) return next();
   const asset = await lookupAsset(c.var.db, domain, { slug });
-  if (!asset || (asset.kind !== FILE_KIND_HTML && asset.shareIntent !== "host")) return text("Page not found.", 404);
+  const hosted = !!asset && (asset.kind === FILE_KIND_HTML || asset.shareIntent === "host");
+  if (!hosted || !asset) return plane ? text("Page not found.", 404) : next();
+  const share = !plane ? await reachableShareHost(settings) : "";
+  if (share) {
+    const u = new URL(c.req.url);
+    return redirectResponse(`${schemeFor(share)}://${share}/${slug}${u.search}`, 302);
+  }
   return serveAsset(c, asset, domain);
 }
 

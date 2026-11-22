@@ -9,10 +9,26 @@ import { getDb } from "./db/client";
 import { purgeExpiredCounters } from "./lib/ratelimit";
 import { sweepExpiredFiles } from "./services/fileExpiry";
 import { refreshPendingDomains } from "./services/domainProvisioning";
+import { runIntranetSweep } from "./intranet/sweep";
+import { reportError } from "./lib/observability";
 
 export async function runScheduled(cron: string, env: Env): Promise<void> {
   const settings = getSettings(env);
   const db = getDb(env.DB);
+  if (settings.intranetMode) {
+    // The intranet serves no custom domains or marketing files: only its own sweeper runs.
+    try {
+      await runIntranetSweep(env, settings);
+    } catch (err) {
+      reportError(`cron ${cron}: intranet sweep failed`, err, { component: "cron", tags: { cron, job: "intranet sweep" } });
+    }
+    try {
+      await purgeExpiredCounters(env.DB);
+    } catch (err) {
+      reportError(`cron ${cron}: rate counter purge failed`, err, { component: "cron", tags: { cron, job: "rate counter purge" } });
+    }
+    return;
+  }
   const jobs: [string, () => Promise<unknown>][] =
     cron === "*/5 * * * *"
       ? [["domain refresh", () => refreshPendingDomains(env, settings, db)]]
@@ -24,7 +40,7 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
     try {
       await job();
     } catch (err) {
-      console.error(`cron ${cron}: ${name} failed`, err);
+      reportError(`cron ${cron}: ${name} failed`, err, { component: "cron", tags: { cron, job: name } });
     }
   }
 }

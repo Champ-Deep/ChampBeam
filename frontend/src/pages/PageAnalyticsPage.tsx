@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState } from '../components/ui';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { pagesApi } from '../api/pages';
 import type { BeamPage, PageAnalytics, PageTimelineEvent } from '../api/pages';
 import type { DateRangeOpts, GeoBreakdownItem, DeviceBreakdown } from '../api/utm';
@@ -186,6 +187,8 @@ export function PageAnalyticsPage() {
         {summary.sessions} tracked {summary.sessions === 1 ? 'session' : 'sessions'} · median {formatDwell(summary.median_dwell_ms)} · total {formatDwell(summary.total_dwell_ms)} · last opened {formatRelative(summary.last_viewed_at)}
       </p>
 
+      <JourneysSection assetType="file" assetId={pageId} />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader><CardTitle>Device Breakdown</CardTitle></CardHeader>
@@ -256,7 +259,7 @@ export function PageAnalyticsPage() {
             <table className="w-full">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  {['Type', 'Time', 'Location', 'Device', 'Browser', 'Detail', 'VPN'].map((h) => (
+                  {['Type', 'Time', 'IP', 'Company', 'Location', 'Device', 'Browser', 'Detail', 'VPN'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -268,6 +271,10 @@ export function PageAnalyticsPage() {
                     <tr key={`${event.ts ?? ''}-${i}`} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3"><Badge variant={badge.variant} size="sm">{badge.label}</Badge></td>
                       <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{formatRelative(event.ts, '--')}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-600 whitespace-nowrap">{event.ip || '--'}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700" title={event.company_domain || undefined}>
+                        {event.company_name || <span className="text-gray-300">--</span>}
+                      </td>
                       <td className="px-4 py-3 text-sm text-slate-700">
                         {event.city && event.country ? `${event.city}, ${event.country}` : event.country || event.city || '--'}
                       </td>

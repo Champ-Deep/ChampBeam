@@ -1,0 +1,23 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, expect, it, vi } from 'vitest';
+import { OrganizationSettings } from './OrganizationSettings';
+import { ConfirmProvider } from './ui/ConfirmDialog';
+import { orgApi } from '../api/org';
+import { utmApi } from '../api/utm';
+vi.mock('../hooks/useOrgContext', () => ({ useOrgContext: () => ({ orgId: 'org', permissions: ['org.domains.manage'], profile: { org: { name: 'Test org' } } }) }));
+afterEach(() => vi.restoreAllMocks());
+it('surfaces automatic adoption failure after default saved and offers a counted retry', async () => {
+  let saved = false;
+  const domain = { id: 'domain', hostname: 'share.lakeb2b.com', status: 'active', is_org_default: false };
+  vi.spyOn(orgApi, 'domains').mockImplementation(async () => [{ ...domain, is_org_default: saved }]);
+  vi.spyOn(utmApi, 'listDomains').mockResolvedValue([]);
+  vi.spyOn(orgApi, 'defaultDomain').mockImplementation(async () => { saved = true; return { ...domain, is_org_default: true, adoption: null }; });
+  vi.spyOn(orgApi, 'adoptExisting').mockResolvedValue({ dry_run: true, attached: { links: 0, files: 0 }, adopted: { links: 8, files: 9, aliases: 0 }, collisions: { links: [], files: [], aliases: [] } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><ConfirmProvider><OrganizationSettings /></ConfirmProvider></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Make default' }));
+  await screen.findByText('Default domain saved, but the automatic content move failed. Review existing content below to retry.');
+  await screen.findByText('8 links, 9 files will move to', { exact: false });
+  expect(screen.getByRole('button', { name: 'Review and move existing content' })).toBeInTheDocument();
+});

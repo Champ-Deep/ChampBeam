@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { AssetAnalytics } from '../components/AssetAnalytics';
 import {
   Link2, MousePointer, ExternalLink, BarChart3, FolderOpen, Megaphone,
   TrendingUp, GitCompare,
@@ -12,6 +13,7 @@ import { Card, CardHeader, CardTitle, Badge, Button, LoadingSpinner, EmptyState 
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { utmApi } from '../api/utm';
 import type {
   UTMOverview, UTMBreakdownItem, PerformanceOverTime,
@@ -26,6 +28,11 @@ type Tab = 'dashboard' | 'projects' | 'links' | 'campaigns';
 const TABS: Tab[] = ['dashboard', 'projects', 'links', 'campaigns'];
 
 export function AnalyticsPage() {
+  const [params] = useSearchParams();
+  return <>{params.has('tab') ? <><div className="cb-workspace !pb-0"><Link to="/analytics">Back to Files and Pages analytics</Link></div><LinkAnalyticsOverview /></> : <div className="cb-workspace"><div className="beam-section-top"><h1>Analytics</h1><Link to="/analytics?tab=dashboard">Link and UTM analytics</Link></div><AssetAnalytics /></div>}</>;
+}
+
+function LinkAnalyticsOverview() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -563,6 +570,8 @@ export function AnalyticsPage() {
           })()}
         </>
       )}
+
+      {activeTab === 'dashboard' && <JourneysSection />}
 
       {/* Projects tab */}
       {activeTab === 'projects' && (

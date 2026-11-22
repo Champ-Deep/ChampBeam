@@ -40,7 +40,7 @@ export function Navigation() {
   const location = useLocation();
   const navigate = useNavigate();
   // App.tsx renders this bar only for signed-out visitors; signed-in users get the Sidebar.
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn } = useAuth();
   const { inOrg, isAdmin, canManageTeam } = useOrgContext();
   const { data: vaultConfig } = useQuery({
     queryKey: ['champvault-config'],
@@ -50,7 +50,7 @@ export function Navigation() {
   });
   const vaultEnabled = !!vaultConfig?.configured;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const signedOut = isLoaded && !isSignedIn;
+  const signedOut = !isSignedIn;
 
   // Close the mobile menu on navigation (adjust-state-during-render, no effect).
   const [lastPath, setLastPath] = useState(location.pathname);
@@ -70,10 +70,10 @@ export function Navigation() {
   });
 
   return (
-    <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <nav className="beam-public-nav bg-white border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/" className="flex min-h-11 items-center gap-2">
             <span
               className="flex h-8 w-8 items-center justify-center rounded-[9px]"
               style={{ background: 'var(--cb-accent)' }}
@@ -98,7 +98,7 @@ export function Navigation() {
                   className={clsx(
                     'flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                     isActive
-                      ? 'bg-brand-purple/10 text-brand-purple'
+                      ? 'bg-cb-chip text-cb-ink'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   )}
                 >
@@ -109,7 +109,7 @@ export function Navigation() {
             })}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-h-11 items-center gap-2">
             {signedOut && (
               <div className="hidden md:flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={() => navigate('/sign-in')}>Sign In</Button>
@@ -144,7 +144,7 @@ export function Navigation() {
                   className={clsx(
                     'flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                     isActive
-                      ? 'bg-brand-purple/10 text-brand-purple'
+                      ? 'bg-cb-chip text-cb-ink'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   )}
                 >

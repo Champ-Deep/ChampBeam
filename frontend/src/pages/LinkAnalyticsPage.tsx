@@ -13,6 +13,7 @@ import { Card, CardHeader, CardTitle, Button, Badge, LoadingSpinner, EmptyState 
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { ExportButton } from '../components/ui/ExportButton';
 import { GeoChart } from '../components/ui/GeoChart';
+import { JourneysSection } from '../components/JourneysSection';
 import { utmApi } from '../api/utm';
 import type { LinkPerformanceItem, ClickEvent, GeoBreakdownItem, DeviceBreakdown, DateRangeOpts } from '../api/utm';
 
@@ -273,6 +274,8 @@ export function LinkAnalyticsPage() {
         </Card>
       </div>
 
+      <JourneysSection assetType="link" assetId={linkId} />
+
       {/* Device + Browser Breakdown (shown first, always works, even on localhost) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
@@ -396,6 +399,8 @@ export function LinkAnalyticsPage() {
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Country</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device</th>
@@ -411,6 +416,10 @@ export function LinkAnalyticsPage() {
                       {event.clicked_at
                         ? formatDistanceToNow(new Date(event.clicked_at), { addSuffix: true })
                         : '--'}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-slate-600 whitespace-nowrap">{event.ip_address || '--'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700" title={event.company_domain || undefined}>
+                      {event.company_name || <span className="text-gray-300">--</span>}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700">
                       <span className="inline-flex items-center gap-1.5">

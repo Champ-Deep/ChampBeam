@@ -11,11 +11,11 @@
  *   Depends(require_org_admin)           -> await requireOrgAdmin(c)
  *   Depends(require_org_leader_or_admin) -> await requireOrgLeaderOrAdmin(c)
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv, Ctx } from "../env";
 import { trustedOrigins } from "../lib/cors";
-import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, organizationMemberships, organizations, users } from "../db/schema";
+import { API_KEY_PREFIX, MEMBERSHIP_ACTIVE, apiKeys, invitation, organizationMemberships, organizations, reportingGrants, users } from "../db/schema";
 import { HTTPError } from "../lib/errors";
 import { enforceLimit } from "../lib/ratelimit";
 import { sha256Hex } from "../lib/crypto";
@@ -23,6 +23,7 @@ import { diffSeconds, nowIso, parseIso } from "../lib/time";
 import { type Permission, roleHas } from "./permissions";
 import { resolveServiceIdentity } from "./serviceAuth";
 import { createAuth, type Auth } from "./betterAuth";
+import { isSuperAdmin } from "./superAdmin";
 
 export interface TokenData {
   userId: string;
@@ -35,6 +36,8 @@ export interface TokenData {
   orgSlug?: string | null;
   /** Same value as orgId since Better Auth (kept so its many readers need no change). */
   orgUuid?: string | null;
+  /** Session identities only: listed in SUPER_ADMIN_EMAILS and verified or Google-linked. */
+  isSuperAdmin?: boolean;
 }
 
 /** True when the active org role grants `p`. No org, or API key, means no permission. */
@@ -75,6 +78,41 @@ export const crossSiteGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
+/**
+ * Better Auth's organization plugin authorizes from the raw membership row, so apply ChampBeam's own rules
+ * first: a deactivated account has no session, and a revoked membership (tombstone) grants nothing in that org.
+ * The plugin names the org in several ways (body or query id, slug, the active org, an invitation id) and falls
+ * back between them with its own precedence, so EVERY candidate is checked and any revoked one refuses the call.
+ */
+export const orgPluginGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const session = await authOf(c).api.getSession({ headers: c.req.raw.headers });
+  if (!session) return next();
+  if (session.user.isActive === false) throw new HTTPError(401, "Account is deactivated");
+  const body = (c.req.method === "POST" ? await c.req.raw.clone().json().catch(() => null) : null) as Record<string, unknown> | null;
+  const strs = (...v: unknown[]) => v.filter((x): x is string => typeof x === "string" && x !== "");
+  const bodyOrg = strs(body?.organizationId)[0];
+  const db = c.var.db;
+  const slugs = strs(body?.organizationSlug, c.req.query("organizationSlug"));
+  const invitations = strs(body?.invitationId, c.req.query("id"));
+  const orgIds = new Set(strs(body?.organizationId, c.req.query("organizationId"), session.session.activeOrganizationId));
+  if (slugs.length) for (const o of await db.select({ id: organizations.id }).from(organizations).where(inArray(organizations.slug, slugs))) orgIds.add(o.id);
+  if (invitations.length) for (const i of await db.select({ id: invitation.organizationId }).from(invitation).where(inArray(invitation.id, invitations))) orgIds.add(i.id);
+  if (orgIds.size) {
+    const revoked = await db
+      .select({ id: organizationMemberships.id })
+      .from(organizationMemberships)
+      .where(and(inArray(organizationMemberships.organizationId, [...orgIds]), eq(organizationMemberships.userId, session.user.id), ne(organizationMemberships.status, MEMBERSHIP_ACTIVE)))
+      .get();
+    if (revoked) throw new HTTPError(403, "Your membership of this organization was revoked");
+  }
+  // /leave deletes the row without running organizationHooks.afterRemoveMember: end the leaver's reporting grants (the org it names in the body).
+  await next();
+  if (bodyOrg && c.req.path.endsWith("/organization/leave") && c.res.ok) {
+    await db.update(reportingGrants).set({ revokedAt: nowIso() })
+      .where(and(eq(reportingGrants.organizationId, bodyOrg), eq(reportingGrants.userId, session.user.id), isNull(reportingGrants.revokedAt)));
+  }
+};
+
 async function resolveSession(c: Ctx): Promise<TokenData | null> {
   const session = await authOf(c).api.getSession({ headers: c.req.raw.headers });
   if (!session) return null;
@@ -83,7 +121,8 @@ async function resolveSession(c: Ctx): Promise<TokenData | null> {
   if (user.isActive === false) throw new HTTPError(401, "Account is deactivated");
   const activeOrg = session.session.activeOrganizationId;
   // The membership is read on every request (cookieCache off), so a removal takes effect at once.
-  const m = activeOrg
+  const superAdmin = await isSuperAdmin(c.var.db, c.var.settings, user);
+  let m = activeOrg
     ? await c.var.db
         .select({ role: organizationMemberships.role, slug: organizations.slug })
         .from(organizationMemberships)
@@ -97,9 +136,15 @@ async function resolveSession(c: Ctx): Promise<TokenData | null> {
         )
         .get()
     : undefined;
+  // A super admin acts as admin in whichever org they switched to (POST /admin/act-as): non-member or a lower role.
+  if (superAdmin && activeOrg && m?.role.toLowerCase() !== "admin") {
+    const o = await c.var.db.select({ slug: organizations.slug }).from(organizations).where(eq(organizations.id, activeOrg)).get();
+    if (o) m = { role: "admin", slug: o.slug };
+  }
   return {
     userId: user.id,
     email: user.email ?? "",
+    isSuperAdmin: superAdmin,
     clerkUserId: user.clerkId ?? null,
     orgId: m ? activeOrg : null,
     orgRole: m ? m.role.toLowerCase() : null,
@@ -246,6 +291,13 @@ export async function requireOrgLeaderOrAdmin(c: Ctx): Promise<TokenData> {
   if (!can(u, "team.manage")) {
     throw new HTTPError(403, "This action requires a team leader or organization admin.");
   }
+  return u;
+}
+
+/** Platform super admin, interactive session only (never an API key). */
+export async function requireSuperAdmin(c: Ctx): Promise<TokenData> {
+  const u = await requireSessionAuth(c);
+  if (!u.isSuperAdmin) throw new HTTPError(403, "Super admin only.");
   return u;
 }
 
