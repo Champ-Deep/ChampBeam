@@ -1,3 +1,6 @@
+> **Superseded for the share.lakeb2b.com cutover (22 Nov 2026).** Sections 1 and 2 below target the Coolify VPS and a TRUNCATE
+> resync. The target is now the `champbeam` Worker. Follow [`RAILWAY_EXIT.md`](../RAILWAY_EXIT.md). Section 3 (Cloudflare for SaaS for customer domains) still applies.
+
 # DNS Runbook — share.lakeb2b.com cutover + custom-domain infrastructure
 
 Status as of 2026-07-23: the ChampBeam backend runs on the DigitalOcean VPS
