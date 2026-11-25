@@ -11,10 +11,11 @@ import { authOf, requireSuperAdmin } from "../auth/security";
 import { isUniqueViolation } from "../db/client";
 import { domains, organizationMemberships, organizations, users } from "../db/schema";
 import { httpError } from "../lib/errors";
-import { nowIso } from "../lib/time";
+import { isoUtc, nowIso } from "../lib/time";
 import { parseJson } from "../lib/validate";
 import { slugProblem } from "../services/orgSlug";
-import { getActiveMembershipRow } from "../services/org";
+import { LAST_ACTIVE_COLS, getActiveMembershipRow, lastActiveAt } from "../services/org";
+import { isPlaceholderEmail } from "./_org";
 
 export const router = new Hono<AppEnv>({ strict: false });
 
@@ -97,6 +98,30 @@ router.post("/orgs", async (c) => {
     throw err;
   }
   return c.json({ id: orgId, name: body.name, slug: body.slug, first_admin_user_id: admin.id }, 201);
+});
+
+/** An org's active members, for a super admin who is not one (Better Auth's member endpoints refuse non-members). */
+router.get("/orgs/:orgId/members", async (c) => {
+  await requireSuperAdmin(c);
+  const org = await requireOrg(c, c.req.param("orgId"));
+  const { results } = await c.env.DB.prepare(
+    `SELECT m.id AS member_id, u.id AS user_id, u.email, u.full_name, m.role, m.created_at, ${LAST_ACTIVE_COLS}
+       FROM organization_memberships m JOIN users u ON m.user_id = u.id
+      WHERE m.organization_id = ?1 AND m.status = 'active' ORDER BY m.created_at, m.id`,
+  )
+    .bind(org.id)
+    .all<{ member_id: string; user_id: string; email: string | null; full_name: string | null; role: string; created_at: string; last_session_ms: number | null; last_share_at: string | null }>();
+  return c.json({
+    members: results.map((r) => ({
+      member_id: r.member_id,
+      user_id: r.user_id,
+      email: isPlaceholderEmail(r.email) ? null : r.email,
+      name: r.full_name,
+      role: r.role,
+      joined_at: isoUtc(r.created_at),
+      last_active_at: lastActiveAt(r),
+    })),
+  });
 });
 
 const MemberAdd = UserRef.extend({ role: ROLE });

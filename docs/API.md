@@ -54,6 +54,7 @@ Need a QR code? `GET /api/v1/qr.svg?data=<short_url>` (no auth) renders an SVG t
 
 1. `POST /api/v1/domains` `{"hostname": "links.acme.com"}` → domain is `pending_cname`.
 2. Read `cname_target` from `GET /api/v1/domains/config` and create a DNS **CNAME** record: `links.acme.com → <cname_target>`.
+   Every domain response also carries `dns_records`: `[{type, name, value, purpose}]`, the CNAME plus the TXT records Cloudflare issues for ownership and the certificate (no TXT until Cloudflare issues them; a refresh fills them in). `GET /api/v1/domains/{id}/records.txt` is the same list as plain text for an IT ticket.
 3. A cron job rechecks pending domains every 5 minutes. Once DNS resolves, the certificate is issued and the domain flips to `active`. `POST /api/v1/domains/{id}/refresh` checks on demand.
 4. Generate links with `"domain_id": "<that domain's id>"`, the returned `short_url` is `https://links.acme.com/s/...`. Set the domain primary and it becomes the default for links that don't pass any `domain_id`.
 
@@ -214,9 +215,11 @@ A new account is Personal: it belongs to no org. Org management is Better Auth's
 | `POST /api/auth/organization/create` | super admin only (Deep's ruling, 6 Nov); everyone else gets 403 | `{name, slug}`. Slug: lowercase, unique, not `admin`/`api`/`www`/`app`/`champbeam`. Caller becomes admin and the org becomes active. No per-user cap. |
 | `POST /api/v1/org/invitations` | org admin | `{email, role: admin\|leader\|member\|viewer, resend?}`. Returns the invitation plus `accept_url` (always `https://<platform host>/accept-invitation/<id>`) and `email_sent`. Expires in 7 days. |
 | `GET /api/v1/org/invitations` | org admin | Pending invitations with `accept_url`. |
-| `POST /api/auth/organization/accept-invitation` | invited user | `{invitationId}`. The session email must equal the invited email. With email enabled the account must also be verified. |
+| `GET /api/v1/org/members` | org admin or leader (a leader sees their reps) | Roster with `shares`, `opens`, `unique_opens` and `last_active_at`: the later of the member's last session touch and last share (any org), ISO UTC, `null` when neither exists. |
+| `POST /api/auth/organization/accept-invitation` | invited user | `{invitationId}`. The session email must equal the invited email. With email enabled the account must also be verified. Google sign-in from an invite link returns to `/accept-invitation/<id>`: the SPA passes its `?next` path as `callbackURL`. |
 | `GET /api/v1/admin/orgs` | super admin | Every org with `members`, `content_items`, `files`, `links`. |
 | `POST /api/v1/admin/orgs` | super admin | `{name, slug, user_id\|email}`: create an org with that user as first admin. |
+| `GET /api/v1/admin/orgs/{id}/members` | super admin | `{members: [{member_id, user_id, email, name, role, joined_at, last_active_at}]}`, active memberships only. Works without being a member of the org (Better Auth's member endpoints refuse a non-member). |
 | `POST /api/v1/admin/orgs/{id}/members` | super admin | `{user_id\|email, role}`. |
 | `POST /api/v1/admin/members/move` | super admin | `{user_id, from_org_id, to_org_id, role?, move_content=true, leave_source=true}`. One D1 batch. Refuses to move the last admin out. |
 | `POST /api/v1/admin/act-as` | super admin | `{organization_id\|null}`: switch this session into any org and act as admin there. |

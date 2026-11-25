@@ -50,10 +50,12 @@ function AuthShell({ title, lede, children, footer }: { title: string; lede: str
 
 function GoogleButton({ onError }: { onError: (msg: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const [params] = useSearchParams();
   if (!googleSignInEnabled) return null;
   async function go() {
     setBusy(true);
-    const { error } = await authClient.signIn.social({ provider: 'google', callbackURL: '/', errorCallbackURL: '/sign-in?error=google' });
+    // Back to ?next (an invitation, say) after Google, the same place the password forms go.
+    const { error } = await authClient.signIn.social({ provider: 'google', callbackURL: nextPath(params), errorCallbackURL: '/sign-in?error=google' });
     if (error) { setBusy(false); onError('Google sign-in could not start. Try again.'); }
   }
   return <>
