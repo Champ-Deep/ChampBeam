@@ -309,6 +309,25 @@ describe("Google sign-in", () => {
       Object.assign(s, saved);
     }
   });
+
+  it("returns to an invitation path when that is the callbackURL; an off-site callback is refused", async () => {
+    const start = (callbackURL: string) =>
+      api("/api/auth/sign-in/social", { method: "POST", headers: { ...ORIGIN, ...ip() }, json: { provider: "google", callbackURL } });
+    const s = getSettings(env as unknown as Env);
+    const saved = { googleClientId: s.googleClientId, googleClientSecret: s.googleClientSecret };
+    Object.assign(s, google);
+    try {
+      const invite = `/accept-invitation/${crypto.randomUUID()}`;
+      const ok = await start(invite);
+      expect(ok.status).toBe(200);
+      const state = new URL((await json(ok)).url).searchParams.get("state");
+      const row = await env.DB.prepare("SELECT value FROM verification WHERE instr(value, ?) > 0").bind(`"oauthState":"${state}"`).first<{ value: string }>();
+      expect(JSON.parse(row!.value).callbackURL).toBe(invite);
+      expect((await start("https://evil.example/accept-invitation/x")).status).toBe(403);
+    } finally {
+      Object.assign(s, saved);
+    }
+  });
 });
 
 describe("required secrets", () => {
