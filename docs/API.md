@@ -196,8 +196,10 @@ Separate from user API keys: a **service key** (`X-Service-Key` header, provisio
 The assistant (bottom-right chat button, signed-in users only) explains features, why they matter, and exactly where to use them, and suggests one next thing to try. It is provider-swappable:
 
 - `POST /api/v1/assistant/chat` `{"messages": [{"role": "user", "content": "…"}]}` → `{"reply", "provider", "model", "usage"}`. The backend injects the feature map and the user's usage counts (links / files / pages) into the system prompt, so suggestions land on what they have not tried yet. **503** when disabled or the active provider has no key.
-- `GET /api/v1/assistant/config` → current provider/model/enabled plus per-provider `configured` flags and the suggested free models.
-- `PUT /api/v1/assistant/config` (org admins only) `{"provider": "openrouter" | "vercel" | "mock", "model": "…", "enabled": true}` → switches provider/model at runtime.
+- `GET /api/v1/assistant/config` → current provider/model/enabled plus per-provider `configured` flags, the suggested free models, and `job_models: {"forward_followup": string | null, "page_from_brief": string | null}` (the per-job model override for the agent jobs; `null` means the job uses `model`).
+- `PUT /api/v1/assistant/config` (org admins only) `{"provider": "openrouter" | "vercel" | "mock", "model": "…", "enabled": true, "job_models": {"forward_followup": "…", "page_from_brief": null}}` → switches provider/model at runtime. `job_models` is optional, and so is each key in it: a string (1 to 160 characters, trimmed) sets that job's model, `null` clears the override, an absent key leaves it unchanged. The provider and the enabled switch stay global for every job.
+
+Agent jobs (`worker/src/services/agentJobs.ts`, used by the forward follow-up and page-from-brief agents) run on the same provider, ask for a JSON reply, and are capped per user per day: `forward_followup` 30 calls and 600 max tokens, `page_from_brief` 10 calls and 1800 max tokens. Over the cap the agent answers **429**; disabled or no key answers **503**.
 
 Keys live in the environment (`ASSISTANT_OPENROUTER_API_KEY`, `ASSISTANT_VERCEL_API_KEY`; Vercel AI Gateway base `ASSISTANT_VERCEL_GATEWAY_URL`, default `https://gateway.vercel.ai/v1`). Free testing models are the defaults (e.g. `meta-llama/llama-3.3-70b-instruct:free` on OpenRouter); `mock` is a keyless provider for dev and CI.
 

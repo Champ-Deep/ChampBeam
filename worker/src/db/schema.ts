@@ -558,6 +558,13 @@ export const assistantConfig = sqliteTable("assistant_config", {
   updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(nowIso),
 });
 
+/** Per-job model override for agent jobs (migrations/0012). No row = assistant_config.model; provider stays global. */
+export const assistantJobModels = sqliteTable("assistant_job_models", {
+  job: text("job").primaryKey(),
+  model: text("model").notNull(),
+  updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(nowIso),
+});
+
 export const rateCounters = sqliteTable("rate_counters", {
   key: text("key").primaryKey(),
   count: integer("count").notNull().default(0),
