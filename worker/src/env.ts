@@ -17,6 +17,8 @@ export interface Env {
   ASSETS?: Fetcher;
   /** Service binding to the webhook receiver. workers.dev -> workers.dev fetches in one account 404 (error 1042). */
   OPEN_WEBHOOK?: Fetcher;
+  /** Same, for links owned by the Harbinger service identity. */
+  HARBINGER_WEBHOOK?: Fetcher;
   /** Cloudflare Email Service (`send_email` binding). Unbound = no email is sent anywhere. */
   EMAIL?: SendEmail;
   [key: string]: unknown;
@@ -137,6 +139,9 @@ export function buildSettings(env: Env) {
     /** Signed "link opened" webhook for contact-bound links. Both must be set, else it is off. */
     openWebhookUrl: str(env, "OPEN_WEBHOOK_URL"),
     openWebhookSecret: str(env, "OPEN_WEBHOOK_SECRET"),
+    /** Harbinger-owned links post here instead (own URL and secret, so voice never sees Harbinger contacts). */
+    harbingerWebhookUrl: str(env, "HARBINGER_WEBHOOK_URL"),
+    harbingerWebhookSecret: str(env, "HARBINGER_WEBHOOK_SECRET"),
 
     pagesMaxBytes: int(env, "PAGES_MAX_BYTES", 2 * 1024 * 1024),
     pagesInjectMaxBytes: int(env, "PAGES_INJECT_MAX_BYTES", 5 * 1024 * 1024),

@@ -14,3 +14,6 @@ STORAGE_UPLOAD_SECRET=dev-upload-secret
 # Assistant (optional; `mock` provider needs no key). Production: `wrangler secret put` these, never vars.
 # ASSISTANT_OPENROUTER_API_KEY=
 # ASSISTANT_VERCEL_API_KEY=
+# Harbinger click webhook (HARBINGER_WEBHOOK_URL + HARBINGER_WEBHOOK_SECRET both set, else off). Production: `wrangler secret put` both.
+# HARBINGER_WEBHOOK_URL=https://champ-harbinger.deep-ae0.workers.dev/api/webhooks/champbeam
+# HARBINGER_WEBHOOK_SECRET=
