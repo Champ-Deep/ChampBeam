@@ -31,6 +31,16 @@ export function membershipIsLeader(m: Pick<Membership, "role">): boolean {
   return (m.role ?? "").toLowerCase() === "leader";
 }
 
+/** SELECT columns for a member's last activity (users aliased `u`); turn the row into one value with lastActiveAt(). */
+export const LAST_ACTIVE_COLS = `(SELECT MAX(updated_at) FROM session WHERE user_id = u.id) AS last_session_ms,
+  (SELECT MAX(created_at) FROM content_shares WHERE shared_by_user_id = u.id) AS last_share_at`;
+
+/** Latest of the last session touch (ms; sign-out deletes the row, so shares back it up) and the last share (ISO). */
+export function lastActiveAt(r: { last_session_ms: number | null; last_share_at: string | null }): string | null {
+  const t = Math.max(Number(r.last_session_ms) || 0, Date.parse(r.last_share_at ?? "") || 0);
+  return t ? new Date(t).toISOString() : null;
+}
+
 export async function upsertOrganization(
   db: Db,
   clerkOrgId: string,

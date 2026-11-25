@@ -28,7 +28,7 @@ import { assignments, contentItems, contentShares, organizationMemberships } fro
 import { httpError } from "../lib/errors";
 import { isoUtc, nowIso } from "../lib/time";
 import { parseJson } from "../lib/validate";
-import { membershipIsAdmin, membershipIsLeader } from "../services/org";
+import { LAST_ACTIVE_COLS, lastActiveAt, membershipIsAdmin, membershipIsLeader } from "../services/org";
 import { type Organization, isPlaceholderEmail, orgForUser, pyUuid } from "./_org";
 
 export const router = new Hono<AppEnv>({ strict: false });
@@ -143,12 +143,12 @@ router.get("/members", async (c) => {
   const visible = await visibleMembers(db, org, user);
 
   const { results: memberRows } = await c.env.DB.prepare(
-    `SELECT m.role, m.leader_user_id, u.id AS user_id, u.email, u.full_name
+    `SELECT m.role, m.leader_user_id, u.id AS user_id, u.email, u.full_name, ${LAST_ACTIVE_COLS}
        FROM organization_memberships m JOIN users u ON m.user_id = u.id
       WHERE m.organization_id = ?1`,
   )
     .bind(org.id)
-    .all<{ role: string; leader_user_id: string | null; user_id: string; email: string | null; full_name: string | null }>();
+    .all<{ role: string; leader_user_id: string | null; user_id: string; email: string | null; full_name: string | null; last_session_ms: number | null; last_share_at: string | null }>();
   const members = visible ? memberRows.filter((m) => visible.ids.has(m.user_id)) : memberRows;
 
   // Shares per member.
@@ -179,6 +179,7 @@ router.get("/members", async (c) => {
       shares: shareCounts.get(m.user_id) ?? 0,
       opens: int(o?.opens),
       unique_opens: int(o?.uniq),
+      last_active_at: lastActiveAt(m),
     };
   });
   return c.json(sortDesc(out, (m) => m.opens));
