@@ -4,6 +4,7 @@
  *
  * - GET  /config: provider/model/enabled, which providers have a key, the suggested free models.
  * - PUT  /config: org-admin only. The row is a GLOBAL singleton, so "has no org" must never pass.
+ *   Optional `job_models` sets the per-job model overrides of the agent jobs (services/agentJobs.ts).
  * - POST /chat: one reply from the chosen provider. 503 when disabled or the provider key is missing.
  */
 import { Hono } from "hono";
@@ -13,8 +14,9 @@ import type { AppEnv, Ctx } from "../env";
 import { httpError } from "../lib/errors";
 import { enforceLimit } from "../lib/ratelimit";
 import { parseJson } from "../lib/validate";
-import { assistantConfig } from "../db/schema";
+import { assistantConfig, assistantJobModels } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { AGENT_JOBS, jobModels } from "../services/agentJobs";
 import {
   ASSISTANT_PROVIDERS,
   AssistantError,
@@ -45,9 +47,16 @@ const ConfigPut = z.object({
   provider: z.enum(ASSISTANT_PROVIDERS).default("openrouter"),
   model: z.string().max(160).nullish(),
   enabled: z.boolean().nullish(),
+  // Per job: a string upserts that job's model, null deletes the override, an absent key leaves it.
+  job_models: z
+    .object({
+      forward_followup: z.string().trim().min(1).max(160).nullable().optional(),
+      page_from_brief: z.string().trim().min(1).max(160).nullable().optional(),
+    })
+    .optional(),
 });
 
-function configPayload(c: Ctx, row: { provider: string; model: string; enabled: boolean }) {
+async function configPayload(c: Ctx, row: { provider: string; model: string; enabled: boolean }) {
   const s = c.var.settings;
   return {
     provider: row.provider,
@@ -58,12 +67,13 @@ function configPayload(c: Ctx, row: { provider: string; model: string; enabled: 
       configured: providerConfigured(s, id),
       free_models: SUGGESTED_FREE_MODELS[id] ?? [],
     })),
+    job_models: await jobModels(c.var.db),
   };
 }
 
 router.get("/config", async (c) => {
   await requireSessionAuth(c);
-  return c.json(configPayload(c, await configRow(c.var.db, c.var.settings)));
+  return c.json(await configPayload(c, await configRow(c.var.db, c.var.settings)));
 });
 
 router.put("/config", async (c) => {
@@ -77,7 +87,16 @@ router.put("/config", async (c) => {
     .set({ provider: data.provider, ...(model ? { model } : {}), ...(data.enabled != null ? { enabled: data.enabled } : {}) })
     .where(eq(assistantConfig.id, row.id))
     .returning();
-  return c.json(configPayload(c, updated!));
+  for (const job of AGENT_JOBS) {
+    const jobModel = data.job_models?.[job];
+    if (jobModel === undefined) continue;
+    if (jobModel === null) await c.var.db.delete(assistantJobModels).where(eq(assistantJobModels.job, job));
+    else {
+      const set = { model: jobModel, updatedAt: new Date().toISOString() };
+      await c.var.db.insert(assistantJobModels).values({ job, ...set }).onConflictDoUpdate({ target: assistantJobModels.job, set });
+    }
+  }
+  return c.json(await configPayload(c, updated!));
 });
 
 router.post("/chat", async (c) => {

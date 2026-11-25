@@ -9,6 +9,7 @@ import { count, eq, and, ne } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { assistantConfig, fileAssets, linkClicks, FILE_KIND_HTML, FILE_STATUS_DELETED } from "../db/schema";
 import type { Settings } from "../env";
+import type { AgentJob } from "./agentJobs";
 
 export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const ASSISTANT_PROVIDERS = ["mock", "openrouter", "vercel"] as const;
@@ -113,6 +114,30 @@ function mapError(status: number): AssistantError {
   return new AssistantError(502, `Model provider error (${status}).`);
 }
 
+/** Deterministic agent-job replies for the `mock` provider (what A1 and A2 parse in tests and keyless dev). */
+export const MOCK_JOB_REPLIES: Record<AgentJob, object> = {
+  forward_followup: {
+    subject: "[mock] Quick follow-up",
+    body: "Hi {first_name},\n\n[mock] Happy to walk you and anyone on your team through this. Would 15 minutes this week help?",
+  },
+  page_from_brief: {
+    headline: "[mock] A clearer path for your team",
+    subhead: "[mock] One page, three steps.",
+    pains: ["[mock] pain one", "[mock] pain two"],
+    how_we_help: [
+      { title: "[mock] Step one", body: "[mock] What we do first." },
+      { title: "[mock] Step two", body: "[mock] What we do next." },
+    ],
+    proof: [],
+    cta_label: "[mock] Book a call",
+  },
+};
+
+/** JSON output mode. OpenRouter also gets reasoning off, so a thinking model spends the budget on the JSON. */
+function jsonMode(providerId: string) {
+  return { response_format: { type: "json_object" }, ...(providerId === "openrouter" ? { reasoning: { enabled: false } } : {}) };
+}
+
 export interface Completion {
   reply: string;
   usage: { prompt_tokens: number; completion_tokens: number };
@@ -125,7 +150,11 @@ export async function complete(
   messages: ChatMessage[],
   model: string,
   maxTokens: number,
+  opts: { json?: boolean; job?: AgentJob } = {},
 ): Promise<Completion> {
+  if (providerId === "mock" && opts.job) {
+    return { reply: JSON.stringify(MOCK_JOB_REPLIES[opts.job]), usage: { prompt_tokens: 0, completion_tokens: 0 } };
+  }
   if (providerId === "mock") {
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
     return {
@@ -146,7 +175,7 @@ export async function complete(
     resp = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+      body: JSON.stringify({ model, messages, max_tokens: maxTokens, ...(opts.json ? jsonMode(providerId) : {}) }),
       signal: AbortSignal.timeout(s.assistantTimeoutS * 1000),
     });
   } catch (err) {

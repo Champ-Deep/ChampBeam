@@ -21,9 +21,57 @@ async function personal() {
 /** Every test starts from the same known config, set through the public API, so it passes alone. */
 beforeEach(async () => {
   const a = await orgSession({ role: "admin" });
-  expect((await put(a.headers, { provider: "mock", model: "test/model", enabled: true })).status).toBe(200);
+  const known = { provider: "mock", model: "test/model", enabled: true, job_models: { forward_followup: null, page_from_brief: null } };
+  expect((await put(a.headers, known)).status).toBe(200);
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe("job_models on /assistant/config", () => {
+  const get = async (headers: HeadersInit) => (await json(await api("/api/v1/assistant/config", { headers }))).job_models;
+
+  it("GET reports null for every job until an admin sets one", async () => {
+    const { headers } = await orgSession({ role: "member" });
+    expect(await get(headers)).toEqual({ forward_followup: null, page_from_brief: null });
+  });
+
+  it("an admin PUT trims and upserts, leaves an absent key alone, and null clears", async () => {
+    const admin = await orgSession({ role: "admin" });
+    const set = await put(admin.headers, { provider: "mock", job_models: { forward_followup: "  fwd/one  ", page_from_brief: "brief/one" } });
+    expect(set.status).toBe(200);
+    expect((await json(set)).job_models).toEqual({ forward_followup: "fwd/one", page_from_brief: "brief/one" });
+
+    expect((await put(admin.headers, { provider: "mock", job_models: { forward_followup: "fwd/two" } })).status).toBe(200);
+    expect(await get(admin.headers)).toEqual({ forward_followup: "fwd/two", page_from_brief: "brief/one" });
+
+    expect((await put(admin.headers, { provider: "mock" })).status).toBe(200);
+    expect(await get(admin.headers)).toEqual({ forward_followup: "fwd/two", page_from_brief: "brief/one" });
+
+    expect((await put(admin.headers, { provider: "mock", job_models: { page_from_brief: null } })).status).toBe(200);
+    expect(await get(admin.headers)).toEqual({ forward_followup: "fwd/two", page_from_brief: null });
+  });
+
+  it("rejects an empty (after trim) or 161 character model with 422 and writes nothing", async () => {
+    const admin = await orgSession({ role: "admin" });
+    expect((await put(admin.headers, { provider: "mock", job_models: { forward_followup: "   " } })).status).toBe(422);
+    expect((await put(admin.headers, { provider: "mock", job_models: { page_from_brief: "x".repeat(161) } })).status).toBe(422);
+    expect(await get(admin.headers)).toEqual({ forward_followup: null, page_from_brief: null });
+  });
+
+  it("refuses a personal account, a plain member and an API key, and none of them changes the overrides", async () => {
+    const admin = await orgSession({ role: "admin" });
+    const member = await orgSession({ role: "member", clerkOrgId: admin.clerkOrgId });
+    const apiKey = apiKeyHeaders(await createApiKey((await createUser()).id));
+    const known = { forward_followup: "fwd/admin", page_from_brief: "brief/admin" };
+    expect((await put(admin.headers, { provider: "mock", job_models: known })).status).toBe(200);
+
+    // Different from the admin state in both keys (one value, one delete), so a write-then-403 shows up below.
+    const evil = { provider: "mock", job_models: { forward_followup: "evil/x", page_from_brief: null } };
+    expect((await put(await personal(), evil)).status).toBe(403);
+    expect((await put(member.headers, evil)).status).toBe(403);
+    expect((await put(apiKey, evil)).status).toBe(403);
+    expect(await get(member.headers)).toEqual(known);
+  });
+});
 
 describe("config gate: PUT /assistant/config is a global singleton", () => {
   it("lets an org admin write, and trims the model", async () => {
@@ -148,6 +196,8 @@ describe("OpenRouter provider", () => {
     expect((init!.headers as Record<string, string>).Authorization).toBe(`Bearer ${KEY}`);
     const sent = JSON.parse(String(init!.body));
     expect(sent).toMatchObject({ model: "meta/test:free", max_tokens: 128 });
+    // Chat stays plain text: JSON mode is for agent jobs only.
+    expect(Object.keys(sent).sort()).toEqual(["max_tokens", "messages", "model"]);
     expect(sent.messages.map((m: any) => m.role)).toEqual(["system", "user"]);
     expect(sent.messages[0].content).toContain("You are Champ");
     expect(sent.messages[0].content).not.toContain("ignore the rules");

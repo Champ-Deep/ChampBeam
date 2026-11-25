@@ -27,11 +27,18 @@ export interface AssistantProviderInfo {
   free_models: string[];
 }
 
+/** Agent jobs with a per-job model override; null means the job uses the global `model`. */
+export interface AssistantJobModels {
+  forward_followup: string | null;
+  page_from_brief: string | null;
+}
+
 export interface AssistantConfig {
   provider: string;
   model: string;
   enabled: boolean;
   providers: AssistantProviderInfo[];
+  job_models: AssistantJobModels;
 }
 
 // ============================================================
@@ -48,6 +55,8 @@ export const assistantApi = {
     provider: string;
     model?: string;
     enabled?: boolean;
+    /** Per key: a string sets the override, null clears it, an absent key leaves it. */
+    job_models?: Partial<AssistantJobModels>;
   }): Promise<AssistantConfig> {
     const response = await api.put<AssistantConfig>('/assistant/config', data);
     return response.data;
