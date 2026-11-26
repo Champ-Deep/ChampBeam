@@ -29,6 +29,9 @@
   // Password reset mail (champbeam.com is onboarded in Cloudflare Email Service). Overlays do not inherit it: staging declares its own.
   "send_email": [{ "name": "EMAIL" }],
 
+  // Click webhook for links minted by Harbinger's service key. A service binding because workers.dev to workers.dev 404s in one account.
+  "services": [{ "binding": "HARBINGER_WEBHOOK", "service": "champ-harbinger" }],
+
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",

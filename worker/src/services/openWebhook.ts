@@ -11,24 +11,34 @@
  */
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { clickEvents, linkClicks } from "../db/schema";
+import { clickEvents, linkClicks, users } from "../db/schema";
 import { bytesToHex, hmacSha256 } from "../lib/crypto";
 import type { GeoDeps } from "./geoip";
 import { isHostingAsn } from "./geoip";
 
-export type NotifyDeps = GeoDeps & { db: Db; openWebhook?: Fetcher };
+export type NotifyDeps = GeoDeps & { db: Db; openWebhook?: Fetcher; harbingerWebhook?: Fetcher };
+
+/** Links minted through Harbinger's service key report to Harbinger, not to the voice receiver. */
+export const HARBINGER_OWNER = "service+champ-harbinger@championsmail.com";
 
 export async function notifyOpen(deps: NotifyDeps, eventId: string): Promise<void> {
-  const { openWebhookUrl, openWebhookSecret } = deps.settings;
-  if (!openWebhookUrl || !openWebhookSecret) return;
+  const s = deps.settings;
+  if (!(s.openWebhookUrl && s.openWebhookSecret) && !(s.harbingerWebhookUrl && s.harbingerWebhookSecret)) return;
 
   const row = await deps.db
-    .select({ e: clickEvents, l: linkClicks })
+    .select({ e: clickEvents, l: linkClicks, owner: users.email })
     .from(clickEvents)
     .innerJoin(linkClicks, eq(clickEvents.linkId, linkClicks.id))
+    .innerJoin(users, eq(users.id, linkClicks.userId))
     .where(eq(clickEvents.id, eventId))
     .get();
   if (!row || !row.l.contactRef || row.e.deviceType === "bot") return;
+
+  const toHarbinger = row.owner === HARBINGER_OWNER;
+  const openWebhookUrl = toHarbinger ? s.harbingerWebhookUrl : s.openWebhookUrl;
+  const openWebhookSecret = toHarbinger ? s.harbingerWebhookSecret : s.openWebhookSecret;
+  const binding = toHarbinger ? deps.harbingerWebhook : deps.openWebhook;
+  if (!openWebhookUrl || !openWebhookSecret) return;
 
   const { e, l } = row;
   const body = JSON.stringify({
@@ -50,7 +60,7 @@ export async function notifyOpen(deps: NotifyDeps, eventId: string): Promise<voi
     likely_scanner: isHostingAsn(e.asnOrg),
   });
   const sig = bytesToHex(await hmacSha256(openWebhookSecret, body));
-  const f = deps.openWebhook ? deps.openWebhook.fetch.bind(deps.openWebhook) : deps.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
+  const f = binding ? binding.fetch.bind(binding) : deps.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const resp = await f(openWebhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Beam-Event-Id": e.id, "X-Beam-Signature": `sha256=${sig}` },

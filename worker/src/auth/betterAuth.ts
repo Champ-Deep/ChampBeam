@@ -20,6 +20,7 @@ import * as schema from "../db/schema";
 import { getSettings, type Env } from "../env";
 import { trustedOrigins } from "../lib/cors";
 import { sendMail } from "../lib/email";
+import { isServiceEmail } from "./serviceAuth";
 
 /** The one org every user belongs to (Deep's ruling, 5 Nov). New sign-ups join it as `member`. */
 export const DEFAULT_ORG_SLUG = "champions-group";
@@ -89,7 +90,11 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
       enabled: true,
       // Reset only exists when the Email binding does. Migrated Clerk users have no credential row: a reset gives them one.
       sendResetPassword: settings.emailEnabled
-        ? async ({ user, url }) => mail(user.email, "Reset your ChampBeam password", "Use this link to choose a new password. It expires in one hour.", "Reset password", url)
+        ? async ({ user, url }) => {
+            // A service identity has no human inbox we trust: its reset link would hand over every link it owns.
+            if (isServiceEmail(user.email)) return;
+            await mail(user.email, "Reset your ChampBeam password", "Use this link to choose a new password. It expires in one hour.", "Reset password", url);
+          }
         : undefined,
       // No email sender at launch (D2 = B): no reset or verification mail.
       password: {
@@ -119,6 +124,9 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
         create: {
           // Land members in their org instead of Personal: oldest active membership becomes the session's org.
           before: async (session) => {
+            // Service identities act only through X-Service-Key, never a session (sign-in, Google, reset auto sign-in).
+            const u = await db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, session.userId)).get();
+            if (isServiceEmail(u?.email)) return false;
             const m = await db
               .select({ orgId: schema.organizationMemberships.organizationId })
               .from(schema.organizationMemberships)
@@ -131,6 +139,8 @@ export function createAuth(env: Env, db: Db, waitUntil?: (p: Promise<unknown>) =
       },
       user: {
         create: {
+          // Nobody may sign up (or Google-create) a service address before it is provisioned.
+          before: async (user) => (isServiceEmail(user.email) ? false : undefined),
           after: async (user) => {
             const org = await db
               .select({ id: schema.organizations.id })

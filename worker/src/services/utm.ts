@@ -617,7 +617,7 @@ export function captureVisit(c: Context, ip?: string | null): VisitContext {
  */
 export function scheduleGeoEnrichment(c: Ctx, eventId: string, visit: VisitContext = captureVisit(c)): void {
   if (!visit.ip) return;
-  const deps = { settings: c.var.settings, db: c.var.db, openWebhook: c.env.OPEN_WEBHOOK };
+  const deps = { settings: c.var.settings, db: c.var.db, openWebhook: c.env.OPEN_WEBHOOK, harbingerWebhook: c.env.HARBINGER_WEBHOOK };
   background(c, () => resolveGeoForEvent(deps, eventId, visit.ip, { cf: visit.cf }), "resolveGeoForEvent");
 }
 

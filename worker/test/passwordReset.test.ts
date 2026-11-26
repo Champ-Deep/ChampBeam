@@ -96,6 +96,39 @@ describe("password reset for a migrated user with no credential", () => {
     expect(sent.slice(before).map((m) => m.to)).toEqual([email]);
   });
 
+  it("never mails a service identity a reset link, and answers exactly like an unknown address", async () => {
+    const email = "service+champ-harbinger@championsmail.com";
+    await migratedUser(email);
+    await Promise.all(pending);
+    const before = sent.length;
+    const svc = await post("/request-password-reset", { email, redirectTo: `${BASE}/reset-password` });
+    const unknown = await post("/request-password-reset", { email: "nobody-svc@championsmail.com", redirectTo: `${BASE}/reset-password` });
+    expect(svc.status).toBe(unknown.status);
+    expect(await svc.text()).toBe(await unknown.text());
+    await Promise.all(pending);
+    expect(sent.slice(before)).toEqual([]);
+  });
+
+  it("refuses a session to a service identity even with a valid password, and refuses its sign-up", async () => {
+    const email = "svc-to-be@championsmail.com";
+    const password = "a-valid-password-1";
+    expect((await post("/sign-up/email", { email, password, name: "Svc" })).status).toBe(200);
+    expect((await post("/sign-in/email", { email, password })).status).toBe(200); // control: same user, plain address
+    const { id } = (await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first<{ id: string }>())!;
+    const svc = "service+squatted@championsmail.com";
+    await env.DB.prepare("UPDATE users SET email = ? WHERE id = ?").bind(svc, id).run();
+    const sessions = async () => (await env.DB.prepare("SELECT count(*) n FROM session WHERE user_id = ?").bind(id).first<{ n: number }>())!.n;
+    const had = await sessions();
+    const signIn = await post("/sign-in/email", { email: svc, password });
+    expect(signIn.status).not.toBe(200);
+    expect(signIn.headers.get("set-cookie") ?? "").not.toContain("session_token");
+    expect(await sessions()).toBe(had);
+
+    const fresh = "service+new-name@championsmail.com";
+    expect((await post("/sign-up/email", { email: fresh, password, name: "Squatter" })).status).not.toBe(200);
+    expect(await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(fresh).first()).toBeNull();
+  });
+
   // Goes through the Worker entry so routing and authOf's waitUntil wiring run (the tests above hand createAuth a handler).
   it("through the Worker entry, a slow mailer still does not show in the response time", async () => {
     const email = "route-reset@championsmail.com";

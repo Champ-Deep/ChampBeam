@@ -6,6 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { getDb } from "../src/db/client";
 import { buildSettings, type Env } from "../src/env";
 import { bytesToHex, hmacSha256 } from "../src/lib/crypto";
+import { HARBINGER_OWNER } from "../src/services/openWebhook";
 import * as utm from "../src/services/utm";
 import { api, createUser } from "./helpers";
 
@@ -104,5 +105,48 @@ describe("link.opened webhook", () => {
     expect(await open(await link("drop_a"), "Googlebot/2.1 (+http://www.google.com/bot.html)")).toHaveLength(0);
     expect(await open(await link(null), CHROME)).toHaveLength(0);
     expect(await open(await link("drop_a"), CHROME, { OPEN_WEBHOOK_URL: "" })).toHaveLength(0);
+  });
+});
+
+describe("Harbinger-owned links", () => {
+  const HB = { HARBINGER_WEBHOOK_URL: "https://harbinger.example.com/api/webhooks/champbeam", HARBINGER_WEBHOOK_SECRET: "whsec-hb" };
+
+  let owner: { id: string };
+  beforeAll(async () => {
+    owner = await createUser({ email: HARBINGER_OWNER });
+  });
+
+  async function hbOpen(extra: Record<string, string>) {
+    const l = await utm.recordLink(db(), {
+      userId: owner.id,
+      originalUrl: "https://example.com/book",
+      trackedUrl: "https://example.com/book?utm_source=hb",
+      utmParams: { utm_source: "hb" },
+      contactRef: "bl_1",
+    });
+    const rec = recorder();
+    const id = await utm.insertClickEvent(db(), { linkId: l.id, ipAddress: "203.0.113.9", userAgent: CHROME, referrer: null });
+    await utm.resolveGeoForEvent({ settings: settingsWith({ ...HOOK, ...extra }), db: db(), fetch: rec.fetch }, id, "203.0.113.9", {
+      cf: { country: "India", countryCode: "IN" } as never,
+    });
+    return rec.calls;
+  }
+
+  it("posts to Harbinger with Harbinger's own secret, never to the voice receiver", async () => {
+    const calls = await hbOpen(HB);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(HB.HARBINGER_WEBHOOK_URL);
+    const expected = bytesToHex(await hmacSha256(HB.HARBINGER_WEBHOOK_SECRET, calls[0].body));
+    expect(calls[0].headers.get("x-beam-signature")).toBe(`sha256=${expected}`);
+    expect(JSON.parse(calls[0].body)).toMatchObject({ event: "link.opened", contact_ref: "bl_1" });
+  });
+
+  it("stays silent when Harbinger is not configured, even though the voice receiver is", async () => {
+    expect(await hbOpen({})).toHaveLength(0);
+  });
+
+  it("keeps voice links on the voice receiver when Harbinger is configured", async () => {
+    const calls = await open(await link("drop_a"), CHROME, HB);
+    expect(calls.map((c) => c.url)).toEqual([HOOK.OPEN_WEBHOOK_URL]);
   });
 });

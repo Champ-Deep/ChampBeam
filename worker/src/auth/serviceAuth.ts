@@ -14,6 +14,9 @@ import { sha256Hex } from "../lib/crypto";
 import type { TokenData } from "./security";
 
 export const SERVICE_KEY_RATE_LIMIT_PER_MINUTE = 60;
+
+/** service+{name}@championsmail.com: the identities the X-Service-Key lane resolves to. */
+export const isServiceEmail = (email: string | null | undefined) => /^service\+[^@]*@championsmail\.com$/i.test((email ?? "").trim());
 const UUID = "[0-9a-fA-F-]{36}";
 
 const ALLOWED: [string, RegExp][] = [
