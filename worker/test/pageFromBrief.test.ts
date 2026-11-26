@@ -92,6 +92,38 @@ describe("POST /api/v1/assistant/pages", () => {
     expect(html).not.toContain("<script");
   });
 
+  it("escapes every content field plus company and title", async () => {
+    const tag = "<b>tag</b> here";
+    stubReply({
+      headline: tag,
+      subhead: tag,
+      pains: [tag, tag],
+      how_we_help: [
+        { title: tag, body: tag },
+        { title: tag, body: tag },
+      ],
+      proof: [tag],
+      cta_label: tag,
+    });
+    const r = await draft(admin.headers, { company: tag, title: tag, cta_url: "https://example.com/book" });
+    expect(r.status, await r.clone().text()).toBe(200);
+    const { html } = await json(r);
+    expect(html).not.toContain("<b>");
+    // 10 content strings, company twice (top line and footer), title once.
+    expect(html.split("&lt;b&gt;tag&lt;/b&gt; here").length - 1).toBe(13);
+  });
+
+  it("refuses a viewer's dry run with 403 before any model call", async () => {
+    const viewer = await orgSession({ role: "viewer", clerkOrgId: admin.clerkOrgId });
+    const r = await draft(viewer.headers, {});
+    expect(r.status, await r.clone().text()).toBe(403);
+    // completeJob bumps agent:page_from_brief:<userId> before the model runs; no counter means no call.
+    const counters = await env.DB.prepare("SELECT count(*) AS n FROM rate_counters WHERE key LIKE ?")
+      .bind(`agent:%${viewer.userId}%`)
+      .first<{ n: number }>();
+    expect(counters!.n).toBe(0);
+  });
+
   it("rejects javascript: and http: cta_url at validation", async () => {
     for (const cta_url of ["javascript:alert(1)", "http://example.com/book"]) {
       const r = await draft(admin.headers, { cta_url });

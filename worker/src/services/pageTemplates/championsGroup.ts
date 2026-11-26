@@ -21,7 +21,7 @@ export type PageContent = z.infer<typeof PageContent>;
 const STYLE = `
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:#FFFFFF;color:#1A1A1A;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.6}
+body{margin:0;background:#FFFFFF;color:#1A1A1A;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.6;overflow-wrap:anywhere}
 main{max-width:760px;margin:0 auto;padding:56px 32px 40px}
 .top{margin:0 0 20px;color:#6B6B6B;font-size:14px;font-weight:600;letter-spacing:0.01em}
 h1{margin:0;color:#1A1A1A;font-size:40px;line-height:1.15;font-weight:700;letter-spacing:-0.01em}
