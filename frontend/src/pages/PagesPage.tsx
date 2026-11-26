@@ -2,6 +2,7 @@ import { Fragment, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateAssets } from '../lib/assetCache';
+import { DraftPagePanel } from '../components/DraftPagePanel';
 import { ShareComposer } from '../components/ShareComposer';
 import { filesApi } from '../api/files';
 import { useOrgContext } from '../hooks/useOrgContext';
@@ -67,6 +68,7 @@ function publishErrorMessage(err: unknown): string {
 }
 
 export function PagesPage() {
+  const [draftOpen, setDraftOpen] = useState(false);
   const { canShare } = useOrgContext();
   const confirm = useConfirm();
   const navigate = useNavigate();
@@ -143,8 +145,9 @@ export function PagesPage() {
 
   return (
     <div className="cb-workspace max-w-5xl mx-auto py-8 px-4">
-      <PageHeader title="Pages" lede="Hosted HTML, images, video and PDFs. Download-only shares belong in Files. Existing addresses stay valid." />
+      <PageHeader actions={canShare && <Button aria-expanded={draftOpen} onClick={() => setDraftOpen(!draftOpen)}>Draft a one-pager</Button>} title="Pages" lede="Hosted HTML, images, video and PDFs. Download-only shares belong in Files. Existing addresses stay valid." />
 
+      {canShare && draftOpen && <DraftPagePanel onCopy={copyUrl} onPublished={invalidate} />}
       {canShare && <ShareComposer />}
       {canShare && <details><summary>Advanced HTML publishing</summary><PublishCard
         domains={activeDomains}
