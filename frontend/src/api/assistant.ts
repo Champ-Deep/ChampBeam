@@ -1,4 +1,5 @@
 import api from './client';
+import type { BeamPage } from './pages';
 
 // ============================================================
 // Types (mirror backend/app/api/v1/assistant.py)
@@ -41,6 +42,43 @@ export interface AssistantConfig {
   job_models: AssistantJobModels;
 }
 
+/** POST /assistant/pages body. `dry_run` defaults to true on the server. */
+export interface GeneratePageInput {
+  company: string;
+  brief: string;
+  brand: 'champions-group';
+  cta_url?: string;
+  title?: string;
+  slug?: string;
+  domain_id?: string;
+  dry_run?: boolean;
+}
+
+/** The copy the model wrote; the server renders it into `html`. */
+export interface GeneratedPageContent {
+  headline: string;
+  subhead: string;
+  pains: string[];
+  how_we_help: { title: string; body: string }[];
+  proof: string[];
+  cta_label: string;
+}
+
+export interface GeneratePageDraft {
+  html: string;
+  content: GeneratedPageContent;
+  model: string;
+  usage: AssistantUsage;
+  checks: { figures_ok: true; bytes: number };
+}
+
+export interface GeneratePagePublished {
+  page: BeamPage;
+  url: string;
+  model: string;
+  usage: AssistantUsage;
+}
+
 // ============================================================
 // API
 // ============================================================
@@ -64,6 +102,12 @@ export const assistantApi = {
 
   async chat(messages: AssistantMessage[]): Promise<AssistantChatResponse> {
     const response = await api.post<AssistantChatResponse>('/assistant/chat', { messages });
+    return response.data;
+  },
+
+  /** A2: brief to a branded one-pager. Dry run (the default) returns the HTML; dry_run false publishes it. */
+  async generatePage(input: GeneratePageInput): Promise<GeneratePageDraft | GeneratePagePublished> {
+    const response = await api.post<GeneratePageDraft | GeneratePagePublished>('/assistant/pages', input);
     return response.data;
   },
 };
