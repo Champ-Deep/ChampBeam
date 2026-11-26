@@ -106,7 +106,7 @@ function filenameFor(title: string): string {
   return `${pagesService.slugify(title)}.html`;
 }
 
-const utf8 = (s: string) => new TextEncoder().encode(s);
+export const utf8 = (s: string) => new TextEncoder().encode(s);
 
 function randHex8(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 8);
@@ -170,7 +170,7 @@ async function engagementStats(c: Ctx, asset: FileAsset) {
   };
 }
 
-async function pageResponse(c: Ctx, asset: FileAsset) {
+export async function pageResponse(c: Ctx, asset: FileAsset) {
   const db = c.var.db;
   const host = await serveHost(db, c.var.settings, asset.userId, asset.domainId);
   const stats = await engagementStats(c, asset);
@@ -205,7 +205,7 @@ async function pageResponse(c: Ctx, asset: FileAsset) {
   };
 }
 
-async function publish(
+export async function publish(
   c: Ctx,
   opts: {
     user: TokenData;
