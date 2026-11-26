@@ -9,6 +9,7 @@ import { getDb } from "./db/client";
 import { purgeExpiredCounters } from "./lib/ratelimit";
 import { sweepExpiredFiles } from "./services/fileExpiry";
 import { refreshPendingDomains } from "./services/domainProvisioning";
+import { scanForwards } from "./services/forwardAlerts";
 
 export async function runScheduled(cron: string, env: Env): Promise<void> {
   const settings = getSettings(env);
@@ -19,6 +20,7 @@ export async function runScheduled(cron: string, env: Env): Promise<void> {
       : [
           ["file expiry sweep", () => sweepExpiredFiles(env, settings, db)],
           ["rate counter purge", () => purgeExpiredCounters(env.DB)],
+          ["forward alert scan", () => scanForwards(env)],
         ];
   for (const [name, job] of jobs) {
     try {

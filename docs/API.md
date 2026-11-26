@@ -203,6 +203,33 @@ Agent jobs (`worker/src/services/agentJobs.ts`, used by the forward follow-up an
 
 Keys live in the environment (`ASSISTANT_OPENROUTER_API_KEY`, `ASSISTANT_VERCEL_API_KEY`; Vercel AI Gateway base `ASSISTANT_VERCEL_GATEWAY_URL`, default `https://gateway.vercel.ai/v1`). Free testing models are the defaults (e.g. `meta-llama/llama-3.3-70b-instruct:free` on OpenRouter); `mock` is a keyless provider for dev and CI.
 
+## Forward alerts (A1): who forwarded your link or file
+
+Every 15 minutes the Worker re-checks each link and file with a fresh human click (bots, VPNs, hosting networks and clicks without a visitor id never count) over its last 30 days and stores an alert for the asset owner when:
+
+- `cities`: the asset was opened in 2 or more cities by 2 or more visitors (one person travelling is one visitor, so it never fires alone). Once per asset.
+- `new_company`: a company network other than the first one that opened it (the original recipient) and other than the owner's own email domain (ignored for gmail.com, outlook.com and other free mail). Once per company.
+
+At most 5 alerts per asset. No IP address, user agent or email is stored with an alert. Only the owner sees their alerts; another user's alert id answers **404**.
+
+- `GET /api/v1/alerts/forwards?status=open|all&limit=20` (limit 1 to 100; `open` = not dismissed) → `{"alerts": [ForwardAlert], "unread": 3}` newest first. `unread` counts open alerts not yet marked seen.
+- `POST /api/v1/alerts/forwards/{id}/seen` and `POST /api/v1/alerts/forwards/{id}/dismiss` → **204**, idempotent (the first timestamp is kept).
+- `POST /api/v1/alerts/forwards/{id}/draft` (signed-in session only; API keys get 403) → `{"draft": {"subject", "body", "model", "created_at"}, "sender_notes": ["…"]}`. Drafts a short follow-up for the owner to copy; nothing is ever sent. The body starts with the literal `Hi {first_name},` for the sender to fill. Regenerating overwrites the saved draft. The model sees only the asset title and the text of up to 3 of the owner's pages the visitors spent 10 seconds or more on; dwell times, cities and visitor counts stay in `sender_notes`, which only the owner sees. A reply that mentions tracking, viewing, opening or forwarding, or names an alert city, is rejected with **502** `The draft broke a privacy rule. Try again.` and nothing is saved. **503** when the assistant is off or has no key, **429** at 6 drafts per minute or the 30 per day agent cap.
+
+```ts
+interface ForwardAlert {
+  id: string;
+  asset: { type: "link" | "file"; id: string; title: string; url: string };
+  reason: "cities" | "new_company";
+  cities: string[];            // "Mumbai, IN"
+  visitors: number;
+  company_name: string | null;
+  detected_at: string; seen_at: string | null; dismissed_at: string | null;
+  draft: { subject: string; body: string; model: string; created_at: string } | null;
+  sender_notes: string[];      // e.g. "Opened by 2 visitors in Mumbai, IN and Pune, IN", "2m 10s on \"Acme pricing\" (page)"
+}
+```
+
 ## Limits & errors
 
 - **429** — over the per-key limit (120 requests/minute) or the per-IP limit (100/minute). Back off and retry.

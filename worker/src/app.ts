@@ -38,6 +38,7 @@ import { router as internalProvisioning } from "./routes/internalProvisioning";
 import { router as pages } from "./routes/pages";
 import { router as system } from "./routes/system";
 import { router as assistant } from "./routes/assistant";
+import { router as alerts } from "./routes/alerts";
 
 export const app = new Hono<AppEnv>({ strict: false });
 
@@ -105,3 +106,4 @@ app.route(`${v1}/internal/provisioning`, internalProvisioning);
 app.route(`${v1}/pages`, pages);
 app.route(`${v1}/system`, system);
 app.route(`${v1}/assistant`, assistant);
+app.route(`${v1}/alerts`, alerts);
