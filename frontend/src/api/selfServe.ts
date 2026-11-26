@@ -18,6 +18,8 @@ export interface PendingInvitation { id: string; email: string; role: string; ex
 
 export interface AdminOrg { id: string; name: string; slug: string; created_at: string; members: number; files: number; links: number; content_items: number }
 
+interface AdminOrgMember { member_id: string; user_id: string; name: string | null; email: string | null; role: string; joined_at: string | null; last_active_at: string | null }
+
 /** The accept link with the invited address attached, so the sign-in form opens prefilled. */
 export function inviteLink(acceptUrl: string, email: string): string {
   return `${acceptUrl}?email=${encodeURIComponent(email)}`;
@@ -31,6 +33,9 @@ export const selfServeApi = {
   async pendingInvitations(): Promise<PendingInvitation[]> { return (await api.get<PendingInvitation[]>('/org/invitations')).data; },
   async adminOrgs(): Promise<AdminOrg[]> { return (await api.get<{ orgs: AdminOrg[] }>('/admin/orgs')).data.orgs; },
   async adminCreateOrg(input: { name: string; slug: string; email: string }): Promise<{ id: string }> { return (await api.post<{ id: string }>('/admin/orgs', input)).data; },
+  async adminOrgMembers(orgId: string): Promise<AdminOrgMember[]> {
+    return (await api.get<{ members: AdminOrgMember[] }>(`/admin/orgs/${encodeURIComponent(orgId)}/members`)).data.members;
+  },
   async adminAddMember(orgId: string, input: { email: string; role: OrgRole }): Promise<void> { await api.post(`/admin/orgs/${orgId}/members`, input); },
   async adminMoveMember(input: { user_id: string; from_org_id: string; to_org_id: string; move_content: boolean; leave_source: boolean }): Promise<void> {
     await api.post('/admin/members/move', input);

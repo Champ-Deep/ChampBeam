@@ -26,17 +26,25 @@ export function MembersPanel({ orgId, orgName }: { orgId: string; orgName: strin
   const [rowNote, setRowNote] = useState<Record<string, { kind: 'refusal' | 'ok'; text: string }>>({});
   const [moving, setMoving] = useState<MemberRow | null>(null);
 
+  const { data: orgs } = authClient.useListOrganizations();
+  const outsideOrg = !!config?.is_super_admin && !!orgs && !orgs.some((org) => org.id === orgId);
+  const stats = useQuery({ queryKey: ['org-members', orgId], queryFn: () => orgApi.listMembers(), enabled: !outsideOrg });
   const members = useQuery({
-    queryKey: ['ba-members', orgId],
+    queryKey: ['ba-members', orgId, outsideOrg],
     queryFn: async (): Promise<MemberRow[]> => {
+      if (outsideOrg) {
+        const rows = await selfServeApi.adminOrgMembers(orgId);
+        // A missing Better Auth membership ID keeps non-member role and removal actions locked.
+        return rows.map((m) => ({ memberId: null, userId: m.user_id, name: m.name || m.email || m.user_id, email: m.email ?? '', image: null, role: m.role, joinedAt: m.joined_at, last_active_at: m.last_active_at }));
+      }
       const { data, error } = await authClient.organization.listMembers({ query: { organizationId: orgId, limit: 500 } });
-      if (!error && data) return data.members.map((m) => ({ memberId: m.id, userId: m.userId, name: m.user.name || m.user.email, email: m.user.email, image: m.user.image ?? null, role: m.role, joinedAt: new Date(m.createdAt).toISOString() }));
-      // A super admin acting as a non-member cannot use Better Auth's member endpoints; read ChampBeam's list instead.
-      const rows = await orgApi.listMembers();
-      return rows.map((m) => ({ memberId: null, userId: m.user_id, name: m.full_name || m.email || m.user_id, email: m.email ?? '', image: null, role: m.role, joinedAt: null }));
+      if (error || !data) throw new Error(error?.message || 'Members could not load.');
+      return data.members.map((m) => ({ memberId: m.id, userId: m.userId, name: m.user.name || m.user.email, email: m.user.email, image: m.user.image ?? null, role: m.role, joinedAt: new Date(m.createdAt).toISOString() }));
     },
   });
-  const rows = members.data ?? [];
+  const activity = new Map(stats.data?.map((m) => [m.user_id, m.last_active_at]));
+  const rows = (members.data ?? []).map((m) => outsideOrg ? m : { ...m, last_active_at: activity.get(m.userId) });
+  const dateLabel = outsideOrg || rows.some((m) => m.last_active_at !== undefined) ? 'Last active' : 'Joined';
   const adminCount = rows.filter((r) => isAdmin(r.role)).length;
   const needle = q.trim().toLowerCase();
   const shown = needle ? rows.filter((r) => r.name.toLowerCase().includes(needle) || r.email.toLowerCase().includes(needle)) : rows;
@@ -72,7 +80,7 @@ export function MembersPanel({ orgId, orgName }: { orgId: string; orgName: strin
     {members.isLoading && <p role="status" className="cb-hint">Loading members</p>}
     {members.isError && <p role="alert" className="cb-refusal">Members could not load. <button type="button" className="cb-text-btn" onClick={() => void members.refetch()}>Retry</button></p>}
     {members.data && <div className="cb-table-scroll cb-stack"><table className="cb-ledger cb-ledger-members">
-      <thead><tr><th scope="col">Member</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Joined</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+      <thead><tr><th scope="col">Member</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">{dateLabel}</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>
         {shown.map((r) => {
           const n = rowNote[r.userId];
@@ -88,7 +96,9 @@ export function MembersPanel({ orgId, orgName }: { orgId: string; orgName: strin
               {!n && locked && isAdmin(r.role) && adminCount <= 1 && <p className="cb-hint">Only admin. Promote someone before changing this.</p>}
             </td>
             <td data-label="Status">Active</td>
-            <td data-label="Joined" className="cb-hint">{fmtDate(r.joinedAt)}</td>
+            <td data-label={dateLabel} className="cb-hint">{r.last_active_at === undefined
+              ? <>{dateLabel !== 'Joined' && 'Joined '}{fmtDate(r.joinedAt)}</>
+              : r.last_active_at === null ? 'Never' : fmtDate(r.last_active_at)}</td>
             <td className="cb-cell-menu">
               <DropdownMenu>
                 <DropdownMenuTrigger className="cb-icon-btn" aria-label={`Actions for ${r.name}`}><MoreHorizontal className="h-4 w-4" aria-hidden="true" /></DropdownMenuTrigger>

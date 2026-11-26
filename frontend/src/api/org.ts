@@ -50,6 +50,7 @@ export interface ReportingSummary {
 }
 
 export interface MemberStats {
+  last_active_at: string | null;
   user_id: string;
   email: string | null;
   full_name: string | null;

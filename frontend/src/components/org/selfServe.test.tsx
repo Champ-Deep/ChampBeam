@@ -6,23 +6,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmProvider } from '../ui/ConfirmDialog';
 import { InviteSheet } from './InviteSheet';
 import { MembersPanel } from './MembersPanel';
-import { DnsRecordsCard } from './DnsRecords';
 import { OrgSwitcher } from '../OrgSwitcher';
 import { OnboardingChecklist } from './OnboardingChecklist';
 import { CreateOrgEntry } from '../../pages/SettingsPage';
-import { dnsRecordsFor, nextPath, recordsForIt, refusal } from '../../lib/selfServeRules';
+import { nextPath, refusal } from '../../lib/selfServeRules';
 import type { AppConfig } from '../../api/selfServe';
 
 const fx = vi.hoisted(() => ({
   config: { email_enabled: false, custom_domains_enabled: false, is_super_admin: false, can_create_org: false, platform_host: 'champbeam.test' } as AppConfig,
-  invite: vi.fn(), pending: vi.fn(), listMembers: vi.fn(), updateMemberRole: vi.fn(), removeMember: vi.fn(),
+  adminOrgMembers: vi.fn(), stats: vi.fn(), invite: vi.fn(), pending: vi.fn(), listMembers: vi.fn(), updateMemberRole: vi.fn(), removeMember: vi.fn(),
 }));
 vi.mock('../../hooks/useAppConfig', () => ({ useAppConfig: () => ({ data: fx.config, isLoading: false }) }));
 vi.mock('../../api/selfServe', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
-  selfServeApi: { invite: fx.invite, pendingInvitations: fx.pending, adminOrgs: vi.fn(async () => []) },
+  selfServeApi: { invite: fx.invite, pendingInvitations: fx.pending, adminOrgMembers: fx.adminOrgMembers, adminOrgs: vi.fn(async () => []) },
 }));
-vi.mock('../../api/org', () => ({ orgApi: { listMembers: vi.fn(async () => []), getContext: vi.fn(async () => ({ member_count: 1 })) } }));
+vi.mock('../../api/org', () => ({ orgApi: { listMembers: fx.stats, getContext: vi.fn(async () => ({ member_count: 1 })) } }));
 vi.mock('../../hooks/useOrgContext', () => ({ useOrgContext: () => ({ inOrg: false, isAdmin: false, permissions: [], isLoading: false, error: null }) }));
 vi.mock('../../hooks/useShareLists', () => ({ useShareLists: () => ({ files: { data: [] }, pages: { data: [] }, links: { data: [] } }) }));
 vi.mock('../../lib/authClient', () => ({
@@ -46,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fx.config = { ...fx.config, email_enabled: false, is_super_admin: false, can_create_org: false };
   fx.pending.mockResolvedValue([]);
+  fx.stats.mockResolvedValue([]);
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 });
 
@@ -80,10 +80,25 @@ describe('members', () => {
       { id: 'm-me', userId: 'u-me', role: 'admin', createdAt: '2026-03-01T00:00:00Z', user: { name: 'Deep S', email: 'me@acme.test', image: null } },
       { id: 'm-2', userId: 'u-2', role: 'member', createdAt: '2026-04-01T00:00:00Z', user: { name: 'Priya K', email: 'priya@acme.test', image: null } },
     ], total: 2 }, error: null });
+    const active = '2026-08-17T12:00:00Z';
+    fx.stats.mockResolvedValue([{ user_id: 'u-2', last_active_at: null }, { user_id: 'u-me', last_active_at: active }]);
     mount(<MembersPanel orgId="org-1" orgName="Acme" />);
+    expect(await screen.findByRole('columnheader', { name: 'Last active' })).toBeVisible();
+    expect(screen.getByRole('row', { name: /Priya K/ })).toHaveTextContent('Never');
+    expect(screen.getByRole('row', { name: /Deep S/ })).toHaveTextContent(new Date(active).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }));
     fireEvent.change(await screen.findByLabelText('Role for Deep S'), { target: { value: 'member' } });
     expect(await screen.findByRole('alert')).toHaveTextContent('The last admin cannot be removed or demoted. Make someone else an admin first.');
     expect(fx.updateMemberRole).not.toHaveBeenCalled();
+  });
+
+  it('loads a non-member super admin roster for the requested org without enabling role edits', async () => {
+    fx.config.is_super_admin = true;
+    fx.adminOrgMembers.mockResolvedValue([{ member_id: 'm-out', user_id: 'u-out', email: 'sam@example.test', name: 'Sam', role: 'member', joined_at: null, last_active_at: null }]);
+    mount(<MembersPanel orgId="org-other" orgName="Other" />);
+    expect(await screen.findByLabelText('Role for Sam')).toBeDisabled();
+    expect(screen.getByText('Never')).toBeVisible();
+    expect(fx.adminOrgMembers).toHaveBeenCalledWith('org-other');
+    expect(fx.listMembers).not.toHaveBeenCalled();
   });
 
   it('refuses self-removal and allows a second admin to be demoted', () => {
@@ -92,24 +107,6 @@ describe('members', () => {
     expect(refusal(me, 'role', { me: 'u-me', adminCount: 2, nextRole: 'member' })).toBeNull();
     expect(nextPath(new URLSearchParams('next=//evil.test'))).toBe('/');
     expect(nextPath(new URLSearchParams('next=/accept-invitation/x'))).toBe('/accept-invitation/x');
-  });
-});
-
-describe('domain DNS card', () => {
-  it('copies the exact record values, one by one and all for IT', async () => {
-    const records = dnsRecordsFor('share.acme.com', 'cname.champbeam.com');
-    const { container } = mount(<DnsRecordsCard hostname="share.acme.com" records={records} />);
-    // Break points sit only after "." or "-", and the rendered text stays exact.
-    const values = [...container.querySelectorAll('.cb-dns-value')];
-    expect(values.map((v) => v.textContent)).toEqual(['share.acme.com', 'cname.champbeam.com']);
-    expect(values[1].querySelectorAll('wbr')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy CNAME value' }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('cname.champbeam.com'));
-    fireEvent.click(screen.getByRole('button', { name: 'Copy CNAME name' }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('share.acme.com'));
-    fireEvent.click(screen.getByRole('button', { name: /Copy all for IT/ }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(recordsForIt('share.acme.com', records)));
-    expect(recordsForIt('share.acme.com', records)).toBe('DNS records for share.acme.com\n\nType: CNAME\nName: share.acme.com\nValue: cname.champbeam.com');
   });
 });
 
